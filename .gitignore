@@ -1,0 +1,15 @@
+.cache/
+build/
+__pycache__/
+*.pyc
+.venv-web/
+.superpowers/
+.env
+# databases are release assets or local builds, never commits; export/fixtures/ is
+# excepted so a committed test fixture can be one
+*.db
+*.sqlite
+!export/fixtures/**
+
+# SDD process artifacts (specs/plans) stay on the private mirror, not in the public tree
+docs/superpowers/

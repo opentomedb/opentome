@@ -1,0 +1,44 @@
+# Seeds the Actions cache with the source-response cache (.cache/, ~900 MB of raw
+# third-party responses) from the PRIVATE itsnickspiro/opentome-cache repo's
+# `seed` release, so the first catalogue build is warm instead of re-fetching
+# everything from Wikipedia / openBD / Open Library / BnF / AniList.
+#
+# Run once, by hand, from the default branch (a cache saved on another branch is
+# invisible to the scheduled build). Run it again ONLY if the cache was lost --
+# every opentome-cache-* entry evicted (a keepalive run failing with
+# "no opentome-cache-* entry to restore" is the tell). Re-seeding over a live
+# cache is harmless but pointless: the seed is a snapshot, the live cache is newer.
+#
+# The tarball was made with `tar --zstd -cf opentome-cache.tar.zst -C .cache .`,
+# so it extracts straight into .cache/. The raw responses never leave a private
+# place: the release is private and the Actions cache is repo-scoped.
+name: seed-cache
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # gh reads GH_TOKEN on its own; the PAT only needs Contents: read on the
+      # private cache repo.
+      - name: download the seed tarball
+        env:
+          GH_TOKEN: ${{ secrets.OPENTOME_CACHE_TOKEN }}
+        run: gh release download seed --repo itsnickspiro/opentome-cache --pattern 'opentome-cache.tar.zst' --dir /tmp
+      - name: extract
+        run: mkdir -p .cache && tar --zstd -xf /tmp/opentome-cache.tar.zst -C .cache
+      - name: cache state
+        run: du -sh .cache
+      # A fresh key and no restore-keys: the restore half finds nothing, the
+      # post-job save stores .cache under this key, and the catalogue build's
+      # `restore-keys: opentome-cache-` picks it up as the newest entry.
+      - uses: actions/cache@v4
+        with:
+          path: .cache
+          key: opentome-cache-seed-${{ github.run_id }}

@@ -1,0 +1,59 @@
+name: Wrong fact
+description: A value in the catalogue is wrong — a release date, ISBN, page count, title or name.
+title: "[wrong fact] "
+labels: ["correction"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A correction records what a **source** says, not what someone believes. Give the
+        publisher page or library record you checked; without one the report cannot be applied.
+        If you can write the fix yourself, a pull request against `corrections/volumes.json`
+        is faster — see `CONTRIBUTING.md`.
+  - type: input
+    id: tome_id
+    attributes:
+      label: OpenTome id
+      description: The volume id (`v_…`) or release-line id (`rl_…`) — `volumes.tome_id` / `series.tome_id` in the artifact. Give this or the AniList id.
+      placeholder: v_5c7be0913a2d
+  - type: input
+    id: anilist_id
+    attributes:
+      label: AniList id
+      description: The AniList manga id of the series, if you do not have the OpenTome id.
+      placeholder: "30642"
+  - type: dropdown
+    id: market
+    attributes:
+      label: Market
+      description: The release line the wrong value is on.
+      options:
+        - EN
+        - JP
+        - FR
+        - DE
+        - KR
+        - IT
+        - ES
+        - BR
+        - CN
+        - TW
+        - HK
+    validations:
+      required: true
+  - type: textarea
+    id: what_is_wrong
+    attributes:
+      label: What is wrong
+      description: The volume, the field, the value the catalogue has, and the value the source has.
+      placeholder: "Vol. 3 release_date is 2013-10-13; Kodansha's page says 2013-11-19 (the catalogue has the reprint date)."
+    validations:
+      required: true
+  - type: input
+    id: source_url
+    attributes:
+      label: Source URL
+      description: The publisher page, library record or other primary source you checked.
+      placeholder: https://kodansha.us/volume/vinland-saga-3/
+    validations:
+      required: true

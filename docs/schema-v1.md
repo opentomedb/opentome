@@ -1,0 +1,91 @@
+# Schema v1 — design notes
+
+Every table traces to an empirical finding in `step0-findings.md`,
+`smoke-test-library16.md` or `tier1-crossverify.md`. Nothing here is speculative.
+
+## The four decisions that matter
+
+### 1. IDs are a public contract
+Opaque, prefixed (`w_`, `rl_`, `v_`, `ch_`), never reused, never re-keyed. Merges write
+`id_redirect`; retired ids resolve forever and never 404. **This is the commercial moat** —
+IMDb and TheTVDB are defensible because of their identifiers, not their bytes. Once
+Mangarr or Kavita stores one, churn breaks every consumer simultaneously.
+
+Ids are *derived* from a stable natural key by hash so loads are idempotent, but they are
+stored opaquely and never parsed. Verified: re-running the loader against a populated DB
+produced 116 volumes before and after.
+
+### 2. `release_line` is the unit of volume numbering
+Independence is **forced by the data**, not chosen: Re:Zero *Chapter 3* vol 1 and
+*Chapter 4* vol 1 are both volume 1. Merging lines corrupts numbering — the only large
+errors in cross-verification were flattened franchises (SAO "v6" was actually
+*Progressive 3 (light novel)*).
+
+`medium` is open-ended TEXT, not an enum. Solo Leveling in the reference library is
+already manhwa, so a fixed manga/light-novel pair is under-general on day one. Consumer
+preference ("I only want manga") shapes **queries**, never storage.
+
+### 3. Dates carry three qualifiers
+`release_date` + `_precision` + `_type`. Finding: 49 of 50 cross-source disagreements
+were exact multiples of seven days, 45 in the same direction — two sources answering
+different questions (publication vs retail on-sale), not one being wrong. A bare date
+silently mixes them.
+
+### 4. `claim` / `resolution` split — provenance per field
+`claim` stores **every** source's assertion; `resolution` records which won, with a
+confidence and a basis. Disagreement is preserved rather than discarded, because the
+disagreement *is* the confidence signal.
+
+Commercially this is the load-bearing table. `licence` per claim drives the
+`clean_claim` view — the subset filtered to unencumbered provenance. Google Books and
+MangaDex forbid database-building outright, so anything sourced from them can never
+enter a paid product. **Per-field provenance is cheap now and unrecoverable later.**
+
+## One primitive, three problems
+
+`composition` expresses all of these with one relation:
+
+- an omnibus contains volumes `[1,2,3]`
+- a French volume contains Japanese volumes `[1,2]`
+- any volume contains chapters `[1..7]`
+
+## Verified end-to-end
+
+Loaded Chainsaw Man (en) and Attack on Titan (fr) — 4 release lines, 116 volumes,
+228 claims:
+
+| Check | Result |
+|---|---|
+| Consumer filter (`medium=manga`, by market) | ✅ |
+| Cross-market join JP↔FR, day precision both sides | ✅ vol 1 JP `2010-03-17` → FR `2013-06-26` |
+| Chapter composition | ✅ `[1–7]`, `[8–16]`, `[17–25]` contiguous |
+| Idempotent reload | ✅ 116 → 116 |
+| **Commercially clean claims** | **✅ 100%** (136 `facts_only`, 92 `open`, 0 restricted) |
+
+That last row is a direct consequence of dropping Google Books: with Wikipedia used as a
+**citation index** rather than a data source — every date attributed to the publisher URL
+the article itself cites — 40% of claims resolve to `publisher` provenance and *nothing*
+is restricted.
+
+## Language support is data, not code
+
+`DIALECTS` in `tier0/wikipedia_volumes.py` maps per-wiki template and field names:
+
+| | en | fr |
+|---|---|---|
+| template | `{{Graphic novel list}}` | `{{TomeBD}}` |
+| volume | `VolumeNumber` | `volume` |
+| JP date / ISBN | `RelDate` / `ISBN` | `sortie_1` / `isbn_1` |
+| local date / ISBN | `LicensedRelDate` / `LicensedISBN` | `sortie_2` / `isbn_2` |
+| chapters | `ChapterListCol*` | `chapitre` |
+
+German is **not** a dialect — de.wikipedia uses wikitables (9 tables, 138 rows,
+`{{DatumZelle}}`), so it needs a separate table extractor.
+
+## Correction to an earlier assumption
+
+The plan predicted French would diverge structurally from Japanese volume splits. For
+Attack on Titan it does **not** — French tracks Japanese 1:1. The divergent market for
+this title is **German**, whose Carlsen omnibus editions run 450–472pp against ~190pp
+elsewhere. Cross-market divergence is real, but it is per-title and per-market, not a
+property of French.

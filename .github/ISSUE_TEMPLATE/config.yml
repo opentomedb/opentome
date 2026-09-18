@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: How corrections work
+    url: https://github.com/itsnickspiro/opentome/blob/main/corrections/README.md
+    about: The three correction files, the source rule, and the check every pull request runs.

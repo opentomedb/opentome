@@ -1,0 +1,34 @@
+# Runs on every pull request that touches the corrections or the code that applies
+# them: every entry must be well-formed, carry a source, and resolve against the
+# last PUBLISHED artifact -- downloaded anonymously from the public release, so the
+# check needs no pipeline database, no cache and no secret.
+name: corrections check
+
+on:
+  pull_request:
+    paths:
+      - 'corrections/**'
+      - 'tier2/corrections.py'
+      - 'tier2/test_corrections_check.py'
+      - 'tier0/test_parser.py'
+      - '.github/workflows/corrections-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download the published artifact
+        run: curl -fsSL -o /tmp/manga-metadata.sqlite https://github.com/itsnickspiro/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite
+      - name: Check the corrections against it
+        run: python3 tier2/corrections.py --check corrections/ --artifact /tmp/manga-metadata.sqlite
+      - name: Unit tests
+        run: |
+          python3 tier0/test_parser.py
+          python3 tier2/test_corrections_check.py

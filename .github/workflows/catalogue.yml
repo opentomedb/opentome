@@ -1,0 +1,87 @@
+# The catalogue build. Every Sunday it runs the whole pipeline -- every unit test,
+# every audit and the measure gate -- on a warm source cache, and stores the
+# resulting artifact as a run artifact. It NEVER publishes on its own: publishing
+# is public distribution, so it happens only when a human presses "Run workflow"
+# with publish = true (the maintainer's go-ahead, CLAUDE.md "Deploys").
+#
+# Every step keys on the one before it: a rebuild that fails at any gate stops
+# the job, so the manifest, the upload and the publish never see a half-built or
+# stale artifact. Never add `if: always()` / `continue-on-error` to a step here.
+name: catalogue
+
+on:
+  schedule:
+    - cron: '0 9 * * 0'          # Sunday 09:00 UTC — build + gates, never publish
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish the artifact to the metadata release (the human gate)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# One build at a time; a dispatched run queues behind the scheduled one instead
+# of racing it for the cache and the release.
+concurrency: catalogue
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      OPENTOME_CI: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # Restores the newest `opentome-cache-*` entry (seed, keepalive or a previous
+      # build) and saves this run's cache under its own key at job end, so the
+      # responses a run fetched are there for the next one. A warm run hits zero
+      # network -- the seed-cache workflow is what makes the first run warm.
+      - uses: actions/cache@v4
+        with:
+          path: .cache
+          key: opentome-cache-${{ github.run_id }}
+          restore-keys: opentome-cache-
+          fail-on-cache-miss: true
+      - name: cache state
+        run: du -sh .cache 2>/dev/null || { echo "::error::no opentome-cache-* entry restored — run the seed-cache workflow first"; exit 1; }
+      # tier0/rebuild_all.sh carries the integer series ids forward from
+      # build/manga-metadata.sqlite when it exists (ID_CARRY) -- the ids are a
+      # public contract, so CI must start from the last PUBLISHED artifact, not
+      # from nothing. Anonymous: the release is public. The stale file this leaves
+      # in build/ is only ever replaced by a rebuild that passed every gate (the
+      # final mv in the script); a failed rebuild stops the job before any later
+      # step could ship it.
+      - name: restore id carry
+        run: |
+          mkdir -p build
+          curl -fsSL --retry 3 -o build/manga-metadata.sqlite \
+            https://github.com/itsnickspiro/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite \
+            || { echo "::warning::no published artifact to carry ids from — cold id assignment"; rm -f build/manga-metadata.sqlite; }
+      # Runs every stage including the measure gate (8d, writes build/measure.log)
+      # and exits non-zero on any test, audit, contract or coverage failure.
+      - name: rebuild (every gate)
+        run: bash tier0/rebuild_all.sh
+      # Without PUBLISH=1 publish.sh only writes build/version.json and prints the
+      # per-build tag; it also runs the two clean-room refusals.
+      - name: manifest (dry run)
+        run: bash export/publish.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalogue-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            build/manga-metadata.sqlite
+            build/version.json
+            build/anilist-resolve-report.tsv
+            build/measure.log
+      # The human gate. The PAT (not GITHUB_TOKEN) is what writes to the
+      # mangarr-metadata releases, so this workflow needs no write permission.
+      - name: publish
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+        env:
+          GH_TOKEN: ${{ secrets.MANGARR_METADATA_TOKEN }}
+        run: PUBLISH=1 bash export/publish.sh

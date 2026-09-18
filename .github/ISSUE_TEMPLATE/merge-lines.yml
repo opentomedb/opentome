@@ -1,0 +1,62 @@
+name: Merge lines
+description: Two entries in the catalogue are the same release line, or two works are one work.
+title: "[merge] "
+labels: ["correction"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ids are a public contract: a merge keeps the older id and redirects the newer one, it never
+        deletes either. Say which two, and give the source that shows they are one thing.
+  - type: input
+    id: tome_id
+    attributes:
+      label: OpenTome id to keep
+      description: "`series.tome_id` (`rl_…`) or `series.tome_work_id` (`w_…`) in the artifact."
+      placeholder: rl_13affd6972b3
+    validations:
+      required: true
+  - type: input
+    id: duplicate_tome_id
+    attributes:
+      label: OpenTome id of the duplicate
+      placeholder: rl_88e0d2114f6a
+    validations:
+      required: true
+  - type: input
+    id: anilist_id
+    attributes:
+      label: AniList id
+      placeholder: "30642"
+  - type: dropdown
+    id: market
+    attributes:
+      label: Market
+      options:
+        - EN
+        - JP
+        - FR
+        - DE
+        - KR
+        - IT
+        - ES
+        - BR
+        - CN
+        - TW
+        - HK
+    validations:
+      required: true
+  - type: textarea
+    id: what_is_wrong
+    attributes:
+      label: Why they are one
+      description: What the two entries are, and what shows they are the same edition or work.
+    validations:
+      required: true
+  - type: input
+    id: source_url
+    attributes:
+      label: Source URL
+      description: The publisher page or library record that shows it.
+    validations:
+      required: true

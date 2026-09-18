@@ -1,0 +1,36 @@
+# Keeps the source cache alive between builds. GitHub evicts an Actions cache
+# entry that has not been used for 7 days; the catalogue build runs every 7 days,
+# and a scheduled run that GitHub delays or drops (it does, under load) would
+# land on an evicted cache -- a cold rebuild that re-fetches ~900 MB from sources
+# this repo is asked to be polite to. So every 3 days this restores the newest
+# `opentome-cache-*` entry and saves it back under a fresh key. The fresh key is
+# the point: actions/cache never re-saves a cache under a key that was restored,
+# so a keepalive that reused the build's key would be a no-op.
+name: cache-keepalive
+
+on:
+  schedule:
+    - cron: '0 6 */3 * *'        # every 3rd day 06:00 UTC -- well inside the 7-day eviction
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .cache
+          key: opentome-cache-keepalive-${{ github.run_id }}
+          restore-keys: opentome-cache-
+      # No cache to keep alive is a loud failure, not a quiet empty save: the fix
+      # is to run seed-cache again.
+      - name: cache state
+        run: |
+          [ -d .cache ] || { echo "::error::no opentome-cache-* entry to restore — run the seed-cache workflow"; exit 1; }
+          du -sh .cache
+      - name: touch
+        run: touch .cache/.keepalive

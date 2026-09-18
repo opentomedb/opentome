@@ -1,0 +1,64 @@
+name: Missing volume
+description: A volume that exists in this market is not in the catalogue.
+title: "[missing volume] "
+labels: ["correction"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Give the publisher page or library record that shows the volume. A volume no source
+        carries cannot be added from memory.
+  - type: input
+    id: tome_id
+    attributes:
+      label: OpenTome id
+      description: The release-line id (`rl_…`, `series.tome_id` in the artifact). Give this or the AniList id.
+      placeholder: rl_13affd6972b3
+  - type: input
+    id: anilist_id
+    attributes:
+      label: AniList id
+      placeholder: "30642"
+  - type: dropdown
+    id: market
+    attributes:
+      label: Market
+      options:
+        - EN
+        - JP
+        - FR
+        - DE
+        - KR
+        - IT
+        - ES
+        - BR
+        - CN
+        - TW
+        - HK
+    validations:
+      required: true
+  - type: input
+    id: volume_number
+    attributes:
+      label: Volume number
+      placeholder: "5"
+    validations:
+      required: true
+  - type: input
+    id: isbn13
+    attributes:
+      label: ISBN-13
+      placeholder: 978-1-63236-XXX-X
+  - type: input
+    id: release_date
+    attributes:
+      label: Release date
+      description: YYYY-MM-DD, or as precise as the source is.
+      placeholder: "2021-02-09"
+  - type: input
+    id: source_url
+    attributes:
+      label: Source URL
+      description: The publisher page, library record or other primary source you checked.
+    validations:
+      required: true

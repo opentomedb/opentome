@@ -1,0 +1,89 @@
+name: New release line
+description: A whole edition the catalogue does not carry — a market, publisher or edition with no line at all.
+title: "[new line] "
+labels: ["correction"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is for an edition that is on no source the pipeline reads (for example a publisher
+        whose site refuses robots). Each volume needs a source; `corrections/lines.json` is the
+        pull-request form of the same thing — see `corrections/README.md`.
+  - type: input
+    id: series
+    attributes:
+      label: Series
+      description: The work's OpenTome id (`w_…`, `series.tome_work_id` in the artifact), its AniList id, or its name.
+      placeholder: w_179929c7bc15 / 30642 / Mushoku Tensei
+    validations:
+      required: true
+  - type: dropdown
+    id: market
+    attributes:
+      label: Market
+      options:
+        - EN
+        - JP
+        - FR
+        - DE
+        - KR
+        - IT
+        - ES
+        - BR
+        - CN
+        - TW
+        - HK
+    validations:
+      required: true
+  - type: dropdown
+    id: medium
+    attributes:
+      label: Medium
+      options:
+        - manga
+        - light_novel
+        - novel
+        - manhwa
+        - manhua
+        - webtoon
+        - artbook
+    validations:
+      required: true
+  - type: input
+    id: name
+    attributes:
+      label: Edition name
+      description: The name the publisher prints.
+      placeholder: "Mushoku Tensei: Roxy Gets Serious"
+    validations:
+      required: true
+  - type: input
+    id: publisher
+    attributes:
+      label: Publisher
+      placeholder: Seven Seas Entertainment
+    validations:
+      required: true
+  - type: input
+    id: first_isbn13
+    attributes:
+      label: First volume's ISBN-13
+      placeholder: 978-1-64505-XXX-X
+    validations:
+      required: true
+  - type: input
+    id: first_release_date
+    attributes:
+      label: First volume's release date
+      description: YYYY-MM-DD, or as precise as the source is.
+      placeholder: "2020-10-06"
+    validations:
+      required: true
+  - type: textarea
+    id: source_url
+    attributes:
+      label: Source URLs
+      description: The publisher's series page, and the page for each volume you are reporting.
+      placeholder: https://sevenseasentertainment.com/series/mushoku-tensei-roxy-gets-serious/
+    validations:
+      required: true
