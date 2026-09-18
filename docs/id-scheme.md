@@ -45,6 +45,11 @@ Use `tome_id` alongside the fields integrators already carry (`tvdb_id`, `tmdb_i
    re-ingesting the same source produces the same ids. Verified: reloading a populated
    database leaves the volume count unchanged.
 
+`id_redirect` is a pipeline table (`schema/schema.sql`) and is not yet exported to the
+published `manga-metadata.sqlite`, so a retired id is not yet resolvable from the
+published file; the guarantee holds in the pipeline and the export follows once the
+first merge is published.
+
 ## What is *not* guaranteed
 
 - **Ordering.** Ids are opaque. Do not sort by them, parse them, or infer recency.

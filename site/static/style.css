@@ -214,6 +214,7 @@ table.counts th, table.counts td { white-space: nowrap; }
 table.schema td:first-child, table.schema td:nth-child(2) { white-space: nowrap; }
 table.schema td:nth-child(2) { text-align: right; }
 table.schema td:nth-child(3) { overflow-wrap: anywhere; }   /* lets the column list fit a phone; names break only if they must */
+.empty { color: var(--fg-muted); font-size: 0.86em; }
 table.kv td:first-child { white-space: nowrap; }
 table.kv td:nth-child(2) { overflow-wrap: anywhere; }
 table.markets td:not(:first-child) { text-align: right; white-space: nowrap; }
@@ -227,7 +228,6 @@ table.lines td:first-child, table.lines td:nth-last-child(4) { white-space: norm
 table.lines td:first-child { min-width: 13rem; }
 table.lines td:nth-last-child(4) { min-width: 9rem; }
 table.lines th:nth-last-child(2), table.lines td:nth-last-child(2) { font-family: var(--mono); font-size: 0.85em; }
-table.lines thead th { position: sticky; top: 0; background: var(--bg); z-index: 1; }
 table.lines th button {
   all: unset;
   cursor: pointer;

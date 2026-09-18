@@ -35,6 +35,7 @@ class Links(HTMLParser):
 
 def main(root):
     root = Path(root)
+    site = root.resolve()
     pages = sorted(root.rglob("*.html"))
     if not pages:
         sys.exit(f"no pages under {root}")
@@ -52,7 +53,7 @@ def main(root):
             if target.is_dir() or parts.path.endswith("/"):
                 target = target / "index.html"
             checked += 1
-            if not target.is_file():
+            if not target.is_file() or not target.is_relative_to(site):
                 broken.append(f"{page.relative_to(root)} -> {href}")
     print(f"{len(pages)} pages, {checked} internal links checked, {len(broken)} broken, {len(untitled)} untitled")
     for line in broken + untitled:

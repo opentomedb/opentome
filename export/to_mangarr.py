@@ -440,10 +440,12 @@ def export(src_path, out_path, carry_ids_from=None):
         ("schema_version", "2"),
         ("generator", "opentome"),
         ("generated_at", NOW),
-        ("source", "OpenTome — reconciled from Wikipedia, openBD, Open Library, BnF, DNB"),
+        ("source", "OpenTome — reconciled from Wikipedia, openBD, Open Library, BnF"),
         # BnF's Etalab licence and openBD's terms both REQUIRE retained attribution.
+        # Names only the sources the pipeline actually reads (DNB is not wired in yet);
+        # LICENSE-DATA.md carries this string byte-for-byte -- change both together.
         ("attribution", "Bibliographic data: Bibliotheque nationale de France (Licence Ouverte/Open Licence); "
-                        "Deutsche Nationalbibliothek (CC0); openBD; Open Library / Internet Archive; "
+                        "openBD; Open Library / Internet Archive; "
                         "Wikipedia contributors (facts only). Cover art is not included."),
         ("licence", "Free/non-commercial use. openBD and Open Library terms are non-commercial; "
                     "see docs/legal-position.md before any paid use."),

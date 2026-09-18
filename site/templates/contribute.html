@@ -37,20 +37,7 @@
   {{ correction_files }}
 </section>
 
-<section aria-labelledby="rebuild-h">
-  <h2 id="rebuild-h">How a rebuild happens</h2>
-  <p><code>tier0/rebuild_all.sh</code> runs the whole pipeline, in order:</p>
-  <ol class="steps">
-    <li><strong>Unit tests</strong> — a rebuild on a broken parser is worse than no rebuild.</li>
-    <li><strong>Work identity</strong> — Wikipedia language links become cross-language work classes.</li>
-    <li><strong>Corpus</strong> — volume lists from the English, French and German Wikipedias, plus the main article's titles, status, publishers and relations.</li>
-    <li><strong>Enrichment</strong> — every ISBN checked against openBD (JP), Open Library (EN, FR) and BnF (FR), each value stored as a claim with its source and licence.</li>
-    <li><strong>Clean</strong> — date semantics (<code>_precision</code>, <code>_type</code>), malformed ISBNs.</li>
-    <li><strong>Corrections</strong> — <code>corrections/*.json</code> applied, ranked above every source.</li>
-    <li><strong>Resolve</strong> — claims become values with a confidence; disagreements are recorded, not averaged.</li>
-    <li><strong>Audit</strong> — exits non-zero on any defect.</li>
-    <li><strong>Export</strong> — the consumer-shaped <code>manga-metadata.sqlite</code>, with AniList ids for the English lines and ids carried forward from the previous build.</li>
-    <li><strong>Gates</strong> — the artifact contract test, then a replay of a real library's series matching against the committed fixture; a coverage failure fails the build before the new artifact replaces the old one.</li>
-  </ol>
-  <p>The build runs in GitHub Actions on a weekly schedule and on demand. A scheduled run builds and gates; <strong>publishing is a separate, human decision</strong> — a dispatched run with <code>publish</code> set, which refuses any artifact whose label is not <code>opentome-YYYY-MM-DD</code> or whose aliases came from anywhere but this pipeline, creates the per-build release, and re-points <code>metadata</code> at it. Every source response is cached so a re-run costs minutes and zero requests; a cold build re-fetches everything under each source's rate limit and takes hours.</p>
+<section class="doc" aria-label="How a rebuild happens">
+  {{ how_built }}
+  <p class="source-note">From <a href="{{ readme_url }}"><code>README.md</code></a>, rendered as committed.</p>
 </section>

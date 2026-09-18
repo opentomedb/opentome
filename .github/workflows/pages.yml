@@ -1,8 +1,10 @@
 # The site at opentomedb.com: static pages generated from the PUBLISHED catalogue
 # (the `metadata` release, downloaded anonymously) and deployed to GitHub Pages.
-# It runs on a push that touches the site, on demand, and every Sunday after the
-# catalogue build -- so a build published during the week is on the site by
-# Sunday at the latest, and a `workflow_dispatch` puts it there sooner.
+# It runs on a push that touches the site or the docs it renders, on demand, and
+# after every successful `catalogue` run -- a publish is a dispatched catalogue run,
+# so the new build's label, size and sha256 are on the site within minutes of the
+# alias moving (a scheduled, non-publishing run just regenerates the same site).
+# The Sunday schedule is the fallback if that trigger ever misses.
 #
 # Repository settings this needs (once): Pages source = GitHub Actions, custom
 # domain opentomedb.com (site/CNAME), enforce HTTPS.
@@ -14,8 +16,12 @@ on:
     paths:
       - 'site/**'
       - 'docs/**'
+      - 'README.md'
       - 'corrections/README.md'
       - '.github/workflows/pages.yml'
+  workflow_run:
+    workflows: [catalogue]
+    types: [completed]
   workflow_dispatch:
   schedule:
     - cron: '0 12 * * 0'          # Sunday 12:00 UTC, after the catalogue build
@@ -29,6 +35,8 @@ concurrency: pages
 
 jobs:
   build:
+    # A failed catalogue run changes nothing on the release, so there is nothing to redo.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

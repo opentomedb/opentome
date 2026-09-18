@@ -41,8 +41,10 @@ BUILD_TAG = re.compile(r"^opentome-\d{4}-\d{2}-\d{2}$")
 NOTES_LINE = re.compile(r"OpenTome (opentome-\d{4}-\d{2}-\d{2}): (\d+) series, (\d+) volumes")
 
 # Markets and media with fewer lines than this are grouped as "other" -- on the
-# home counts table and as one browse page.
+# home counts table and as one browse page. The four markets the pitch names always
+# get their own row and page, however few lines they have today (German: 35).
 GROUP_MIN = 50
+PITCHED_MARKETS = ("ja", "en", "fr", "de")
 
 LANGUAGE_NAMES = {
     "ja": "Japanese", "en": "English", "fr": "French", "de": "German", "ko": "Korean",
@@ -227,15 +229,18 @@ def markdown(text, heading_shift=1, link_base=""):
     return "\n".join(out)
 
 
-def doc_html(rel, heading_shift=1, start_at=None):
+def doc_html(rel, heading_shift=1, start_at=None, end_at=None):
     """Render a repository Markdown file. Relative links inside it point at the
-    file on GitHub. `start_at` drops everything before that heading line; without
-    it the document's own title line is dropped (the page names the section)."""
+    file on GitHub. `start_at` drops everything before that heading line and
+    `end_at` everything from that one on; without `start_at` the document's own
+    title line is dropped (the page names the section)."""
     text = (REPO_DIR / rel).read_text(encoding="utf-8")
     if start_at:
         text = text[text.index(start_at):]
     elif text.startswith("# "):
         text = text.split("\n", 1)[1]
+    if end_at:
+        text = text[:text.index(end_at)]
     base = BLOB_URL.format(str(Path(rel).parent) + "/") if "/" in rel else BLOB_URL.format("")
     return markdown(text, heading_shift=heading_shift, link_base=base)
 
@@ -247,6 +252,10 @@ def load(db_path, manifest_path):
     con.row_factory = sqlite3.Row
     meta = {k: v for k, v in con.execute("SELECT key, value FROM meta")}
     manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    missing = [k for k in ("gcd_dump", "sha256", "size") if not manifest.get(k)]
+    if missing:
+        sys.exit(f"{manifest_path}: missing {', '.join(missing)} -- a broken manifest, not a site to build")
+    manifest["size"] = int(manifest["size"])
     lines = con.execute(
         "SELECT name, language, medium, publisher, status, volume_count, dated_count,"
         " anilist_id, tome_id, tome_work_id FROM series ORDER BY name COLLATE NOCASE, tome_id"
@@ -257,18 +266,21 @@ def load(db_path, manifest_path):
     for (name,) in con.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"):
         cols = [r["name"] for r in con.execute(f"PRAGMA table_info({name})")]
         rows = con.execute(f"SELECT count(*) FROM {name}").fetchone()[0]
-        tables.append((name, rows, cols))
+        filled = con.execute(
+            "SELECT " + ", ".join(f"count({c})" for c in cols) + f" FROM {name}").fetchone()
+        empty = {c for c, n in zip(cols, filled) if rows and n == 0}
+        tables.append((name, rows, cols, empty))
     con.close()
     return meta, manifest, lines, volumes, dated, tables
 
 
 def group_markets(lines):
-    """Market code -> its lines, with markets under GROUP_MIN folded into 'other'.
-    Ordered by size; 'other' last."""
+    """Market code -> its lines, with markets under GROUP_MIN (and not pitched)
+    folded into 'other'. Ordered by size; 'other' last."""
     by_market = defaultdict(list)
     for r in lines:
         by_market[r["language"] or ""].append(r)
-    big = sorted((m for m in by_market if len(by_market[m]) >= GROUP_MIN),
+    big = sorted((m for m in by_market if len(by_market[m]) >= GROUP_MIN or m in PITCHED_MARKETS),
                  key=lambda m: -len(by_market[m]))
     small = [m for m in by_market if m not in big]
     groups = [(m, by_market[m]) for m in big]
@@ -347,7 +359,7 @@ def browse_rows(rows, show_market):
             f"<tr><td>{e(r['name'])}</td>{market}<td>{e(medium_name(r['medium']))}</td>"
             f"<td>{r['volume_count']}</td><td>{r['dated_count']}</td>"
             f"<td>{e(r['publisher'] or '')}</td><td>{e(r['status'] or '')}</td>"
-            f"<td>{e(r['tome_id'])}</td><td>{anilist}</td></tr>")
+            f"<td>{e(r['tome_id'] or '')}</td><td>{anilist}</td></tr>")
     return "\n".join(out)
 
 
@@ -376,16 +388,18 @@ def changelog_html(entries):
 
 
 def tables_html(tables):
+    def col(c, empty):
+        return f"<code>{e(c)}</code>" + (' <span class="empty">(empty in this build)</span>' if c in empty else "")
     rows = "".join(
         f"<tr><td><code>{e(name)}</code></td><td>{fmt(n)}</td>"
-        f"<td>{', '.join(f'<code>{e(c)}</code>' for c in cols)}</td></tr>"
-        for name, n, cols in tables)
+        f"<td>{', '.join(col(c, empty) for c in cols)}</td></tr>"
+        for name, n, cols, empty in tables)
     return (f'<div class="table-wrap"><table class="schema"><thead><tr><th>table</th><th>rows</th>'
             f'<th>columns</th></tr></thead><tbody>{rows}</tbody></table></div>')
 
 
 def meta_html(meta):
-    rows = "".join(f"<tr><td><code>{e(k)}</code></td><td>{e(v)}</td></tr>"
+    rows = "".join(f"<tr><td><code>{e(k)}</code></td><td>{e(v or '')}</td></tr>"
                    for k, v in sorted(meta.items()))
     return (f'<div class="table-wrap"><table class="kv"><thead><tr><th>key</th><th>value</th>'
             f'</tr></thead><tbody>{rows}</tbody></table></div>')
@@ -418,8 +432,8 @@ def build(db_path, manifest_path, out_dir):
     # home
     written.append(page(
         out_dir, "index.html", "home.html", "OpenTomeDB — the open manga and light-novel volume database",
-        "home", sha256=e(manifest.get("sha256", "")), size=e(human_size(manifest.get("size", 0))),
-        size_bytes=fmt(manifest.get("size", 0)), generated=e(generated[:10]),
+        "home", sha256=e(manifest["sha256"]), size=e(human_size(manifest["size"])),
+        size_bytes=fmt(manifest["size"]), generated=e(generated[:10]),
         counts_table=counts_table(lines, groups), n_lines=fmt(len(lines)),
         n_works=fmt(len({r["tome_work_id"] for r in lines})),
         n_volumes=fmt(volumes), n_dated=fmt(dated),
@@ -452,6 +466,8 @@ def build(db_path, manifest_path, out_dir):
         legal_url=BLOB_URL.format("docs/legal-position.md"),
         licence_data_url=BLOB_URL.format("LICENSE-DATA.md"),
         correction_files=doc_html("corrections/README.md", heading_shift=1, start_at="## Files"),
+        how_built=doc_html("README.md", heading_shift=0, start_at="## How the catalogue is built", end_at="## Docs"),
+        readme_url=BLOB_URL.format("README.md"),
         **common))
 
     # changelog

@@ -54,6 +54,10 @@ enter a paid product. **Per-field provenance is cheap now and unrecoverable late
 Loaded Chainsaw Man (en) and Attack on Titan (fr) — 4 release lines, 116 volumes,
 228 claims:
 
+**Retracted:** the *Commercially clean claims* row in this table was later found to be
+circular (the `licence` labels it counted were assigned without reading the sources'
+terms) — see `docs/legal-position.md`; the verified position is in `LICENSE-DATA.md`.
+
 | Check | Result |
 |---|---|
 | Consumer filter (`medium=manga`, by market) | ✅ |
