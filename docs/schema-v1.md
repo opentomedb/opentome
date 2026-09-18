@@ -66,7 +66,7 @@ terms) — see `docs/legal-position.md`; the verified position is in `LICENSE-DA
 | Idempotent reload | ✅ 116 → 116 |
 | **Commercially clean claims** | **✅ 100%** (136 `facts_only`, 92 `open`, 0 restricted) |
 
-That last row is a direct consequence of dropping Google Books: with Wikipedia used as a
+*(Written before the retraction above — kept as the record of the smoke test's reasoning.)* That last row was a direct consequence of dropping Google Books: with Wikipedia used as a
 **citation index** rather than a data source — every date attributed to the publisher URL
 the article itself cites — 40% of claims resolve to `publisher` provenance and *nothing*
 is restricted.

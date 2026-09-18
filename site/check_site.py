@@ -49,7 +49,7 @@ def main(root):
             parts = urlsplit(href)
             if parts.scheme or href.startswith("#") or href.startswith("//"):
                 continue                       # external, anchor, or protocol-relative
-            target = (page.parent / unquote(parts.path)).resolve() if parts.path else page
+            target = (page.parent / unquote(parts.path)).resolve() if parts.path else page.resolve()
             if target.is_dir() or parts.path.endswith("/"):
                 target = target / "index.html"
             checked += 1
