@@ -1,0 +1,48 @@
+<h1>{{ market }}</h1>
+<p class="lede">{{ n_lines }} release lines: {{ media_line }}.</p>
+<p class="source-note">Sorted by name; select a heading to sort by that column. <em>Vols</em> is the volumes in the line, <em>Dated</em> those with a day-precision release date. <a href="./">All markets</a>.</p>
+<div class="table-wrap">
+<table class="lines sortable">
+<thead><tr>
+<th><button type="button">Name</button></th>
+{{ market_head }}<th><button type="button">Medium</button></th>
+<th data-num><button type="button">Vols</button></th>
+<th data-num><button type="button">Dated</button></th>
+<th><button type="button">Publisher</button></th>
+<th><button type="button">Status</button></th>
+<th><button type="button">tome_id</button></th>
+<th data-num><button type="button">AniList</button></th>
+</tr></thead>
+<tbody>
+{{ rows }}
+</tbody>
+</table>
+</div>
+<script>
+(function () {
+  var table = document.querySelector('table.sortable');
+  if (!table) return;
+  var heads = table.tHead.rows[0].cells, body = table.tBodies[0];
+  var collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+  Array.prototype.forEach.call(heads, function (th, col) {
+    th.firstElementChild.addEventListener('click', function () {
+      var numeric = th.hasAttribute('data-num');
+      var was = th.getAttribute('aria-sort');
+      // numbers start high-to-low (the useful order), text a-to-z; a second click flips
+      var dir = was ? (was === 'ascending' ? -1 : 1) : (numeric ? -1 : 1);
+      var rows = Array.prototype.slice.call(body.rows);
+      rows.sort(function (a, b) {
+        var x = a.cells[col].textContent, y = b.cells[col].textContent;
+        if (numeric) return ((+x || 0) - (+y || 0)) * dir;
+        if (!x !== !y) return x ? -1 : 1;      // blanks last either way
+        return collator.compare(x, y) * dir;
+      });
+      Array.prototype.forEach.call(heads, function (h) { h.removeAttribute('aria-sort'); });
+      th.setAttribute('aria-sort', dir === 1 ? 'ascending' : 'descending');
+      var frag = document.createDocumentFragment();
+      rows.forEach(function (r) { frag.appendChild(r); });
+      body.appendChild(frag);
+    });
+  });
+})();
+</script>

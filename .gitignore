@@ -1,5 +1,6 @@
 .cache/
 build/
+_site/
 __pycache__/
 *.pyc
 .venv-web/

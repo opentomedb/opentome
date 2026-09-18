@@ -1,0 +1,65 @@
+# The site at opentomedb.com: static pages generated from the PUBLISHED catalogue
+# (the `metadata` release, downloaded anonymously) and deployed to GitHub Pages.
+# It runs on a push that touches the site, on demand, and every Sunday after the
+# catalogue build -- so a build published during the week is on the site by
+# Sunday at the latest, and a `workflow_dispatch` puts it there sooner.
+#
+# Repository settings this needs (once): Pages source = GitHub Actions, custom
+# domain opentomedb.com (site/CNAME), enforce HTTPS.
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'docs/**'
+      - 'corrections/README.md'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '0 12 * * 0'          # Sunday 12:00 UTC, after the catalogue build
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency: pages
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download the published catalogue
+        run: |
+          mkdir -p build
+          curl -fsSL --retry 3 -o build/manga-metadata.sqlite \
+            https://github.com/itsnickspiro/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite
+          curl -fsSL --retry 3 -o build/version.json \
+            https://github.com/itsnickspiro/mangarr-metadata/releases/download/metadata/version.json
+      # GH_TOKEN only raises the API rate limit for the changelog's release list;
+      # the generator renders the page with a notice if the API is unreachable.
+      - name: Generate the site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 site/build_site.py build/manga-metadata.sqlite build/version.json _site
+      - name: Check every internal link
+        run: python3 site/check_site.py _site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

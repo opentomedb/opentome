@@ -1,0 +1,43 @@
+<section class="intro">
+  <h1>OpenTome</h1>
+  <p class="lede">A multi-market volume catalogue for manga, light novels, manhwa and webtoons.</p>
+  <p>Per-volume metadata across Japanese, English, French and German release lines, with day-precision release dates, ISBNs and chapter-to-volume composition — published as one SQLite file that any library tool can read.</p>
+</section>
+
+<section class="download" aria-labelledby="download-h">
+  <h2 id="download-h">Download</h2>
+  <p><a class="button" href="{{ artifact_url }}">Download manga-metadata.sqlite</a></p>
+  <dl class="facts">
+    <dt>Build</dt><dd><span class="label">{{ build_label }}</span> · generated {{ generated }}</dd>
+    <dt>Size</dt><dd>{{ size }} ({{ size_bytes }} bytes)</dd>
+    <dt>sha256</dt><dd class="hash">{{ sha256 }}</dd>
+    <dt>Manifest</dt><dd><a href="{{ manifest_url }}">version.json</a> — label, sha256 and size of the current build</dd>
+    <dt>All builds</dt><dd><a href="{{ releases_url }}">one release per build</a>, tagged <span class="label">opentome-YYYY-MM-DD</span>, so any earlier build can be fetched</dd>
+  </dl>
+  <p>Mangarr fetches this automatically: it polls <code>version.json</code>, verifies the sha256 and swaps the new file in. Nothing to configure.</p>
+</section>
+
+<section class="counts-section" aria-labelledby="counts-h">
+  <h2 id="counts-h">What is in this build</h2>
+  <dl class="figures">
+    <div><dt>release lines</dt><dd>{{ n_lines }}</dd></div>
+    <div><dt>works</dt><dd>{{ n_works }}</dd></div>
+    <div><dt>volumes</dt><dd>{{ n_volumes }}</dd></div>
+    <div><dt>dated volumes</dt><dd>{{ n_dated }} <small>({{ pct_dated }}%)</small></dd></div>
+  </dl>
+  <p>A <em>dated</em> volume carries a day-precision release date. A <em>release line</em> is one edition in one market — a Japanese manga and its English and French editions are three lines of one work. Lines by market and medium:</p>
+  {{ counts_table }}
+</section>
+
+<section class="licence" aria-label="Licence">
+  <p>Free for non-commercial use with attribution — <a href="https://creativecommons.org/licenses/by-nc/4.0/">CC BY-NC 4.0</a> as far as the compilation is ours; each source's own terms control the fields that came from it. <a href="{{ root }}data/">Sources, attribution and the schema</a>.</p>
+</section>
+
+<section aria-labelledby="scope-h">
+  <h2 id="scope-h">What it is, and is not</h2>
+  <ul class="scope">
+    <li><strong>In:</strong> every volume of every line — release date, ISBN and page count where a source carries them — under a stable id (<code>tome_id</code>, never reused, never re-keyed), across markets, so one work's Japanese, English and French volumes line up. English lines carry the AniList id where one can be placed.</li>
+    <li><strong>Not in:</strong> cover art. The file holds no images; some volumes carry a <code>cover_url</code> pointing at the source's own copy.</li>
+    <li><strong>Not in:</strong> anything from the Grand Comics Database. The catalogue is built from Wikipedia facts, openBD, Open Library, BnF and DNB — nothing else — and the pipeline records the source and licence of every value it takes.</li>
+  </ul>
+</section>

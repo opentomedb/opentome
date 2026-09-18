@@ -1,0 +1,56 @@
+<h1>Contribute</h1>
+<p class="lede">OpenTome is a catalogue, so most contributions are facts: a date the sources got wrong, a volume they do not carry, an edition that exists in a market and is missing here. There are two ways in — an issue when you have noticed something, a pull request when you have checked it.</p>
+
+<section aria-labelledby="rule-h">
+  <h2 id="rule-h">The one rule</h2>
+  <blockquote class="rule">A correction records what a source says, not what someone believes.</blockquote>
+  <p>Every entry, in an issue or a pull request, names the publisher page, library record or other primary source that was actually checked. A correction with no source is a guess with better formatting, and the pipeline exists to keep guesses out.</p>
+</section>
+
+<section aria-labelledby="issue-h">
+  <h2 id="issue-h">Filing an issue</h2>
+  <p>Pick the form that fits; each asks for the OpenTome id (<code>tome_id</code>) or the AniList id, the market, what is wrong or missing, and the source URL. Ids are on the <a href="{{ root }}browse/">Browse</a> pages.</p>
+  <div class="table-wrap"><table class="forms">
+    <thead><tr><th>Form</th><th>Use it when</th></tr></thead>
+    <tbody>{{ issue_forms }}</tbody>
+  </table></div>
+  <p>Mangarr's <em>Suggest a correction</em> link opens the <a href="{{ wrong_fact_url }}">Wrong fact</a> form with the ids already filled in. All four forms: <a href="{{ issues_url }}">new issue</a>.</p>
+</section>
+
+<section aria-labelledby="pr-h">
+  <h2 id="pr-h">Opening a corrections pull request</h2>
+  <p>Corrections are data, not code: three JSON files under <a href="{{ corrections_url }}"><code>corrections/</code></a>, one entry per fact, each with a <code>source_url</code> and a <code>checked</code> date. The file formats are below.</p>
+  <ol class="steps">
+    <li>Fork, branch, add your entries to <code>corrections/volumes.json</code>, <code>corrections/lines.json</code> or <code>corrections/aliases.json</code>.</li>
+    <li>Download the published artifact (the keys are checked against it): <a href="{{ artifact_url }}"><code>manga-metadata.sqlite</code></a>.</li>
+    <li>Run the check: <pre><code>python3 tier2/corrections.py --check corrections/ --artifact manga-metadata.sqlite</code></pre> It exits 0 with <code>corrections check ok</code> when every entry is well-formed and every id or ISBN resolves; otherwise it names the file, the index and the reason. It writes nothing.</li>
+    <li>Open the pull request — the <a href="{{ pr_template_url }}">template</a> is a four-line checklist. The same check runs on it automatically, with the parser's unit tests.</li>
+  </ol>
+  <p>A merged correction lands in the next build and is asserted by the artifact's contract test, so it cannot silently disappear in a later rebuild.</p>
+  <p>Corrections are for facts the sources get wrong or do not carry. If the pipeline <em>mis-reads</em> a source, that is a parser bug: fix it in <code>tier0/</code> and every series benefits. Pull requests for code are welcome too — keep them small, and run <code>python3 tier0/test_parser.py</code> before opening one. The full guide is <a href="{{ contributing_url }}">CONTRIBUTING.md</a>.</p>
+  <p>By contributing you agree that your contribution is released under the repository's terms: MIT for code, <a href="{{ licence_data_url }}">CC BY-NC 4.0</a> for data. Do not contribute data you do not have the right to contribute under those terms. A pull request that adds a source states its terms and the <code>licence</code> value it stores (<a href="{{ legal_url }}">docs/legal-position.md</a> is the record), or it is not merged.</p>
+</section>
+
+<section class="doc" aria-labelledby="files-h">
+  <h2 id="files-h">The correction files</h2>
+  <p class="source-note">From <a href="{{ corrections_readme_url }}"><code>corrections/README.md</code></a>, rendered as committed.</p>
+  {{ correction_files }}
+</section>
+
+<section aria-labelledby="rebuild-h">
+  <h2 id="rebuild-h">How a rebuild happens</h2>
+  <p><code>tier0/rebuild_all.sh</code> runs the whole pipeline, in order:</p>
+  <ol class="steps">
+    <li><strong>Unit tests</strong> — a rebuild on a broken parser is worse than no rebuild.</li>
+    <li><strong>Work identity</strong> — Wikipedia language links become cross-language work classes.</li>
+    <li><strong>Corpus</strong> — volume lists from the English, French and German Wikipedias, plus the main article's titles, status, publishers and relations.</li>
+    <li><strong>Enrichment</strong> — every ISBN checked against openBD (JP), Open Library (EN, FR) and BnF (FR), each value stored as a claim with its source and licence.</li>
+    <li><strong>Clean</strong> — date semantics (<code>_precision</code>, <code>_type</code>), malformed ISBNs.</li>
+    <li><strong>Corrections</strong> — <code>corrections/*.json</code> applied, ranked above every source.</li>
+    <li><strong>Resolve</strong> — claims become values with a confidence; disagreements are recorded, not averaged.</li>
+    <li><strong>Audit</strong> — exits non-zero on any defect.</li>
+    <li><strong>Export</strong> — the consumer-shaped <code>manga-metadata.sqlite</code>, with AniList ids for the English lines and ids carried forward from the previous build.</li>
+    <li><strong>Gates</strong> — the artifact contract test, then a replay of a real library's series matching against the committed fixture; a coverage failure fails the build before the new artifact replaces the old one.</li>
+  </ol>
+  <p>The build runs in GitHub Actions on a weekly schedule and on demand. A scheduled run builds and gates; <strong>publishing is a separate, human decision</strong> — a dispatched run with <code>publish</code> set, which refuses any artifact whose label is not <code>opentome-YYYY-MM-DD</code> or whose aliases came from anywhere but this pipeline, creates the per-build release, and re-points <code>metadata</code> at it. Every source response is cached so a re-run costs minutes and zero requests; a cold build re-fetches everything under each source's rate limit and takes hours.</p>
+</section>

@@ -1,0 +1,33 @@
+<h1>Data</h1>
+<p class="lede">One SQLite file, six tables, read-only by design. This page is generated from the build it describes.</p>
+
+<section aria-labelledby="file-h">
+  <h2 id="file-h">The file</h2>
+  <p><a href="{{ artifact_url }}"><code>manga-metadata.sqlite</code></a> for build <span class="label">{{ build_label }}</span>. Public ids are <code>tome_id</code> (a release line, <code>rl_…</code>; a volume, <code>v_…</code>) and <code>tome_work_id</code> (<code>w_…</code>); the integer <code>gcd_series_id</code> is an internal join key carried forward between builds and is not a Grand Comics Database id. Markets are <code>series.language</code>, media <code>series.medium</code>.</p>
+  {{ tables }}
+  <h3>The <code>meta</code> table</h3>
+  <p>The build's own description of itself — the label (<code>gcd_dump</code>, a legacy key name kept for the updater's contract), the licence, the attribution block and the date semantics.</p>
+  {{ meta_table }}
+</section>
+
+<section aria-labelledby="licence-h">
+  <h2 id="licence-h">Licence, sources and attribution</h2>
+  <p>As far as the compilation is ours — the selection, reconciliation, ids, confidence scoring and structure — the catalogue is released under <a href="https://creativecommons.org/licenses/by-nc/4.0/">CC BY-NC 4.0</a>: free to use, copy and redistribute, with attribution, for non-commercial purposes. The code that builds it is <a href="{{ license_url }}">MIT</a>.</p>
+  <p>The sources control their own fields. Every value the pipeline stores is a claim with its source, source URL and licence; each published value is resolved from those claims with a confidence and a basis, and a disagreement between sources is recorded, not averaged away. The published file does not carry that provenance per field: a downloader cannot tell which source a given date or ISBN came from, so the whole file is treated as non-commercial, CC BY-NC 4.0 plus the strictest terms of any source in it. BnF (Etalab Open Licence) and DNB (CC0) permit any use; Wikipedia contributes facts only, never prose; openBD is purpose-limited to book promotion and Open Library's terms are non-commercial. Google Books, MangaDex and Rakuten Books forbid database-building and are not used. The verified record of each source's terms is <a href="{{ legal_url }}">docs/legal-position.md</a>; the data licence in full is <a href="{{ licence_data_url }}">LICENSE-DATA.md</a>.</p>
+  <p>The artifact says the same in its <code>meta</code> table: <em>{{ licence_text }}</em></p>
+  <h3>Attribution</h3>
+  <p>Ship this with any copy of the data (it is <code>meta.attribution</code> in the file):</p>
+  <blockquote class="attribution">{{ attribution }}</blockquote>
+</section>
+
+<section class="doc" aria-labelledby="ids-h">
+  <h2 id="ids-h">Identifiers — the public contract</h2>
+  <p class="source-note">From <a href="https://github.com/itsnickspiro/opentome/blob/main/docs/id-scheme.md"><code>docs/id-scheme.md</code></a>, rendered as committed.</p>
+  {{ id_scheme }}
+</section>
+
+<section class="doc" aria-labelledby="schema-h">
+  <h2 id="schema-h">Schema design notes</h2>
+  <p class="source-note">From <a href="https://github.com/itsnickspiro/opentome/blob/main/docs/schema-v1.md"><code>docs/schema-v1.md</code></a>, rendered as committed. These are the pipeline's design notes; the tables of the published file are listed above. The "commercially clean" figure in the last table was later retracted in <a href="{{ legal_url }}">docs/legal-position.md</a> — the licence section above states the verified position.</p>
+  {{ schema_notes }}
+</section>

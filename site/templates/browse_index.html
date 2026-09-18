@@ -1,0 +1,7 @@
+<h1>Browse</h1>
+<p class="lede">{{ n_lines }} release lines in this build, one page per market. A <em>release line</em> is one edition in one market — one medium, one publisher — so a work translated into three markets is three lines sharing a <code>tome_work_id</code>.</p>
+<div class="table-wrap"><table class="markets">
+  <thead><tr><th>Market</th><th>Lines</th><th>Volumes</th><th>Dated</th></tr></thead>
+  <tbody>{{ market_rows }}</tbody>
+</table></div>
+<p class="source-note">Markets with fewer than fifty lines share one page. <em>Dated</em> counts volumes with a day-precision release date. Each page's table sorts by any column; the ids in it are the ones a <a href="{{ root }}contribute/">correction</a> is keyed on.</p>
