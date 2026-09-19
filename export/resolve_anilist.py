@@ -56,7 +56,7 @@ import argparse, hashlib, json, os, re, sqlite3, sys, time, urllib.error, urllib
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 API = "https://graphql.anilist.co"
 UA = ("opentome-anilist-resolver/0.1 "
-      "(non-commercial catalogue; https://github.com/itsnickspiro)")
+      "(non-commercial catalogue; https://github.com/DrAwesome441)")
 CACHE = os.environ.get("ANILIST_CACHE", os.path.join(ROOT, ".cache", "anilist"))
 OFFLINE = os.environ.get("ANILIST_OFFLINE", "0") == "1"   # tests: a cache miss is an error, never a request
 MIN_INTERVAL = 2.1          # seconds between requests: under AniList's degraded 30/min

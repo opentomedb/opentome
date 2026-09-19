@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from isbn import isbn_market, normalise_isbn, isbn10_to_13   # noqa: F401 (re-exported)
 
 UA = ("manga-metadata-research/0.1 "
-      "(non-commercial catalogue evaluation; https://github.com/itsnickspiro)")
+      "(non-commercial catalogue evaluation; https://github.com/DrAwesome441)")
 API = "https://{lang}.wikipedia.org/w/api.php"
 
 CACHE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".cache")

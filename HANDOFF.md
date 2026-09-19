@@ -10,7 +10,7 @@ artifact contract test and the measure gate, on a warm source cache. A scheduled
 builds and gates and stores the artifact as a run artifact — it never publishes.
 Publishing is a human decision: someone presses *Run workflow* with `publish = true`,
 and `export/publish.sh` creates the release `opentome-YYYY-MM-DD` on
-`itsnickspiro/mangarr-metadata` and re-points the `metadata` alias at it. Every Mangarr
+`DrAwesome441/mangarr-metadata` and re-points the `metadata` alias at it. Every Mangarr
 install polls that alias's `version.json`, verifies the sha256 and swaps the new
 catalogue in — nothing to configure on the user side.
 
@@ -63,7 +63,7 @@ Phase 3 is done (2026-09-18). What runs where now:
   09:00 UTC (build + every gate, never publishes); a maintainer publishes by dispatching it
   with `publish = true`. First CI build: run 35387125298 (identical figures to the last
   workstation build, ids carried exactly); first CI publish: run 35393862685 →
-  `opentome-2026-09-18` on `itsnickspiro/mangarr-metadata`, alias `metadata` re-pointed,
+  `opentome-2026-09-18` on `DrAwesome441/mangarr-metadata`, alias `metadata` re-pointed,
   picked up by Mangarr the same hour.
 - **Cache:** the Actions cache, seeded from the private `opentome-cache` repo's `seed`
   release (run 35387058848), kept warm by `cache-keepalive`.

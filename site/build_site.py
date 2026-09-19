@@ -25,8 +25,8 @@ SITE_DIR = Path(__file__).resolve().parent
 REPO_DIR = SITE_DIR.parent
 TEMPLATES = SITE_DIR / "templates"
 
-DATA_REPO = "itsnickspiro/mangarr-metadata"
-CODE_REPO = "itsnickspiro/opentome"
+DATA_REPO = "DrAwesome441/mangarr-metadata"
+CODE_REPO = "DrAwesome441/opentome"
 ARTIFACT_URL = f"https://github.com/{DATA_REPO}/releases/download/metadata/manga-metadata.sqlite"
 MANIFEST_URL = f"https://github.com/{DATA_REPO}/releases/download/metadata/version.json"
 RELEASES_URL = f"https://github.com/{DATA_REPO}/releases"

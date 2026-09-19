@@ -34,7 +34,7 @@ ORIGIN_MARKETS = ("JP", "KR", "CN", "TW")
 VOLUME_KEYS = ("volume", "field", "value", "source_url", "checked")
 LINE_KEYS = ("work", "market", "medium", "name", "volumes", "source_url", "checked")
 ALIAS_KEYS = ("line", "alias", "source_url", "checked")
-ARTIFACT_URL = "https://github.com/itsnickspiro/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite"
+ARTIFACT_URL = "https://github.com/DrAwesome441/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite"
 
 sys.path.insert(0, os.path.join(ROOT, "schema"))
 sys.path.insert(0, os.path.join(ROOT, "tier0"))

@@ -1,5 +1,5 @@
 # Seeds the Actions cache with the source-response cache (.cache/, ~900 MB of raw
-# third-party responses) from the PRIVATE itsnickspiro/opentome-cache repo's
+# third-party responses) from the PRIVATE DrAwesome441/opentome-cache repo's
 # `seed` release, so the first catalogue build is warm instead of re-fetching
 # everything from Wikipedia / openBD / Open Library / BnF / AniList.
 #
@@ -30,7 +30,7 @@ jobs:
       - name: download the seed tarball
         env:
           GH_TOKEN: ${{ secrets.OPENTOME_CACHE_TOKEN }}
-        run: gh release download seed --repo itsnickspiro/opentome-cache --pattern 'opentome-cache.tar.zst' --dir /tmp
+        run: gh release download seed --repo DrAwesome441/opentome-cache --pattern 'opentome-cache.tar.zst' --dir /tmp
       - name: extract
         run: mkdir -p .cache && tar --zstd -xf /tmp/opentome-cache.tar.zst -C .cache
       - name: cache state

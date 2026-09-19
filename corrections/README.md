@@ -130,7 +130,7 @@ Every key is resolved against the **published artifact**, not against a
 database you would have to build. Download it, then:
 
 ```bash
-curl -fsSLO https://github.com/itsnickspiro/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite
+curl -fsSLO https://github.com/DrAwesome441/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite
 python3 tier2/corrections.py --check corrections/ --artifact manga-metadata.sqlite
 ```
 

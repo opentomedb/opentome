@@ -60,7 +60,7 @@ jobs:
         run: |
           mkdir -p build
           curl -fsSL --retry 3 -o build/manga-metadata.sqlite \
-            https://github.com/itsnickspiro/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite \
+            https://github.com/DrAwesome441/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite \
             || { echo "::warning::no published artifact to carry ids from — cold id assignment"; rm -f build/manga-metadata.sqlite; }
       # Runs every stage including the measure gate (8d, writes build/measure.log)
       # and exits non-zero on any test, audit, contract or coverage failure.
@@ -101,7 +101,7 @@ jobs:
           label, series, volumes, gate = sys.argv[1:5]
           print(json.dumps({"username": "OpenTome", "embeds": [{
               "title": f"Catalogue published: {label}", "color": 0x7a43b6,
-              "url": "https://github.com/itsnickspiro/mangarr-metadata/releases/tag/" + label,
+              "url": "https://github.com/DrAwesome441/mangarr-metadata/releases/tag/" + label,
               "description": f"{int(series):,} series, {int(volumes):,} volumes. {gate}\nMangarr picks it up on its next daily check."}]}))
           EOF
           )

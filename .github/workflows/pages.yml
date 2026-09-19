@@ -47,9 +47,9 @@ jobs:
         run: |
           mkdir -p build
           curl -fsSL --retry 3 -o build/manga-metadata.sqlite \
-            https://github.com/itsnickspiro/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite
+            https://github.com/DrAwesome441/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite
           curl -fsSL --retry 3 -o build/version.json \
-            https://github.com/itsnickspiro/mangarr-metadata/releases/download/metadata/version.json
+            https://github.com/DrAwesome441/mangarr-metadata/releases/download/metadata/version.json
       # GH_TOKEN only raises the API rate limit for the changelog's release list;
       # the generator renders the page with a notice if the API is unreachable.
       - name: Generate the site

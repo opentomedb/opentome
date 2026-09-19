@@ -26,11 +26,11 @@ a Komga library of Glénat and Ki-oon editions currently has **no tool at all**.
 
 The catalogue is one SQLite file, published as a GitHub release:
 
-- **Current build:** <https://github.com/itsnickspiro/mangarr-metadata/releases/tag/metadata>
+- **Current build:** <https://github.com/DrAwesome441/mangarr-metadata/releases/tag/metadata>
   — `manga-metadata.sqlite` (the catalogue) and `version.json` (its label, sha256 and
   size).
-- Direct links: [`manga-metadata.sqlite`](https://github.com/itsnickspiro/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite)
-  · [`version.json`](https://github.com/itsnickspiro/mangarr-metadata/releases/download/metadata/version.json)
+- Direct links: [`manga-metadata.sqlite`](https://github.com/DrAwesome441/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite)
+  · [`version.json`](https://github.com/DrAwesome441/mangarr-metadata/releases/download/metadata/version.json)
 - Every published build also has its own release, tagged `opentome-YYYY-MM-DD`, so any
   earlier build can be fetched or rolled back to.
 
@@ -70,7 +70,7 @@ cannot quietly disappear. For something you have noticed but not checked, open a
 with one of the templates (*Wrong fact*, *Missing volume*, *New release line*, *Merge
 lines*). [`CONTRIBUTING.md`](CONTRIBUTING.md) has the steps.
 
-There is also a [Discord](https://discord.gg/bQVwv54KdP): `#corrections` is a forum (one thread per wrong or missing fact, with the source you checked), `#announcements` carries each publish, `#general` is for questions. Feature requests belong in [GitHub issues](https://github.com/itsnickspiro/opentome/issues/new/choose) so they are not lost in chat.
+There is also a [Discord](https://discord.gg/bQVwv54KdP): `#corrections` is a forum (one thread per wrong or missing fact, with the source you checked), `#announcements` carries each publish, `#general` is for questions. Feature requests belong in [GitHub issues](https://github.com/DrAwesome441/opentome/issues/new/choose) so they are not lost in chat.
 
 ## How the catalogue is built
 

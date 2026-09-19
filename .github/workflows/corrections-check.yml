@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Download the published artifact
-        run: curl -fsSL -o /tmp/manga-metadata.sqlite https://github.com/itsnickspiro/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite
+        run: curl -fsSL -o /tmp/manga-metadata.sqlite https://github.com/DrAwesome441/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite
       - name: Check the corrections against it
         run: python3 tier2/corrections.py --check corrections/ --artifact /tmp/manga-metadata.sqlite
       - name: Unit tests

@@ -37,7 +37,7 @@ keys each entry needs and how to find an id.
 1. Fork, branch, add your entries to `corrections/volumes.json`,
    `corrections/lines.json` or `corrections/aliases.json`.
 2. Download the published artifact (the keys are checked against it):
-   `https://github.com/itsnickspiro/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite`
+   `https://github.com/DrAwesome441/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite`
 3. Run the check:
 
    ```bash

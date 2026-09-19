@@ -27,7 +27,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-REPO="${REPO:-itsnickspiro/mangarr-metadata}"
+REPO="${REPO:-DrAwesome441/mangarr-metadata}"
 TAG="${TAG:-metadata}"
 ART="${1:-build/manga-metadata.sqlite}"
 
