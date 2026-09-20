@@ -1,6 +1,6 @@
 # HANDOFF — OpenTome
 
-_Last updated: 2026-09-18_
+_Last updated: 2026-09-20_
 
 ## What this is now
 
@@ -55,6 +55,9 @@ and `meta.alias_provenance` must be `opentome` — the clean-room guard.
 - `catalogue.yml`: on a publish, an embed goes to the Mangarr Discord `#catalogue` (secret `DISCORD_CATALOGUE_WEBHOOK`; the step is skipped when the secret is unset).
 - Looked at and left: 3,947 lines with blank status (1,530 main lines whose work has no Wikipedia status, 1,558 sub-lines that deliberately do not inherit the work's status) and 53 lines with zero volumes (real works without a volume table; 13 are sub-lines that could be folded into their parent via `id_redirect` — not done, no consumer needs it).
 
+### 2026-09-20 — `series.author`
+- `export/to_mangarr.py`: new nullable `series.author` column, the first name of the work's tier-0 `author` claim (the main article's infobox), on every line of the work; Mangarr reads it when present (a pin there overrides it). Wiki residue tier-0's one-pass template strip leaves behind (`Kentaro Miura ({{nowrap| 1–41}})`) is removed at export; a parenthetical that still says something (`Jitakukeibihei (Natsume Akatsuki)`) stays; an entry that is only a qualifier (`(1994–1998)`) is not a name. Contract rule `authors with markup` + info line `series with an author` in `export/test_artifact.py`. Local build: 9,598 / 11,658 lines carry an author, ids carried with 0 churn, measure gate `matched 48/49, 0 coverage failures`. **Not published — the next `publish=true` dispatch ships it** (Nick's gate).
+
 ## Next
 
 Phase 3 is done (2026-09-18). What runs where now:
@@ -82,7 +85,7 @@ Phase 3 is done (2026-09-18). What runs where now:
 
 Open, in order of value:
 
-1. **Publish again** so the Mushoku Tensei line reaches consumers (a maintainer's dispatch).
+1. **Publish again** so the Mushoku Tensei line, the publisher hygiene and `series.author` reach consumers (a maintainer's dispatch).
 2. The `metadata` alias release's notes on `mangarr-metadata` still describe the pre-OpenTome
    (GCD-era) artifact; they should be rewritten to the OpenTome text (maintainer decision —
    it changes existing release content).

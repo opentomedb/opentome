@@ -76,6 +76,9 @@ def run(path):
     rule("publishers with markup",
          g("""SELECT COUNT(*) FROM series WHERE publisher LIKE '%<%' OR publisher LIKE '%{{%'
               OR publisher LIKE '%}}%' OR publisher LIKE '%[[%'"""))
+    rule("authors with markup",
+         g("""SELECT COUNT(*) FROM series WHERE author LIKE '%<%' OR author LIKE '%{{%'
+              OR author LIKE '%}}%' OR author LIKE '%[[%'"""))
 
     # phantom lines: no date of ANY precision and no ISBN (release_date is
     # day-only; a month/year value lives in release_date_raw and is data)
@@ -186,6 +189,9 @@ def run(path):
         format(g("SELECT COUNT(*) FROM series WHERE status IS NOT NULL"), ","),
         format(g("SELECT COUNT(*) FROM volumes WHERE cover_url IS NOT NULL"), ","),
         format(g("SELECT COUNT(*) FROM series WHERE publisher IS NOT NULL"), ",")))
+    print("  info  series with an author: %s / %s" % (
+        format(g("SELECT COUNT(*) FROM series WHERE author IS NOT NULL"), ","),
+        format(g("SELECT COUNT(*) FROM series"), ",")))
 
     # ids
     rule("series without an id_map row",

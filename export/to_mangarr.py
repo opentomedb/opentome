@@ -122,7 +122,8 @@ CREATE TABLE IF NOT EXISTS series (
     is_main INTEGER NOT NULL DEFAULT 0,       -- the work's main line for this market
     tome_id TEXT,                -- OpenTome release-line id  (public contract)
     tome_work_id TEXT,           -- OpenTome work id
-    parent_series_id INTEGER);   -- the series this arc / spin-off line belongs to (collections)
+    parent_series_id INTEGER,    -- the series this arc / spin-off line belongs to (collections)
+    author TEXT);                -- the work's author, first name of the tier-0 claim (2026-09-20)
 CREATE TABLE IF NOT EXISTS volumes (
     id INTEGER PRIMARY KEY, gcd_series_id INTEGER NOT NULL REFERENCES series(gcd_series_id),
     volume_number INTEGER NOT NULL, title TEXT, release_date TEXT,
@@ -161,6 +162,34 @@ def stable_int(text_id, taken):
         if n and n not in taken:
             return n
     raise RuntimeError("could not allocate id for " + text_id)
+
+
+_TEMPLATE = re.compile(r"\{\{[^{}]*\}\}")
+
+
+def _first_author(value):
+    """The first name of a work's author claim -- a JSON list of names
+    (tier0/main_articles.py), else the raw string. tier-0's one-pass template
+    strip leaves the OUTER of two nested templates behind ('Kentaro Miura
+    ({{nowrap| 1-41}})'); it goes here, with the empty '()' it leaves. A
+    qualifier that still says something ('Jitakukeibihei (Natsume Akatsuki)')
+    is kept as is, and an entry that is ONLY a qualifier ('(1994-1998)') is
+    not a name."""
+    try:
+        names = json.loads(value)
+    except (TypeError, ValueError):
+        names = None
+    if not isinstance(names, list):
+        names = [value]
+    for n in names:
+        n = str(n or "")
+        while _TEMPLATE.search(n):
+            n = _TEMPLATE.sub("", n)
+        n = re.sub(r"\s*\(\s*\)", "", n)
+        n = re.sub(r"\s+", " ", n).strip()
+        if re.sub(r"\([^)]*\)", "", n).strip():
+            return n
+    return None
 
 
 def _line_raw(lname, wtitle):
@@ -213,6 +242,15 @@ def export(src_path, out_path, carry_ids_from=None):
     # first year. Mangarr's MapGcdStatus reads completed|ongoing.
     work_facts = {wid: (status, year) for wid, status, year in src.execute(
         "SELECT id, status, year_started FROM work")}
+    # The work's author (the main article's infobox `author`, a JSON list of
+    # names): every line of the work carries the first one. Mangarr reads it as
+    # the series' author; a pin there overrides it.
+    work_authors = {}
+    for wid, val in src.execute("""SELECT entity_id, value FROM claim
+                                   WHERE entity='work' AND field='author'"""):
+        name = _first_author(val)
+        if name:
+            work_authors[wid] = name
 
     lines = src.execute("""
         SELECT rl.id, rl.work_id, rl.market, rl.medium, rl.publisher, rl.status, rl.parent_id,
@@ -363,11 +401,11 @@ def export(src_path, out_path, carry_ids_from=None):
         mangarr_status = {"ended": "completed", "ongoing": "ongoing"}.get(st or "", None)
         out.execute("""INSERT OR REPLACE INTO series
             (gcd_series_id,name,year_began,publisher,language,is_omnibus,volume_count,status,
-             medium,dated_count,is_main,tome_id,tome_work_id,parent_series_id)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             medium,dated_count,is_main,tome_id,tome_work_id,parent_series_id,author)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (sid, lname or wtitle, min(years) if years else w_year, publisher,
              MARKET_LANG.get(market, market.lower()), is_omni, len(ints_written), mangarr_status,
-             medium, dated, is_main, rid, wid, parent_sid))
+             medium, dated, is_main, rid, wid, parent_sid, work_authors.get(wid)))
         out.execute("INSERT OR REPLACE INTO id_map VALUES(?,?, 'release_line')", (rid, sid))
         n_series += 1
 
