@@ -2,6 +2,10 @@
 
 _Last updated: 2026-09-20_
 
+## 2026-09-21 — publish opentome-2026-09-21 (Rascal Does Not Dream vol. 16)
+
+Nick's "Publish the OpenTome catalogue" (10:53 CDT): `catalogue.yml` dispatched with `publish=true` (run 35622036076: every gate green, publish + Discord announce succeeded; `manga-metadata.sqlite` 30,756,864 B on the `metadata` release at 15:56Z). Only change since 09-18: `corrections/lines.json` entry adding the English *Rascal Does Not Dream* vol. 16 (*Beach Queen +*, Yen Press 2026-08-11, 979-8-8554-3445-3) — the pipeline had the line at 15. Mangarr picked it up on a forced `MetadataUpdate` (opentome-2026-09-18 → 2026-09-21) and the entry now shows 16 volumes with the Audible ASIN on vol. 16. `lines.json` is additive (INSERT OR IGNORE on the line and its volumes), so a single new volume is the right shape for a missing tail volume.
+
 ## What this is now
 
 OpenTome is a CI-built catalogue. The `catalogue` workflow runs the whole pipeline
