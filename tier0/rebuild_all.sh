@@ -61,6 +61,7 @@ echo "== 0. unit tests ==";        python3 tier0/test_parser.py >/dev/null && ec
                                    python3 tier2/test_resolve.py >/dev/null && echo "   resolve ok"
                                    python3 export/test_resolve_anilist.py >/dev/null && echo "   anilist ok"
                                    python3 export/test_measure_fixture.py >/dev/null && echo "   measure ok"
+                                   python3 export/test_line_status.py >/dev/null && echo "   line_status ok"
 echo "== 1. work identity ==";     python3 tier0/work_identity.py
 echo "== 2. corpus en+fr ==";      python3 tier0/build_corpus.py "$DB"
 echo "== 3. corpus de ==";         python3 tier0/build_corpus_de.py "$DB"
