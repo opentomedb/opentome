@@ -151,11 +151,29 @@ def _templates(w, name="Graphic novel list"):
             i += 1
 
 
+_CJK = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
+
+
+def _japonais(m):
+    """{{japonais|texte|kana|romaji}} (fr-wiki): the first slot that carries no Japanese
+    script, taking the part after ' / ' when an editor glued 'romaji / translation' into one."""
+    parts = [re.sub(r"<br\s*/?>", " ", p).strip() for p in m.group(1).split("|")]
+    for p in parts:
+        if p and not _CJK.search(p):
+            return p.split(" / ")[-1].strip() if " / " in p else p
+    return parts[0] if parts else ""
+
+
 def _clean(v):
     v = re.sub(r"<!--.*?-->", "", v, flags=re.S)      # editor notes are not values
+    v = re.sub(r"<!--.*$", "", v, flags=re.S)          # an unterminated one is not a value either
     v = re.sub(r"<ref[^>]*/>", "", v)
     v = re.sub(r"<ref.*?</ref>", "", v, flags=re.S)
-    v = re.sub(r"\{\{nihongo\|([^|}]*)\|?([^|}]*)?.*?\}\}", r"\1", v, flags=re.S)
+    v = re.sub(r"<br\s*/?>", " ", v, flags=re.I)
+    v = re.sub(r"<rp>.*?</rp>|<rt>.*?</rt>", "", v, flags=re.S | re.I)   # furigana: keep the base text
+    v = re.sub(r"</?ruby[^>]*>", "", v, flags=re.I)
+    v = re.sub(r"\{\{\s*nihongo[23]?\s*\|([^|}]*)(?:\|[^}]*)?\}\}", r"\1", v, flags=re.S | re.I)
+    v = re.sub(r"\{\{\s*japonais\s*\|([^}]*)\}\}", _japonais, v, flags=re.S | re.I)
     v = re.sub(r"\[\[[^\]|]*\|([^\]]*)\]\]", r"\1", v)
     v = re.sub(r"\[\[([^\]]*)\]\]", r"\1", v)
     v = re.sub(r"\{\{[^{}]*\}\}", "", v)
@@ -189,6 +207,9 @@ DIALECTS = {
         "licensed_date": ("LicensedRelDate",),
         "licensed_isbn": ("LicensedISBN",),
         "titles":        ("Title", "OriginalTitle", "LicensedTitle"),
+        "original_titles": ("OriginalTitle",),
+        "licensed_titles": ("LicensedTitle",),
+        "generic_titles": ("Title",),
         # the template's own "this work has no translation" flag
         "single_language": ("OneLanguage",),
         "chapter_prefix": "chapterlist",
@@ -203,6 +224,9 @@ DIALECTS = {
         "licensed_date": ("sortie_2",),
         "licensed_isbn": ("isbn_2",),
         "titles":        ("titre_1", "titre_2", "titre"),
+        "original_titles": ("titre_1",),
+        "licensed_titles": ("titre_2",),
+        "generic_titles": ("titre",),
         "single_language": ("langage_unique",),
         "chapter_prefix": "chapitre",
         "months":        FR_MONTHS,
@@ -442,6 +466,19 @@ def parse_volumes(w, article, lang="en"):
         title = next((_clean(p[k]) for k in d.get("titles", ()) if not _is_blank(p.get(k))), None)
         if title:
             rec["title"] = title
+
+        def _pick(keys):
+            return next((_clean(p[k]) for k in keys if not _is_blank(p.get(k))), None)
+        # The row title above is whatever is filled first; a market row wants ITS title
+        # (the English list's English title on the English row, the Japanese one on the
+        # Japanese row), else the generic field.
+        generic = _pick(d.get("generic_titles", ()))
+        t_orig = _pick(d.get("original_titles", ())) or generic
+        t_lic = _pick(d.get("licensed_titles", ())) or generic
+        if t_orig:
+            rec["title_original"] = t_orig
+        if t_lic:
+            rec["title_licensed"] = t_lic
         single = any(_flag_true(p.get(k)) for k in d.get("single_language", ()))
 
         # A market entry exists only when that market has DATA -- a parsed date

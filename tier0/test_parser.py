@@ -5,7 +5,7 @@ before (docs/cleanup-v2.md). No network: everything is synthetic wikitext.
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wikipedia_volumes import parse_date, canon_number, parse_volumes, _is_blank, FR_MONTHS
+from wikipedia_volumes import parse_date, canon_number, parse_volumes, _is_blank, FR_MONTHS, _clean
 from isbn import isbn_market, normalise_isbn
 from collapse import collapse_licensed
 import release_lines as RL
@@ -124,6 +124,35 @@ FRW = """
 fr = parse_volumes(FRW, "Liste des chapitres de Test", "fr")
 eq("fr single-language skips licensed", list(fr[0]["markets"]), ["original"])
 eq("fr licensed FR numeric date", fr[1]["markets"]["licensed"].get("date"), "1998-03-10")
+
+# ---- per-market title (2026-09-21) -------------------------------------
+# a separate small fixture: adding this row to W would break "4 rows parsed"
+W_TITLE = """
+{{Graphic novel list
+ | VolumeNumber    = 1
+ | OriginalTitle   = アインクラッド
+ | LicensedTitle   = Aincrad
+ | OriginalRelDate = April 10, 2009
+ | OriginalISBN    = 978-4-06-384276-0
+ | LicensedRelDate = April 15, 2014
+ | LicensedISBN    = 978-1-61262-024-4
+}}
+"""
+recs_title = parse_volumes(W_TITLE, "List of Test chapters", "en")
+# per-market title (2026-09-21): the licensed row must not carry the Japanese title
+r = next(x for x in recs_title if x["volume"] == "1")
+eq("row title is still the first non-blank field", r["title"], "アインクラッド")
+eq("original title", r.get("title_original"), "アインクラッド")
+eq("licensed title", r.get("title_licensed"), "Aincrad")
+eq("Nihongo2 template is unwrapped", _clean("{{Nihongo2|Boruto!!|ボルト}}"), "Boruto!!")
+eq("nihongo is case-insensitive", _clean("{{Nihongo|Aincrad|アインクラッド|Ainkuraddo}}"), "Aincrad")
+eq("japonais keeps the non-Japanese text", _clean("{{japonais|ノー・ガール・ノー・クライ<br />|Nō Gāru Nō Kurai / No Girl No Cry|| }}"), "No Girl No Cry")
+eq("japonais with a leading French slot", _clean("{{Japonais|Asagao et Kase-san|あさがおと加瀬さん。|Asagao to Kase-san.}}"), "Asagao et Kase-san")
+eq("japonais with an empty first slot falls back to the romaji", _clean("{{Japonais||あさがおと加瀬さん。|Asagao to Kase-san.}}"), "Asagao to Kase-san.")
+eq("br is a space", _clean("Aincrad<br />Part 2"), "Aincrad Part 2")
+eq("ruby keeps the base text", _clean("いとしき<ruby>歳月<rp>(</rp><rt>としつき</rt><rp>)</rp></ruby>(前編)"), "いとしき歳月(前編)")
+eq("an unterminated comment is not a title", _clean("<!--"), "")
+eq("angle brackets in plain text survive", _clean("境界線上のホライゾンI<上>"), "境界線上のホライゾンI<上>")
 
 # ---- omnibus collapse --------------------------------------------------
 def rec(n, isbn, date, pos):

@@ -123,6 +123,7 @@ def load(db, series_title, records, medium="manga", work_key=None, titles=None):
                           (rlid, line, r.get("article"), LICENCE["wikipedia"], NOW))
                 lines[rlid] = (med, market, line)
 
+            role_title = (r.get("title_licensed") if role == "licensed" else r.get("title_original")) or r.get("title")
             # a collapsed omnibus line numbers its own units (collapse.py)
             number = m.get("number", r["volume"])
             vid = _id("v_", rlid, number)
@@ -135,7 +136,7 @@ def load(db, series_title, records, medium="manga", work_key=None, titles=None):
                 (id,release_line_id,number,title,isbn13,release_date,
                  release_date_precision,release_date_type,format,created_at,updated_at)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-                (vid, rlid, number, r.get("title"), m.get("isbn13"), m.get("date"),
+                (vid, rlid, number, role_title, m.get("isbn13"), m.get("date"),
                  m.get("date_precision"), "unknown",
                  "omnibus" if contains and len(contains) > 1 else None, NOW, NOW))
             nvol += 1
