@@ -73,6 +73,14 @@ def run(path):
          g("""SELECT COUNT(*) FROM series_alias WHERE alias LIKE '%{{%' OR alias LIKE '%[[%'
               OR alias LIKE '%<%'"""))
     rule("empty series names", g("SELECT COUNT(*) FROM series WHERE TRIM(name)=''"))
+    rule("volume titles with wiki markup",
+         g("""SELECT COUNT(*) FROM volumes WHERE title LIKE '%{{%' OR title LIKE '%[[%'
+              OR title LIKE '%<%' OR title LIKE '%}}%'"""))
+    number_only = 0
+    for (t,) in db.execute("SELECT title FROM volumes WHERE title IS NOT NULL"):
+        if re.fullmatch(r"\s*(?:vol(?:ume)?\.?\s*|tome\s*|band\s*)?\d+\s*", t, re.I):
+            number_only += 1
+    rule("volume titles that only repeat the number", number_only)
     rule("publishers with markup",
          g("""SELECT COUNT(*) FROM series WHERE publisher LIKE '%<%' OR publisher LIKE '%{{%'
               OR publisher LIKE '%}}%' OR publisher LIKE '%[[%'"""))
@@ -153,8 +161,27 @@ def run(path):
          g("""SELECT COUNT(*) FROM series c JOIN series p ON p.gcd_series_id=c.parent_series_id
               WHERE p.tome_work_id<>c.tome_work_id OR p.language<>c.language"""))
     print("  info  series with a parent (collection members): %s" % format(g("SELECT COUNT(*) FROM series WHERE parent_series_id IS NOT NULL"), ","))
-    rule("series.status outside {completed, ongoing, NULL}",
-         g("SELECT COUNT(*) FROM series WHERE status IS NOT NULL AND status NOT IN ('completed','ongoing')"))
+    rule("series.status outside {completed, ongoing, stalled, NULL}",
+         g("SELECT COUNT(*) FROM series WHERE status IS NOT NULL AND status NOT IN ('completed','ongoing','stalled')"))
+    # stalled (export/line_status.py): >= 2 volumes behind its origin line and nothing dated in
+    # the last 24 months. Both halves are re-checked here so the rule cannot drift from the gate.
+    rule("stalled line without orig_series_id",
+         g("SELECT COUNT(*) FROM series WHERE status='stalled' AND orig_series_id IS NULL"))
+    rule("stalled line with a dated volume in the last 24 months",
+         g("""SELECT COUNT(*) FROM series s WHERE s.status='stalled' AND EXISTS
+              (SELECT 1 FROM volumes v WHERE v.gcd_series_id=s.gcd_series_id
+               AND v.release_date_precision IN ('day','month')
+               AND v.release_date_raw >= strftime('%Y-%m', 'now', '-24 months'))"""))
+    rule("stalled line not at least two volumes behind its origin",
+         g("""SELECT COUNT(*) FROM series l JOIN series o ON o.gcd_series_id=l.orig_series_id
+              WHERE l.status='stalled'
+              AND (SELECT COALESCE(MAX(volume_number),0) FROM volumes WHERE gcd_series_id=o.gcd_series_id)
+                - (SELECT COALESCE(MAX(volume_number),0) FROM volumes WHERE gcd_series_id=l.gcd_series_id) < 2"""))
+    rule("orig_series_id pointing at a missing series, another work, or an origin-market mismatch",
+         g("""SELECT COUNT(*) FROM series l LEFT JOIN series o ON o.gcd_series_id=l.orig_series_id
+              WHERE l.orig_series_id IS NOT NULL
+              AND (o.gcd_series_id IS NULL OR o.tome_work_id<>l.tome_work_id OR o.medium<>l.medium
+                   OR o.language NOT IN ('ja','ko','zh','zh-TW','zh-HK') OR l.language IN ('ja','ko','zh','zh-TW','zh-HK'))"""))
     rule("cover_url without cover_source (or vice versa)",
          g("""SELECT COUNT(*) FROM volumes WHERE (cover_url IS NULL) <> (cover_source IS NULL)"""))
     rule("cover_url that is not http(s)",
@@ -189,6 +216,14 @@ def run(path):
         format(g("SELECT COUNT(*) FROM series WHERE status IS NOT NULL"), ","),
         format(g("SELECT COUNT(*) FROM volumes WHERE cover_url IS NOT NULL"), ","),
         format(g("SELECT COUNT(*) FROM series WHERE publisher IS NOT NULL"), ",")))
+    print("  info  status by value (en): %s" % ", ".join(
+        "%s %s" % (s or "NULL", format(n, ",")) for s, n in db.execute(
+            "SELECT status, COUNT(*) FROM series WHERE language='en' GROUP BY 1 ORDER BY 2 DESC")))
+    print("  info  volumes with a title: %s / %s | licensed lines with orig_series_id: %s / %s" % (
+        format(g("SELECT COUNT(*) FROM volumes WHERE title IS NOT NULL"), ","),
+        format(g("SELECT COUNT(*) FROM volumes"), ","),
+        format(g("SELECT COUNT(*) FROM series WHERE orig_series_id IS NOT NULL"), ","),
+        format(g("SELECT COUNT(*) FROM series WHERE language NOT IN ('ja','ko','zh')"), ",")))
     print("  info  series with an author: %s / %s" % (
         format(g("SELECT COUNT(*) FROM series WHERE author IS NOT NULL"), ","),
         format(g("SELECT COUNT(*) FROM series"), ",")))
