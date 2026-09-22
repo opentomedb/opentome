@@ -36,7 +36,7 @@ Three lessons from the first export, each measured against the live library
     emitted as `release_date`; the coarse value and its precision travel in
     separate columns the C# can adopt later.
 """
-import hashlib, json, os, re, sqlite3, sys, datetime
+import collections, hashlib, json, os, re, sqlite3, sys, datetime
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tier0"))
@@ -44,6 +44,7 @@ sys.path.insert(0, os.path.join(ROOT, "tier2"))
 from build_corpus import work_title
 from release_lines import GENERIC
 from corrections import load_aliases
+from line_status import line_status
 
 
 def _build(name):
@@ -55,6 +56,9 @@ def _build(name):
 
 
 NOW = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+TODAY = datetime.date.fromisoformat(NOW[:10])
+# A volume title that only repeats the number says nothing the number does not.
+NUMBER_ONLY_TITLE = re.compile(r"^\s*(?:vol(?:ume)?\.?\s*|tome\s*|band\s*)?\d+\s*$", re.I)
 
 MARKET_LANG = {"JP": "ja", "EN": "en", "FR": "fr", "DE": "de", "KR": "ko",
                "IT": "it", "ES": "es", "BR": "pt-BR", "CN": "zh", "TW": "zh-TW",
@@ -210,13 +214,17 @@ def export(src_path, out_path, carry_ids_from=None):
     out.executescript(SCHEMA)
 
     # reuse existing id assignments if a prior artifact is supplied
-    mapping, taken = {}, set()
+    mapping, taken, prev_status = {}, set(), {}
     if carry_ids_from and os.path.exists(carry_ids_from):
         old = sqlite3.connect(carry_ids_from)
         try:
             for t, i, k in old.execute("SELECT opentome_id,int_id,kind FROM id_map"):
                 mapping[t] = i
                 taken.add(i)
+        except sqlite3.OperationalError:
+            pass
+        try:
+            prev_status = dict(old.execute("SELECT tome_id, status FROM series"))
         except sqlite3.OperationalError:
             pass
 
@@ -292,14 +300,25 @@ def export(src_path, out_path, carry_ids_from=None):
     int_max = dict(src.execute("""SELECT release_line_id, MAX(CAST(number AS INTEGER)) FROM volume
                                   WHERE number GLOB '[0-9]*' AND number NOT GLOB '*[^0-9]*'
                                   GROUP BY 1"""))
+    # Last dated volume per line, day or month precision (a year-only date says nothing
+    # about a 24-month window). Stored as the ISO prefix so strings compare.
+    last_dated_of = dict(src.execute("""SELECT release_line_id, MAX(release_date) FROM volume
+                                        WHERE release_date IS NOT NULL
+                                          AND release_date_precision IN ('day','month')
+                                        GROUP BY 1"""))
 
-    def origin_reach(wid, medium, market, lname, wtitle):
-        """Highest volume number of this line's original-market counterpart."""
+    def origin_line(wid, medium, market, lname, wtitle):
+        """This licensed line's counterpart in the work's original market: the same-named
+        line there, else that market's main line. None for an origin-market line."""
         om = origin_of.get((wid, medium))
         if om is None or om == market:
             return None
-        rid = (line_key.get((wid, medium, om, (lname or wtitle).strip().lower()))
-               or main_of.get((wid, om, medium)))
+        return (line_key.get((wid, medium, om, (lname or wtitle).strip().lower()))
+                or main_of.get((wid, om, medium)))
+
+    def origin_reach(wid, medium, market, lname, wtitle):
+        """Highest volume number of this line's original-market counterpart."""
+        rid = origin_line(wid, medium, market, lname, wtitle)
         return int_max.get(rid, 0) if rid else None
 
     n_series = n_vol = n_special = n_alias = n_omni = 0
@@ -315,6 +334,7 @@ def export(src_path, out_path, carry_ids_from=None):
         if (not lname) or normalize(lname) == normalize(wtitle):
             named_line.setdefault((wid, market, medium), rid)
 
+    transitions, newly_stalled = collections.Counter(), []
     for rid, wid, market, medium, publisher, status, parent_rl, wtitle, lname in lines:
         sid = mapping[rid]
         is_main = 1 if main_of.get((wid, market, medium)) == rid else 0
@@ -352,12 +372,13 @@ def export(src_path, out_path, carry_ids_from=None):
                     VALUES(?,?,?,?,?,?,?)""", (sid, str(num), title, rdate, i13, pages.get(vid), c))
                 n_special += 1
                 continue
+            title_out = title if (title and not NUMBER_ONLY_TITLE.match(title)) else None
             cur = out.execute("""INSERT OR IGNORE INTO volumes
                 (gcd_series_id,volume_number,title,release_date,isbn13,isbn10,page_count,
                  composition,release_date_precision,release_date_raw,volume_chapters,tome_id,
                  cover_url,cover_source)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (sid, iv, None, day, i13, i10, pages.get(vid), c, prec, rdate,
+                (sid, iv, title_out, day, i13, i10, pages.get(vid), c, prec, rdate,
                  comp_ch.get(vid), vid, cover_url, cover_src))
             if cur.rowcount:
                 ints_written.add(iv)
@@ -380,32 +401,38 @@ def export(src_path, out_path, carry_ids_from=None):
         # volume_count = rows a consumer can actually read. Counting every row
         # (specials, duplicates) made Mangarr create Books with nothing behind them.
         w_status, w_year = work_facts.get(wid, (None, None))
-        # Mangarr reads completed|ongoing (MapGcdStatus). The work's status is the
-        # original run's; a licensed line is only "completed" once it has reached
-        # the original's last volume -- Gintama's English edition stopped at 23 of
-        # 77 and is not finished, it is stalled. Reach counts contained originals
-        # too, so a 3-in-1 line that covers everything is complete at a third of
-        # the count.
-        # Only a line named after the work carries the work's status: an arc or
-        # spin-off line ("Re:Zero (A Day in the Capital)", finished 2015) would
-        # otherwise inherit the ongoing light novel's, and Mangarr's own fallback
-        # (AniList knows the arc) is better than a confident wrong value.
-        st = status or (w_status if is_named else None)
-        oc = origin_reach(wid, medium, market, lname, wtitle)
-        if st == "ended" and oc:
-            reach = set(ints_written)
-            for cj in comp_vol.values():
-                reach.update(n for n in json.loads(cj) if isinstance(n, int))
-            if (max(reach) if reach else 0) < oc:
+        reach = set(ints_written)
+        for cj in comp_vol.values():
+            reach.update(n for n in json.loads(cj) if isinstance(n, int))
+        orid = origin_line(wid, medium, market, lname, wtitle)
+        orig_sid = mapping.get(orid) if orid else None
+        if orid and not is_omni:
+            # A licensed line with a counterpart: its own dates against the origin's
+            # (export/line_status.py). Named or not no longer matters -- an arc has an
+            # arc to compare with.
+            mangarr_status = line_status(w_status, is_named, max(reach) if reach else None,
+                                         last_dated_of.get(rid), int_max.get(orid),
+                                         last_dated_of.get(orid), TODAY)
+        else:
+            # Origin-market lines, omnibus lines and lines with no counterpart keep the
+            # work's status, with the reach correction as before.
+            st = status or (w_status if is_named else None)
+            oc = origin_reach(wid, medium, market, lname, wtitle)
+            if st == "ended" and oc and (max(reach) if reach else 0) < oc:
                 st = "ongoing"
-        mangarr_status = {"ended": "completed", "ongoing": "ongoing"}.get(st or "", None)
+            mangarr_status = {"ended": "completed", "ongoing": "ongoing"}.get(st or "", None)
+        transitions[(prev_status.get(rid), mangarr_status)] += 1
+        if mangarr_status == "stalled" and prev_status.get(rid) != "stalled":
+            newly_stalled.append((lname or wtitle, MARKET_LANG.get(market, market.lower()),
+                                  max(reach) if reach else None, int_max.get(orid),
+                                  last_dated_of.get(rid), last_dated_of.get(orid)))
         out.execute("""INSERT OR REPLACE INTO series
             (gcd_series_id,name,year_began,publisher,language,is_omnibus,volume_count,status,
-             medium,dated_count,is_main,tome_id,tome_work_id,parent_series_id,author)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             orig_series_id,medium,dated_count,is_main,tome_id,tome_work_id,parent_series_id,author)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (sid, lname or wtitle, min(years) if years else w_year, publisher,
              MARKET_LANG.get(market, market.lower()), is_omni, len(ints_written), mangarr_status,
-             medium, dated, is_main, rid, wid, parent_sid, work_authors.get(wid)))
+             orig_sid, medium, dated, is_main, rid, wid, parent_sid, work_authors.get(wid)))
         out.execute("INSERT OR REPLACE INTO id_map VALUES(?,?, 'release_line')", (rid, sid))
         n_series += 1
 
@@ -510,6 +537,23 @@ def export(src_path, out_path, carry_ids_from=None):
                                    "release_date_raw with release_date_precision."),
     ]:
         out.execute("INSERT OR REPLACE INTO meta VALUES(?,?)", (k, v))
+
+    # Read before publishing: every status that moved since the carry artifact, and the
+    # lines that became 'stalled' (spec §6 decision 4). Also written next to the artifact.
+    print("  status transitions (previous -> new):")
+    for (a, b), n in sorted(transitions.items(), key=lambda kv: -kv[1]):
+        if a != b:
+            print("    %-10s -> %-10s %s" % (a or "NULL", b or "NULL", format(n, ",")))
+    print("  newly stalled: %d" % len(newly_stalled))
+    for name, lang, mv, om, ld, old in sorted(newly_stalled):
+        print("    %s [%s] at %s of %s, last %s (origin last %s)" % (name, lang, mv, om, ld, old))
+    with open(os.path.join(os.path.dirname(out_path), "status-transitions.tsv"), "w", encoding="utf8") as fh:
+        fh.write("previous\tnew\tlines\n")
+        for (a, b), n in sorted(transitions.items(), key=lambda kv: (kv[0][0] or "", kv[0][1] or "")):
+            fh.write("%s\t%s\t%d\n" % (a or "NULL", b or "NULL", n))
+        fh.write("\nnewly_stalled\tlanguage\tmax_vol\torigin_max\tlast_dated\torigin_last_dated\n")
+        for row in sorted(newly_stalled):
+            fh.write("\t".join("" if x is None else str(x) for x in row) + "\n")
     out.commit()
     return dict(series=n_series, volumes=n_vol, specials=n_special, aliases=n_alias,
                 omnibus_lines=n_omni)
