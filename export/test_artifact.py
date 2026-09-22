@@ -220,6 +220,9 @@ def run(path):
         format(g("SELECT COUNT(*) FROM series WHERE status IS NOT NULL"), ","),
         format(g("SELECT COUNT(*) FROM volumes WHERE cover_url IS NOT NULL"), ","),
         format(g("SELECT COUNT(*) FROM series WHERE publisher IS NOT NULL"), ",")))
+    # Nested-template residue from tier-0's regex unwrap can leave a bare '|' in a title;
+    # counted, not gated, so the number is read before a publish (HANDOFF follow-up).
+    print("  info  volume titles carrying a '|': %s" % format(g("SELECT COUNT(*) FROM volumes WHERE title LIKE '%|%'"), ","))
     print("  info  status by value (en): %s" % ", ".join(
         "%s %s" % (s or "NULL", format(n, ",")) for s, n in db.execute(
             "SELECT status, COUNT(*) FROM series WHERE language='en' GROUP BY 1 ORDER BY 2 DESC")))

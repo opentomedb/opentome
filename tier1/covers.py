@@ -46,7 +46,7 @@ def covers_from_cache(verbose=True):
             # openBD answers a batch as a list with a null per unknown ISBN; a batch whose
             # FIRST ISBN was unknown used to be skipped whole (164 covers lost).
             for rec in d:
-                if not rec:
+                if not isinstance(rec, dict):
                     continue
                 s = rec.get("summary") or {}
                 isbn, url = s.get("isbn"), s.get("cover")

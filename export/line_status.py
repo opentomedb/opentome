@@ -27,6 +27,10 @@ def months_before(date_str, today, months):
 
 def line_status(work_status, is_named, max_vol, last_dated, origin_max, origin_last_dated, today,
                 months=STALLED_MONTHS, behind=STALLED_BEHIND):
+    # Only YYYY-MM or YYYY-MM-DD strings reach here (the exporter filters precision); a
+    # shorter value is treated as unknown rather than crashing the export on one bad row.
+    last_dated = last_dated if last_dated and len(last_dated) >= 7 else None
+    origin_last_dated = origin_last_dated if origin_last_dated and len(origin_last_dated) >= 7 else None
     quiet = last_dated is None or months_before(last_dated, today, months)
     origin_quiet = origin_last_dated is None or months_before(origin_last_dated, today, months)
     known = origin_max is not None and max_vol is not None

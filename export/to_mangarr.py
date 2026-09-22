@@ -83,13 +83,17 @@ def _collapse_ws(s):
     return re.sub(r"\s+", " ", (s or "").strip())
 
 
-def title_for_export(title, series_name, native_script_ok, drops=None):
+def title_for_export(title, series_name, native_script_ok, drops=None, trusted=False):
     """The title to bind to an exported volume, or None when it is noise: absent,
     unparsed wiki markup, a script this market's readers cannot use, or a restatement
     of the series name and volume number the row's own columns already carry. `drops`
     (a Counter), when given, is incremented with the reason a title was rejected.
     Per-market title selection is a tier-0 concern -- this only filters what tier-0
-    already produced for THIS line's market."""
+    already produced for THIS line's market.
+    `trusted` marks a hand-checked correction (corrections/*.json -> override): it keeps
+    the hygiene rejects (markup, number-only -- the gate enforces those on every row) but
+    skips the lossy transforms (wrong-script, prefix strip, redundant), so a corrected
+    title round-trips to the artifact exactly as written."""
     def drop(reason):
         if drops is not None:
             drops[reason] += 1
@@ -100,6 +104,8 @@ def title_for_export(title, series_name, native_script_ok, drops=None):
         return drop("number_only")
     if MARKUP_TITLE_RE.search(title):
         return drop("markup")
+    if trusted:
+        return title
     if not native_script_ok and NATIVE_SCRIPT_RE.search(title):
         return drop("wrong_script")
     name = _collapse_ws(series_name)
@@ -109,6 +115,8 @@ def title_for_export(title, series_name, native_script_ok, drops=None):
             title = m.group(1)
             if drops is not None:
                 drops["prefix-stripped"] += 1
+            if NUMBER_ONLY_TITLE.match(title):
+                return drop("number_only")      # "Series 5: 1" -> "1" says nothing either
     if name and re.match(r"^" + re.escape(name) + r"(?:" + _REDUNDANT_SUFFIX + r")?$",
                           _collapse_ws(title), re.I):
         return drop("redundant")
@@ -294,6 +302,12 @@ def export(src_path, out_path, carry_ids_from=None):
         except (TypeError, ValueError):
             pass
 
+    # Hand-checked title corrections (tier2/corrections.py writes an override row): the
+    # export keeps them verbatim so the contract rule "volume corrections present in the
+    # artifact" can hold -- see title_for_export(trusted=...).
+    trusted_titles = {vid for (vid,) in src.execute(
+        "SELECT entity_id FROM override WHERE entity='volume' AND field='title'")}
+
     # ISBN-keyed cover URLs (tier1/covers.py). One volume has one ISBN, so at most
     # one claim per source; prefer the source native to the volume's market.
     covers = {}
@@ -475,7 +489,8 @@ def export(src_path, out_path, carry_ids_from=None):
                     VALUES(?,?,?,?,?,?,?)""", (sid, str(num), title, rdate, i13, pages.get(vid), c))
                 n_special += 1
                 continue
-            title_out = title_for_export(title, lname or wtitle, native_script_ok, title_drops)
+            title_out = title_for_export(title, lname or wtitle, native_script_ok, title_drops,
+                                         trusted=vid in trusted_titles)
             if title_out:
                 n_title_kept += 1
             cur = out.execute("""INSERT OR IGNORE INTO volumes
@@ -663,7 +678,7 @@ def export(src_path, out_path, carry_ids_from=None):
     _stalled_key = lambda r: (r[0] or "", r[1] or "", r[2] if r[2] is not None else -1)
     for name, lang, mv, om, ld, old in sorted(newly_stalled, key=_stalled_key):
         print("    %s [%s] at %s of %s, last %s (origin last %s)" % (name, lang, mv, om, ld, old))
-    with open(os.path.join(os.path.dirname(out_path), "status-transitions.tsv"), "w", encoding="utf8") as fh:
+    with open(os.path.join(os.path.dirname(os.path.abspath(out_path)), "status-transitions.tsv"), "w", encoding="utf8") as fh:
         fh.write("previous\tnew\tlines\n")
         for (a, b), n in sorted(transitions.items(), key=lambda kv: (kv[0][0] or "", kv[0][1] or "")):
             fh.write("%s\t%s\t%d\n" % (a or "NULL", b or "NULL", n))

@@ -102,8 +102,14 @@ dropped rather than exported as if they said something).
 `series.status` is now per LINE, not per work, for a licensed market: `completed` |
 `ongoing` | `stalled` | `NULL`. The rule lives in `export/line_status.py` — a line is
 `stalled` when it is at least two volumes behind its origin-market counterpart and
-nothing has shipped in 24 months while the origin kept going. Origin-market and omnibus
-lines still take the work's own status.
+nothing has shipped in 24 months while the origin kept going. A line that is NOT the
+work's main line (an arc, a side story) and has reached its origin's top volume, with
+neither market shipping for 24 months, is `completed` even while the work itself is
+`ongoing` — a finished arc of a running series. A main line in the same position keeps
+the work's status (a hiatus is still `ongoing`). Origin-market and omnibus lines take the
+work's own status as before; `release_line.status` in the pipeline DB is not consulted
+for a licensed line with a resolved origin (it is the column a future corrections-only
+`cancelled` would use).
 
 `series.orig_series_id` is the origin counterpart line's id for a licensed line — the
 same-work, same-medium line the status rule and a cross-market join compare against.

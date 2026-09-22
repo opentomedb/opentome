@@ -50,6 +50,8 @@ def run():
     eq("no work status, no dates", line_status(None, True, 3, None, None, None, TODAY), None)
     eq("no work status, quiet, behind by one", line_status(None, True, 3, "2020-01-01", 4, "2021-01-01", TODAY), None)
     eq("no volumes at all", line_status("ongoing", True, None, None, 10, "2026-01-01", TODAY), "ongoing")
+    eq("a year-only date is unknown, not a crash", line_status("ongoing", True, 3, "2019", 10, "2026", TODAY), "ongoing")
+    eq("exactly two behind can stall", line_status("ongoing", True, 10, "2019-03-05", 12, "2026-01-01", TODAY), "stalled")
 
     if FAILS:
         print("FAILED: " + ", ".join(FAILS))
