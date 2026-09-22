@@ -73,9 +73,13 @@ def run(path):
          g("""SELECT COUNT(*) FROM series_alias WHERE alias LIKE '%{{%' OR alias LIKE '%[[%'
               OR alias LIKE '%<%'"""))
     rule("empty series names", g("SELECT COUNT(*) FROM series WHERE TRIM(name)=''"))
+    # a lone "<上>" / "<First>" is text, not markup -- flag exactly the exporter's drop
+    # set (MARKUP_TITLE_RE in to_mangarr.py), never a bare '<'.
     rule("volume titles with wiki markup",
-         g("""SELECT COUNT(*) FROM volumes WHERE title LIKE '%{{%' OR title LIKE '%[[%'
-              OR title LIKE '%<%' OR title LIKE '%}}%'"""))
+         g("""SELECT COUNT(*) FROM volumes WHERE title LIKE '%{{%' OR title LIKE '%}}%'
+              OR title LIKE '%[[%' OR title LIKE '%]]%' OR title LIKE '%<ref%'
+              OR title LIKE '%<br%' OR title LIKE '%<!--%' OR title LIKE '%<ruby%'
+              OR title LIKE '%</%'"""))
     number_only = 0
     for (t,) in db.execute("SELECT title FROM volumes WHERE title IS NOT NULL"):
         if re.fullmatch(r"\s*(?:vol(?:ume)?\.?\s*|tome\s*|band\s*)?\d+\s*", t, re.I):
@@ -181,7 +185,7 @@ def run(path):
          g("""SELECT COUNT(*) FROM series l LEFT JOIN series o ON o.gcd_series_id=l.orig_series_id
               WHERE l.orig_series_id IS NOT NULL
               AND (o.gcd_series_id IS NULL OR o.tome_work_id<>l.tome_work_id OR o.medium<>l.medium
-                   OR o.language NOT IN ('ja','ko','zh','zh-TW','zh-HK') OR l.language IN ('ja','ko','zh','zh-TW','zh-HK'))"""))
+                   OR o.language NOT IN ('ja','ko','zh','zh-TW','zh-HK') OR o.language=l.language)"""))
     rule("cover_url without cover_source (or vice versa)",
          g("""SELECT COUNT(*) FROM volumes WHERE (cover_url IS NULL) <> (cover_source IS NULL)"""))
     rule("cover_url that is not http(s)",
