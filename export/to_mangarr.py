@@ -401,11 +401,6 @@ def export(src_path, out_path, carry_ids_from=None):
         return (line_key.get((wid, medium, om, (lname or wtitle).strip().lower()))
                 or main_of.get((wid, om, medium)))
 
-    def origin_reach(wid, medium, market, lname, wtitle):
-        """Highest volume number of this line's original-market counterpart."""
-        rid = origin_line(wid, medium, market, lname, wtitle)
-        return int_max.get(rid, 0) if rid else None
-
     n_series = n_vol = n_special = n_alias = n_omni = 0
     # ids first, so a child line can point at its parent whichever comes first
     for rid, *_ in lines:
@@ -430,7 +425,11 @@ def export(src_path, out_path, carry_ids_from=None):
             parent_sid = None
         # Native-script titles are only legitimate on a line in its own origin market;
         # a licensed line's readers cannot use them (spec: fix round 1, controller finding).
-        native_script_ok = origin_of.get((wid, medium)) in (None, market)
+        # An UNKNOWN origin is not the same as "this market IS the origin": a work with
+        # only an EN line (no JP/KR/CN/TW counterpart at all) is never native for CJK
+        # script (fix round 3 -- Jack Frost's en-only line was exporting raw Hangul).
+        om = origin_of.get((wid, medium))
+        native_script_ok = (om == market) if om is not None else (market in ORIGIN)
 
         vols = src.execute("""SELECT id, number, title, release_date, release_date_precision,
                                      isbn13, isbn10, format
@@ -508,7 +507,7 @@ def export(src_path, out_path, carry_ids_from=None):
             # Origin-market lines, omnibus lines and lines with no counterpart keep the
             # work's status, with the reach correction as before.
             st = status or (w_status if is_named else None)
-            oc = origin_reach(wid, medium, market, lname, wtitle)
+            oc = int_max.get(orid, 0) if orid else None
             if st == "ended" and oc and (max(reach) if reach else 0) < oc:
                 st = "ongoing"
             mangarr_status = {"ended": "completed", "ongoing": "ongoing"}.get(st or "", None)
@@ -642,14 +641,18 @@ def export(src_path, out_path, carry_ids_from=None):
         if a != b:
             print("    %-10s -> %-10s %s" % (a or "NULL", b or "NULL", format(n, ",")))
     print("  newly stalled: %d" % len(newly_stalled))
-    for name, lang, mv, om, ld, old in sorted(newly_stalled):
+    # None-safe: origin_last_dated (and a tie on name+lang, e.g. two "Aria the Scarlet
+    # Ammo" lines) can put a None next to a str, which a bare sorted() can't compare
+    # (fix round 3, the same class of bug as the transitions sort above).
+    _stalled_key = lambda r: (r[0] or "", r[1] or "", r[2] if r[2] is not None else -1)
+    for name, lang, mv, om, ld, old in sorted(newly_stalled, key=_stalled_key):
         print("    %s [%s] at %s of %s, last %s (origin last %s)" % (name, lang, mv, om, ld, old))
     with open(os.path.join(os.path.dirname(out_path), "status-transitions.tsv"), "w", encoding="utf8") as fh:
         fh.write("previous\tnew\tlines\n")
         for (a, b), n in sorted(transitions.items(), key=lambda kv: (kv[0][0] or "", kv[0][1] or "")):
             fh.write("%s\t%s\t%d\n" % (a or "NULL", b or "NULL", n))
         fh.write("\nnewly_stalled\tlanguage\tmax_vol\torigin_max\tlast_dated\torigin_last_dated\n")
-        for row in sorted(newly_stalled):
+        for row in sorted(newly_stalled, key=_stalled_key):
             fh.write("\t".join("" if x is None else str(x) for x in row) + "\n")
     out.commit()
     return dict(series=n_series, volumes=n_vol, specials=n_special, aliases=n_alias,
