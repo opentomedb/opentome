@@ -93,3 +93,21 @@ Attack on Titan it does **not** — French tracks Japanese 1:1. The divergent ma
 this title is **German**, whose Carlsen omnibus editions run 450–472pp against ~190pp
 elsewhere. Cross-market divergence is real, but it is per-title and per-market, not a
 property of French.
+
+## 2026-09-21 — volume titles, per-line status, orig_series_id
+
+`volumes.title` is the Wikipedia row title (number-only titles, e.g. "Volume 3", are
+dropped rather than exported as if they said something).
+
+`series.status` is now per LINE, not per work, for a licensed market: `completed` |
+`ongoing` | `stalled` | `NULL`. The rule lives in `export/line_status.py` — a line is
+`stalled` when it is at least two volumes behind its origin-market counterpart and
+nothing has shipped in 24 months while the origin kept going. Origin-market and omnibus
+lines still take the work's own status.
+
+`series.orig_series_id` is the origin counterpart line's id for a licensed line — the
+same-work, same-medium line the status rule and a cross-market join compare against.
+
+A consumer that maps `status` to its own enum must treat `stalled` as neither
+`completed` nor `ongoing`. Mangarr's `MapGcdStatus` does not recognize it yet and falls
+back to AniList, which is safe but loses the signal.

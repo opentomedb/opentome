@@ -116,9 +116,10 @@ on every sibling line). `market` is one of `JP EN FR DE KR IT ES BR CN TW HK`.
 Every volume needs a `number`; `contains` lists the original-market volume
 numbers each volume collects — `[1]` for a straight translation, `[1, 2]` for a
 2-in-1 — and is how the cross-market mapping and the status rule see the
-edition. Per-volume fields: `isbn13`, `release_date`, `page_count`, `title`. An
-ISBN whose registration group is another market's (a 978-4 on an English line)
-is rejected: that is the single most common way a wrong row gets in.
+edition. Per-volume fields: `isbn13`, `release_date`, `page_count`, `title`,
+`cover_url`. An ISBN whose registration group is another market's (a 978-4 on
+an English line) is rejected: that is the single most common way a wrong row
+gets in.
 
 The line receives exactly the id the pipeline would give the same edition, so
 if a source later carries it the two meet instead of duplicating, and the

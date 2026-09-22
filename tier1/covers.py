@@ -42,7 +42,9 @@ def covers_from_cache(verbose=True):
                 url = cover.get("large") or cover.get("medium")
                 if url and isbn not in out:
                     out[isbn] = (url, "openlibrary")
-        elif isinstance(d, list) and d and isinstance(d[0], dict) and "summary" in d[0]:
+        elif isinstance(d, list) and any(isinstance(x, dict) and "summary" in x for x in d):
+            # openBD answers a batch as a list with a null per unknown ISBN; a batch whose
+            # FIRST ISBN was unknown used to be skipped whole (164 covers lost).
             for rec in d:
                 if not rec:
                     continue

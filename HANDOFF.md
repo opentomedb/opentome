@@ -1,6 +1,6 @@
 # HANDOFF — OpenTome
 
-_Last updated: 2026-09-20_
+_Last updated: 2026-09-21_
 
 ## 2026-09-21 — publish opentome-2026-09-21 (Rascal Does Not Dream vol. 16)
 
@@ -61,6 +61,17 @@ and `meta.alias_provenance` must be `opentome` — the clean-room guard.
 
 ### 2026-09-20 — `series.author`
 - `export/to_mangarr.py`: new nullable `series.author` column, the first name of the work's tier-0 `author` claim (the main article's infobox), on every line of the work; Mangarr reads it when present (a pin there overrides it). Wiki residue tier-0's one-pass template strip leaves behind (`Kentaro Miura ({{nowrap| 1–41}})`) is removed at export; a parenthetical that still says something (`Jitakukeibihei (Natsume Akatsuki)`) stays; an entry that is only a qualifier (`(1994–1998)`) is not a name. Contract rule `authors with markup` + info line `series with an author` in `export/test_artifact.py`. Local build: 9,598 / 11,658 lines carry an author, ids carried with 0 churn, measure gate `matched 48/49, 0 coverage failures`. **Not published — the next `publish=true` dispatch ships it** (Nick's gate).
+
+### 2026-09-21 — volume titles, per-line status, orig_series_id, cover harvest guard
+- `export/to_mangarr.py` binds `volumes.title` from the pipeline's row title instead of `None`, dropping a title that is number-only, carries wiki markup (`{{ }} [[ ]] <ref <br <!-- <ruby </`), is in kana/CJK/hangul on a non-origin-market line, or merely restates the series name plus a number. Local export: 9,317 titles kept; dropped: number-only 6, markup 143, wrong-script 1,766, redundant 213. Most English rows still carry the Japanese title today because the row's title is the first non-blank of `(Title, OriginalTitle, LicensedTitle)` regardless of which market's row it is — the 1,766 wrong-script drops are the measure of that. Task 7 (a tier-0 change to the loader, not yet built) makes the loader pick the licensed title for licensed rows; not part of this round.
+- `series.status` is now per LINE for a licensed market with a resolvable origin (`completed | ongoing | stalled`), from new `export/line_status.py` + `export/test_line_status.py`: `stalled` = at least two volumes behind the origin, nothing dated in 24 months, origin kept shipping. Origin-market and omnibus lines keep the work's status. `series.orig_series_id` is written for every resolved licensed line — the origin counterpart chosen by medium (manhwa/webtoon → KR, manhua → CN then TW), else earliest first release, else the old JP/KR/CN/TW order. Known accepted defect: Denma (medium `manga`, ko line) still resolves to its ja edition — the medium hint only applies to manhwa/manhua/webtoon.
+- Transition table against the 2026-09-20 artifact (`export/to_mangarr.py` prints it and writes `build/status-transitions.tsv`): NULL→completed 594, NULL→ongoing 309, NULL→stalled 41, ongoing→stalled 153 — 194 lines newly stalled, 122 of them English.
+- Contract additions in `export/test_artifact.py`: allowed `status` set is now `{completed, ongoing, stalled, NULL}`; `stalled` invariants (`orig_series_id` required, no dated volume in the last 24 months, at least two volumes behind its origin); `orig_series_id` pointing at a missing series, another work, or an origin-market mismatch; volume titles with wiki markup; volume titles that are only a number.
+- `tier1/covers.py:45`: the openBD cache reader checked only the FIRST element of a cached response list for a `summary` key, so a batch whose first ISBN was unknown was skipped whole. Now checks every element. Cache-only, zero requests (`covers_from_cache`); local before/after on this workstation's `.cache/`: `cache files 15,695 -> cover URLs for 12,311 ISBNs (openbd 125, openlibrary 12,186)` → `... 12,313 ISBNs (openbd 127, openlibrary 12,186)`. English/French coverage does not move — bounded by what Open Library returns for ISBNs it knows, which is already fully harvested (`docs/legal-position.md`, `corrections/README.md`).
+- Local gate (`export/test_artifact.py`): 27/28 rules ok. The one fail, `publishers with markup: 114`, is the local pipeline DB predating the tier-0 publisher fix from 2026-09-19 (`_publisher_field`); CI, which rebuilds from a clean cache, reports 0 — not a regression from this round.
+- Stage 0 unit tests green: `tier0/test_parser.py`, `tier2/test_resolve.py`, `export/test_resolve_anilist.py`, `export/test_measure_fixture.py`, `export/test_line_status.py`.
+- **Not published — the next `publish=true` dispatch ships it** (Nick's gate); the Sunday `catalogue` build picks it up regardless.
+- Open items: Task 7 tier-0 title pick (above); the Denma `orig_series_id` defect (accepted, not blocking); the 1,766 wrong-script title drops as the measure of how much the upstream title-pick problem still costs English lines. Mangarr consumer follow-ups (separate repo, after publish): `SubtitleOf` should take the artifact title as its first candidate before the Google Books record; `MapGcdStatus` should map `stalled` to a visible Stalled state instead of falling back to AniList (which reads a still-running Japanese series as Continuing — safe but loses the signal).
 
 ## Next
 

@@ -46,6 +46,10 @@ Having actually read the terms, the honest numbers are:
    ambiguous. Also: we made ~25,000 individual API calls where they direct bulk users to
    the dumps. **Switching to the dumps is both more correct and better behaved**, and
    should happen regardless of the commercial question.
+   Cover coverage is bounded by Open Library itself: every cover the API returns for an
+   ISBN it knows is already harvested from the cached responses with no further requests,
+   and an ISBN it does not know yields nothing from any endpoint. Raising cover coverage
+   is a source question, not a request-volume one.
 3. **The EU sui generis database right.** Facts are free in the US under *Feist*; the EU
    grants exactly the sweat-of-the-brow protection *Feist* rejected. Europe is the target
    market, so this is not theoretical. **This is the one that genuinely needs a lawyer.**
