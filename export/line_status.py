@@ -38,7 +38,7 @@ def line_status(work_status, is_named, max_vol, last_dated, origin_max, origin_l
         return "completed"
     # 2. stalled: well behind, dead for 24 months, while the origin kept publishing
     if (gap is not None and gap >= behind and last_dated and quiet
-            and (origin_last_dated is None or origin_last_dated > last_dated)):
+            and (origin_last_dated is None or origin_last_dated[:7] > last_dated[:7])):
         return "stalled"
     # 3. still shipping
     if not quiet:

@@ -34,6 +34,8 @@ def run():
     eq("quiet but origin quieter is not stalled", line_status("ongoing", True, 12, "2020-03-05", 15, "2019-01-01", TODAY), "ongoing")
     eq("behind but shipped recently", line_status("ongoing", True, 12, "2026-03-05", 20, "2026-06-01", TODAY), "ongoing")
     eq("no dates cannot stall", line_status("ongoing", True, 12, None, 20, "2026-06-01", TODAY), "ongoing")
+    eq("origin later by month, mixed precision, stalls", line_status("ongoing", True, 12, "2019-03-05", 30, "2019-04", TODAY), "stalled")
+    eq("origin same month at day precision is not later", line_status("ongoing", True, 12, "2019-03", 30, "2019-03-28", TODAY), "ongoing")
 
     # rule 3 -- shipped within 24 months
     eq("recent = ongoing regardless of work status", line_status(None, True, 3, "2025-11-01", None, None, TODAY), "ongoing")

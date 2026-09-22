@@ -227,7 +227,7 @@ def run(path):
         format(g("SELECT COUNT(*) FROM volumes WHERE title IS NOT NULL"), ","),
         format(g("SELECT COUNT(*) FROM volumes"), ","),
         format(g("SELECT COUNT(*) FROM series WHERE orig_series_id IS NOT NULL"), ","),
-        format(g("SELECT COUNT(*) FROM series WHERE language NOT IN ('ja','ko','zh')"), ",")))
+        format(g("SELECT COUNT(*) FROM series WHERE language NOT IN ('ja','ko','zh','zh-TW','zh-HK')"), ",")))
     print("  info  series with an author: %s / %s" % (
         format(g("SELECT COUNT(*) FROM series WHERE author IS NOT NULL"), ","),
         format(g("SELECT COUNT(*) FROM series"), ",")))

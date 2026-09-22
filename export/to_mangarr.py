@@ -70,6 +70,13 @@ NATIVE_SCRIPT_RE = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
 # an optional vol/tome/band word, and a volume number -- i.e. nothing the row's own
 # volume_number column doesn't already say.
 _REDUNDANT_SUFFIX = r"(?:\s*[:\-–,])?\s*(?:(?:vol(?:ume)?\.?|tome|band)\s*)?\d+"
+# The English wiki's LicensedTitle often carries the series name and volume number
+# AHEAD OF the real subtitle ("Sword Art Online 1: Aincrad", "Sword Art Online, Vol.
+# 1: Aincrad") -- Task 7's spot check. Strip that lead-in so what's left is just the
+# subtitle; a final separator + whitespace + non-empty remainder is required, so a
+# title that is ONLY the series name and number (no subtitle after it) is left alone
+# here and falls through to the redundant-suffix check below instead.
+_PREFIX_LEAD_IN = r"[\s:,\-–—]*(?:(?:vol(?:ume)?\.?|tome|band)\s*)?\d+\s*[:\-–—]\s+(.+)$"
 
 
 def _collapse_ws(s):
@@ -96,6 +103,12 @@ def title_for_export(title, series_name, native_script_ok, drops=None):
     if not native_script_ok and NATIVE_SCRIPT_RE.search(title):
         return drop("wrong_script")
     name = _collapse_ws(series_name)
+    if name:
+        m = re.match(r"^" + re.escape(name) + _PREFIX_LEAD_IN, _collapse_ws(title), re.I)
+        if m:
+            title = m.group(1)
+            if drops is not None:
+                drops["prefix-stripped"] += 1
     if name and re.match(r"^" + re.escape(name) + r"(?:" + _REDUNDANT_SUFFIX + r")?$",
                           _collapse_ws(title), re.I):
         return drop("redundant")
@@ -375,7 +388,9 @@ def export(src_path, out_path, carry_ids_from=None):
         dated = [(d, m) for m in ORIGIN if m in markets
                  for d in [first_dated_by_market.get(m)] if d]
         if dated:
-            return min(dated)[1]
+            # A tie on date falls back to the documented JP>KR>CN>TW order, not an
+            # alphabetical one ("CN" < "JP" would otherwise win the tie wrongly).
+            return min(dated, key=lambda dm: (dm[0], ORIGIN.index(dm[1])))[1]
         return next((m for m in ORIGIN if m in markets), None)
 
     origin_of = {}
@@ -630,9 +645,10 @@ def export(src_path, out_path, carry_ids_from=None):
 
     # Read before publishing: what title_for_export kept vs rejected, and why (fix
     # round 1 -- wrong-script and markup titles were reaching the artifact).
-    print("  titles kept %d; dropped: number-only %d, markup %d, wrong-script %d, redundant %d" % (
+    print("  titles kept %d; dropped: number-only %d, markup %d, wrong-script %d, redundant %d"
+          "; prefix stripped %d" % (
         n_title_kept, title_drops["number_only"], title_drops["markup"],
-        title_drops["wrong_script"], title_drops["redundant"]))
+        title_drops["wrong_script"], title_drops["redundant"], title_drops["prefix-stripped"]))
 
     # Read before publishing: every status that moved since the carry artifact, and the
     # lines that became 'stalled' (spec §6 decision 4). Also written next to the artifact.
