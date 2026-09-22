@@ -59,6 +59,46 @@ NOW = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 TODAY = datetime.date.fromisoformat(NOW[:10])
 # A volume title that only repeats the number says nothing the number does not.
 NUMBER_ONLY_TITLE = re.compile(r"^\s*(?:vol(?:ume)?\.?\s*|tome\s*|band\s*)?\d+\s*$", re.I)
+# Unstripped wiki syntax that never belonged in a title in the first place. A lone
+# '<' or '>' is left alone -- Japanese titles legitimately use them ('新たな恋敵<ライバル>').
+MARKUP_TITLE_RE = re.compile(r"\{\{|\}\}|\[\[|\]\]|<ref|<br", re.I)
+# Kana, CJK ideographs, hangul -- the scripts a non-origin-market reader cannot use.
+NATIVE_SCRIPT_RE = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
+# series_name, optionally followed by a separator (punctuation or plain whitespace),
+# an optional vol/tome/band word, and a volume number -- i.e. nothing the row's own
+# volume_number column doesn't already say.
+_REDUNDANT_SUFFIX = r"(?:\s*[:\-–,])?\s*(?:(?:vol(?:ume)?\.?|tome|band)\s*)?\d+"
+
+
+def _collapse_ws(s):
+    return re.sub(r"\s+", " ", (s or "").strip())
+
+
+def title_for_export(title, series_name, native_script_ok, drops=None):
+    """The title to bind to an exported volume, or None when it is noise: absent,
+    unparsed wiki markup, a script this market's readers cannot use, or a restatement
+    of the series name and volume number the row's own columns already carry. `drops`
+    (a Counter), when given, is incremented with the reason a title was rejected.
+    Per-market title selection is a tier-0 concern -- this only filters what tier-0
+    already produced for THIS line's market."""
+    def drop(reason):
+        if drops is not None:
+            drops[reason] += 1
+        return None
+    if not title:
+        return None
+    if NUMBER_ONLY_TITLE.match(title):
+        return drop("number_only")
+    if MARKUP_TITLE_RE.search(title):
+        return drop("markup")
+    if not native_script_ok and NATIVE_SCRIPT_RE.search(title):
+        return drop("wrong_script")
+    name = _collapse_ws(series_name)
+    if name and re.match(r"^" + re.escape(name) + r"(?:" + _REDUNDANT_SUFFIX + r")?$",
+                          _collapse_ws(title), re.I):
+        return drop("redundant")
+    return title
+
 
 MARKET_LANG = {"JP": "ja", "EN": "en", "FR": "fr", "DE": "de", "KR": "ko",
                "IT": "it", "ES": "es", "BR": "pt-BR", "CN": "zh", "TW": "zh-TW",
@@ -335,6 +375,7 @@ def export(src_path, out_path, carry_ids_from=None):
             named_line.setdefault((wid, market, medium), rid)
 
     transitions, newly_stalled = collections.Counter(), []
+    title_drops, n_title_kept = collections.Counter(), 0
     for rid, wid, market, medium, publisher, status, parent_rl, wtitle, lname in lines:
         sid = mapping[rid]
         is_main = 1 if main_of.get((wid, market, medium)) == rid else 0
@@ -342,6 +383,9 @@ def export(src_path, out_path, carry_ids_from=None):
         parent_sid = mapping.get(parent_rl or (None if is_named else named_line.get((wid, market, medium))))
         if parent_sid == sid:
             parent_sid = None
+        # Native-script titles are only legitimate on a line in its own origin market;
+        # a licensed line's readers cannot use them (spec: fix round 1, controller finding).
+        native_script_ok = origin_of.get((wid, medium)) in (None, market)
 
         vols = src.execute("""SELECT id, number, title, release_date, release_date_precision,
                                      isbn13, isbn10, format
@@ -372,7 +416,9 @@ def export(src_path, out_path, carry_ids_from=None):
                     VALUES(?,?,?,?,?,?,?)""", (sid, str(num), title, rdate, i13, pages.get(vid), c))
                 n_special += 1
                 continue
-            title_out = title if (title and not NUMBER_ONLY_TITLE.match(title)) else None
+            title_out = title_for_export(title, lname or wtitle, native_script_ok, title_drops)
+            if title_out:
+                n_title_kept += 1
             cur = out.execute("""INSERT OR IGNORE INTO volumes
                 (gcd_series_id,volume_number,title,release_date,isbn13,isbn10,page_count,
                  composition,release_date_precision,release_date_raw,volume_chapters,tome_id,
@@ -537,6 +583,12 @@ def export(src_path, out_path, carry_ids_from=None):
                                    "release_date_raw with release_date_precision."),
     ]:
         out.execute("INSERT OR REPLACE INTO meta VALUES(?,?)", (k, v))
+
+    # Read before publishing: what title_for_export kept vs rejected, and why (fix
+    # round 1 -- wrong-script and markup titles were reaching the artifact).
+    print("  titles kept %d; dropped: number-only %d, markup %d, wrong-script %d, redundant %d" % (
+        n_title_kept, title_drops["number_only"], title_drops["markup"],
+        title_drops["wrong_script"], title_drops["redundant"]))
 
     # Read before publishing: every status that moved since the carry artifact, and the
     # lines that became 'stalled' (spec §6 decision 4). Also written next to the artifact.
