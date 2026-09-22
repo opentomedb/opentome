@@ -163,11 +163,18 @@ def run(path):
     # Arc restarts: rows in ONE line whose titles switch stem and restart at 1
     # for 2+ rows are a follow-up series Wikipedia numbered continuously
     # (SAO Progressive 8-14). tier0/release_lines.split_arcs separates them.
+    # Origin-market rows only (2026-09-21): a licensed row now carries ITS market's
+    # title (LicensedTitle), and an English publisher's own sub-series numbering
+    # ("Sword Art Online Progressive 1", "... 2") restarts inside a line the
+    # splitter -- which reads the row title -- rightly left whole. The splitter's
+    # input and this check must see the same titles, and those are the origin rows'.
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))), "tier0"))
     from release_lines import _stem, _norm
     unsplit = 0
-    for (rlid,) in db.execute("SELECT DISTINCT release_line_id FROM volume WHERE title IS NOT NULL"):
+    for (rlid,) in db.execute("""SELECT DISTINCT v.release_line_id FROM volume v
+                                 JOIN release_line rl ON rl.id=v.release_line_id
+                                 WHERE v.title IS NOT NULL AND rl.market IN ('JP','KR','CN','TW')"""):
         stems = [_stem(t) for (t,) in db.execute(
             "SELECT title FROM volume WHERE release_line_id=? ORDER BY rowid", (rlid,))]
         base = next((st for st, n in stems if st), None)
