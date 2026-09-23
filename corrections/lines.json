@@ -1,5 +1,26 @@
 [
   {
+    "line": "rl_266a70c679ed",
+    "medium": "manhwa",
+    "source_url": "https://en.wikipedia.org/wiki/Denma",
+    "reason": "Denma is a Korean webtoon (Naver, 2010-) printed and licensed as a manga -- tagged plain 'manga' upstream (tier0/release_lines.py has no medium hint for it), which puts pick_origin's step 2 (earliest dated volume) in charge: the JA edition's first print (2008-10-14) predates the KO edition's (2015-01-20, a late collected edition of the still-running webtoon), so the KO line resolved to its own JA translation as 'the origin' -- see export/to_mangarr.py's pick_origin() docstring. Retagging all three of the work's lines 'manhwa' (this JP one, the EN one, and the KR one) routes them through the medium hint instead, so the KO line becomes the origin.",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_bc84c55a1f7e",
+    "medium": "manhwa",
+    "source_url": "https://en.wikipedia.org/wiki/Denma",
+    "reason": "Same work as rl_266a70c679ed -- see that entry. The EN licensed line must carry the same medium as its JP/KR counterparts, or it falls into a different (work, medium) group and its orig_series_id keeps resolving to JP.",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_b6ed029e46f3",
+    "medium": "manhwa",
+    "source_url": "https://en.wikipedia.org/wiki/Denma",
+    "reason": "Same work as rl_266a70c679ed -- see that entry. This is the KR line: once all three share medium 'manhwa', the manhwa->KR hint makes this the origin (orig_series_id NULL for this line; JP and EN resolve to it).",
+    "checked": "2026-09-23"
+  },
+  {
     "work": "w_179929c7bc15",
     "market": "EN",
     "medium": "light_novel",

@@ -100,6 +100,36 @@ class CheckTests(unittest.TestCase):
         code, out = self.check(self.corrections(lines=[LINE], aliases=[ALIAS]))
         self.assertEqual(code, 0, out)
 
+    # -- medium override (2026-09-23 follow-up: the Denma orig_series_id defect)
+    def test_medium_override_resolves(self):
+        m = {"line": "rl_aaaaaaaaaaaa", "medium": "manhwa",
+             "source_url": "https://example.org/medium", "checked": "2026-09-18"}
+        code, out = self.check(self.corrections(lines=[m]))
+        self.assertEqual(code, 0, out)
+
+    def test_medium_override_bad_medium_fails(self):
+        m = {"line": "rl_aaaaaaaaaaaa", "medium": "not_a_medium",
+             "source_url": "https://example.org/medium", "checked": "2026-09-18"}
+        code, out = self.check(self.corrections(lines=[m]))
+        self.assertEqual(code, 1)
+        self.assertIn("lines.json[0]", out)
+        self.assertIn("not_a_medium", out)
+
+    def test_medium_override_stale_line_fails(self):
+        m = {"line": "rl_999999999999", "medium": "manhwa",
+             "source_url": "https://example.org/medium", "checked": "2026-09-18"}
+        code, out = self.check(self.corrections(lines=[m]))
+        self.assertEqual(code, 1)
+        self.assertIn("STALE CORRECTION", out)
+        self.assertIn("rl_999999999999", out)
+
+    def test_medium_override_missing_key_fails(self):
+        m = {"line": "rl_aaaaaaaaaaaa", "source_url": "https://example.org/medium", "checked": "2026-09-18"}
+        code, out = self.check(self.corrections(lines=[m]))
+        self.assertEqual(code, 1)
+        self.assertIn("lines.json[0]", out)
+        self.assertIn("medium", out)
+
     # -- failures: stale keys
     def test_stale_volume_id_fails(self):
         v = dict(VOL, volume="v_999999999999")

@@ -47,6 +47,19 @@ sys.path.insert(0, os.path.join(ROOT, "schema"))
 sys.path.insert(0, os.path.join(ROOT, "tier0"))
 from load import _id, LICENCE, MARKET_LANG        # noqa: E402  (ids must match the loader's)
 from isbn import isbn_market, normalise_isbn      # noqa: E402
+from release_lines import MEDIUM_HINTS            # noqa: E402  (canonical medium names)
+
+# A medium OVERRIDE entry (2026-09-23 follow-up, the Denma orig_series_id defect):
+# unlike a normal lines.json entry, which ADDS a release line the sources don't
+# carry, this retags the `medium` of a line that already exists -- keyed on the
+# line's own id (never on work/medium/market/name, which is what a normal entry's
+# id is HASHED from: computing a fresh id from an overridden medium would not
+# match the real line and would create a duplicate, id-contract-breaking row).
+# Recognised by the absence of "volumes" (a normal entry always has a non-empty
+# one -- see LINE_KEYS/_require). Applied as a plain UPDATE, so the line's id
+# never changes.
+MEDIUM_KEYS = ("line", "medium", "source_url", "checked")
+KNOWN_MEDIA = {name for name, _ in MEDIUM_HINTS} | {"webtoon"}
 
 
 def _read(name, directory=DIR):
@@ -99,8 +112,21 @@ def apply_line_corrections(db, entries=None, verbose=True):
     """
     c = db.cursor()
     entries = _read("lines.json") if entries is None else entries
-    n_lines = n_vols = 0
+    n_lines = n_vols = n_medium = 0
     for i, e in enumerate(entries):
+        if "volumes" not in e:
+            _require(e, MEDIUM_KEYS, "lines.json", i)
+            line, medium = e["line"], e["medium"]
+            if medium not in KNOWN_MEDIA:
+                raise ValueError("lines.json[%d]: unknown medium %r (%s)"
+                                 % (i, medium, ", ".join(sorted(KNOWN_MEDIA))))
+            if not c.execute("SELECT 1 FROM release_line WHERE id=?", (line,)).fetchone():
+                print("\n  STALE CORRECTION -- lines.json[%d]: line %s is not in the catalogue"
+                      % (i, line), flush=True)
+                raise SystemExit(1)
+            c.execute("UPDATE release_line SET medium=?, updated_at=? WHERE id=?", (medium, NOW, line))
+            n_medium += 1
+            continue
         _require(e, LINE_KEYS, "lines.json", i)
         wid, market, medium = e["work"], e["market"].upper(), e["medium"]
         name = e["name"].strip()
@@ -176,6 +202,7 @@ def apply_line_corrections(db, entries=None, verbose=True):
     if verbose:
         print("  line corrections applied          %8s  (%s volumes)"
               % (format(n_lines, ","), format(n_vols, ",")))
+        print("  medium overrides applied          %8s" % format(n_medium, ","))
     return n_lines
 
 
@@ -344,7 +371,7 @@ def check(directory=DIR, artifact=None):
     def exists(sql, value):
         return db.execute(sql, (value,)).fetchone() is not None
 
-    n_vol = n_line = n_alias = 0
+    n_vol = n_line = n_medium = n_alias = 0
     for i, e in entries("volumes.json", VOLUME_KEYS):
         field = str(e["field"])
         if field not in VOLUME_FIELDS:
@@ -376,7 +403,37 @@ def check(directory=DIR, artifact=None):
                 problems.append("volumes.json[%d]: title %r looks %s -- not a correctable "
                                 "title (see corrections/README.md)" % (i, e["value"], reason))
         n_vol += 1
-    for i, e in entries("lines.json", LINE_KEYS):
+    try:
+        line_data = _read("lines.json", directory)
+    except ValueError as err:            # json.JSONDecodeError is a ValueError
+        problems.append("lines.json: %s" % err)
+        line_data = []
+    for i, e in enumerate(line_data):
+        if not isinstance(e, dict):
+            problems.append("lines.json[%d]: not an object" % i)
+            continue
+        if "volumes" not in e:
+            # a medium override (2026-09-23 follow-up): a narrower shape than a
+            # normal entry -- see MEDIUM_KEYS -- so it gets its own validation
+            # instead of LINE_KEYS's required work/market/name/volumes.
+            try:
+                _require(e, MEDIUM_KEYS, "lines.json", i)
+            except ValueError as err:
+                problems.append(str(err))
+                continue
+            if e["medium"] not in KNOWN_MEDIA:
+                problems.append("lines.json[%d]: unknown medium %r (%s)"
+                                % (i, e["medium"], ", ".join(sorted(KNOWN_MEDIA))))
+            line = str(e["line"]).strip()
+            if not exists("SELECT 1 FROM series WHERE tome_id=?", line):
+                stale.append(("lines.json", i, "line %s" % line))
+            n_medium += 1
+            continue
+        try:
+            _require(e, LINE_KEYS, "lines.json", i)
+        except ValueError as err:
+            problems.append(str(err))
+            continue
         market = str(e["market"]).upper()
         if market not in MARKET_LANG:
             problems.append("lines.json[%d]: unknown market %r" % (i, e["market"]))
@@ -426,8 +483,8 @@ def check(directory=DIR, artifact=None):
         label = db.execute("SELECT value FROM meta WHERE key='gcd_dump'").fetchone()
     except sqlite3.OperationalError:
         label = None
-    print("  corrections check ok: %d volume, %d line, %d alias entries resolve against %s%s"
-          % (n_vol, n_line, n_alias, os.path.basename(artifact),
+    print("  corrections check ok: %d volume, %d line, %d medium, %d alias entries resolve against %s%s"
+          % (n_vol, n_line, n_medium, n_alias, os.path.basename(artifact),
              " (%s)" % label[0] if label else ""))
     return 0
 

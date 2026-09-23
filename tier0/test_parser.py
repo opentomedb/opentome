@@ -347,6 +347,45 @@ try:
 except ValueError:
     eq("line corr: JP ISBN on an EN line rejected", True, True)
 
+# ---- medium override (2026-09-23 follow-up: the Denma orig_series_id defect) --
+# Denma's shape: three already-cataloged lines (JP/EN/KR), all tagged plain
+# 'manga' upstream (no medium hint), so pick_origin's step 2 (earliest date)
+# picks JP even though the work is Korean in origin. The fix is a correction
+# that retags the medium WITHOUT re-keying the line (medium is hashed into the
+# id -- see _id() below -- so a fresh id computed from the new medium would not
+# match the real line and would create a duplicate).
+cdb.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at)"
+            " VALUES('rl_kr','w_t','manga','KR','ko','x','x')")
+before_ids = {r[0] for r in cdb.execute("SELECT id FROM release_line WHERE work_id='w_t'")}
+MEDIUM_OVERRIDE = [
+    {"line": "rl_jp", "medium": "manhwa", "source_url": "https://example.test/medium", "checked": "2026-09-23"},
+    {"line": rid, "medium": "manhwa", "source_url": "https://example.test/medium", "checked": "2026-09-23"},
+    {"line": "rl_kr", "medium": "manhwa", "source_url": "https://example.test/medium", "checked": "2026-09-23"},
+]
+corr.apply_line_corrections(cdb, entries=MEDIUM_OVERRIDE, verbose=False)
+after_ids = {r[0] for r in cdb.execute("SELECT id FROM release_line WHERE work_id='w_t'")}
+eq("medium override: ids unchanged", after_ids, before_ids)
+eq("medium override: medium updated on all three lines",
+   sorted(v for (v,) in cdb.execute("SELECT medium FROM release_line WHERE id IN ('rl_jp', ?, 'rl_kr')", (rid,))),
+   ["manhwa", "manhwa", "manhwa"])
+corr.apply_line_corrections(cdb, entries=MEDIUM_OVERRIDE, verbose=False)
+eq("medium override: idempotent (still 3 lines, still manhwa)",
+   cdb.execute("SELECT COUNT(*) FROM release_line WHERE work_id='w_t' AND medium='manhwa'").fetchone()[0], 3)
+try:
+    corr.apply_line_corrections(cdb, entries=[{"line": "rl_does_not_exist", "medium": "manhwa",
+                                               "source_url": "https://example.test/medium", "checked": "2026-09-23"}],
+                                verbose=False)
+    eq("medium override: stale line rejected", "no error", "SystemExit")
+except SystemExit:
+    eq("medium override: stale line rejected", True, True)
+try:
+    corr.apply_line_corrections(cdb, entries=[{"line": "rl_jp", "medium": "not_a_medium",
+                                               "source_url": "https://example.test/medium", "checked": "2026-09-23"}],
+                                verbose=False)
+    eq("medium override: unknown medium rejected", "no error", "ValueError")
+except ValueError:
+    eq("medium override: unknown medium rejected", True, True)
+
 print()
 if FAILS:
     print(f"{len(FAILS)} FAILED: {FAILS}")

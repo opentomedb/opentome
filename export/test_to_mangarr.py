@@ -4,7 +4,7 @@ Run: python3 export/test_to_mangarr.py
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from to_mangarr import title_for_export
+from to_mangarr import title_for_export, pick_origin
 
 FAILS = []
 
@@ -45,6 +45,28 @@ def run():
        title_for_export("{{x}}", NAME, True, trusted=True), None)
     eq("number-only is still refused regardless of trusted",
        title_for_export("14", NAME, True, trusted=True), None)
+
+    # ---- pick_origin (2026-09-23 follow-up: lifted from a closure inside
+    # export() to module level, so it's independently testable and a
+    # corrections-driven medium override can be exercised without a database).
+    # Denma's real dates (build/opentome.db, 2026-09-22): JP's main line shipped
+    # 2008-10-14, KR's 2015-01-20 (a late collected edition of an ongoing web
+    # serialization). Tagged plain 'manga' upstream, Denma has no medium hint, so
+    # step 2 (earliest date) picks JP -- the accepted, documented defect
+    # (HANDOFF.md 2026-09-21). A corrections/lines.json medium override that
+    # retags Denma's lines 'manhwa' routes it through step 1 instead.
+    DENMA_MARKETS = {"JP", "KR"}
+    DENMA_DATES = {"JP": "2008-10-14", "KR": "2015-01-20"}
+    eq("Denma (medium 'manga', no hint): JP wins on date -- the accepted defect",
+       pick_origin("manga", DENMA_MARKETS, DENMA_DATES), "JP")
+    eq("Denma retagged 'manhwa' (medium override applied): KR wins on the hint",
+       pick_origin("manhwa", DENMA_MARKETS, DENMA_DATES), "KR")
+    eq("manhwa hint wins even when the JP date is earlier",
+       pick_origin("manhwa", {"JP", "KR"}, {"JP": "2000-01-01", "KR": "2015-01-20"}), "KR")
+    eq("manhua hint prefers CN over TW", pick_origin("manhua", {"TW", "CN"}, {}), "CN")
+    eq("no hint, no dates: falls back to the fixed JP>KR>CN>TW order",
+       pick_origin("manga", {"TW", "KR"}, {}), "KR")
+    eq("no candidate markets at all: None", pick_origin("manga", set(), {}), None)
 
     if FAILS:
         print("FAILED: " + ", ".join(FAILS))
