@@ -66,10 +66,13 @@ NUMBER_ONLY_TITLE = re.compile(r"^\s*(?:vol(?:ume)?\.?\s*|tome\s*|band\s*)?\d+\s
 MARKUP_TITLE_RE = re.compile(r"\{\{|\}\}|\[\[|\]\]|<ref|<br|<!--|<ruby|</", re.I)
 # Kana, CJK ideographs, hangul -- the scripts a non-origin-market reader cannot use.
 NATIVE_SCRIPT_RE = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
-# series_name, optionally followed by a separator (punctuation or plain whitespace),
-# an optional vol/tome/band word, and a volume number -- i.e. nothing the row's own
-# volume_number column doesn't already say.
-_REDUNDANT_SUFFIX = r"(?:\s*[:\-–,])?\s*(?:(?:vol(?:ume)?\.?|tome|band)\s*)?\d+"
+# series_name, optionally followed by a bracketed qualifier ("(Light Novel)" --
+# 2026-09-23 follow-up: "Mushoku Tensei: Jobless Reincarnation (Light Novel) Vol.
+# 14" survived this check because nothing sat between the name and the separator),
+# a separator (punctuation or plain whitespace), an optional vol/tome/band word,
+# and a volume number -- i.e. nothing the row's own volume_number column doesn't
+# already say.
+_REDUNDANT_SUFFIX = r"(?:\s*\([^)]*\))?(?:\s*[:\-–,])?\s*(?:(?:vol(?:ume)?\.?|tome|band)\s*)?\d+"
 # The English wiki's LicensedTitle often carries the series name and volume number
 # AHEAD OF the real subtitle ("Sword Art Online 1: Aincrad", "Sword Art Online, Vol.
 # 1: Aincrad") -- Task 7's spot check. Strip that lead-in so what's left is just the
