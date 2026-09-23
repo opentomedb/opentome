@@ -443,12 +443,6 @@ def export(src_path, out_path, carry_ids_from=None):
                 or main_of.get((wid, om, medium)))
 
     n_series = n_vol = n_special = n_alias = n_omni = 0
-    # (sid, alias.lower()) pairs inserted from a work_level=False candidate --
-    # the line's own name, or its raw arc name (_line_raw) -- which alias
-    # hygiene (below) never drops, no matter what it collides with: an arc is
-    # often titled after its own volumes, and a folder named after the arc must
-    # keep resolving to it (the Re:Zero comment above cands, "Truth of Zero").
-    protected_aliases = set()
     # ids first, so a child line can point at its parent whichever comes first
     for rid, *_ in lines:
         if rid not in mapping:
@@ -619,8 +613,6 @@ def export(src_path, out_path, carry_ids_from=None):
                     seen.add(a.lower())
                     out.execute("INSERT OR IGNORE INTO series_alias VALUES(?,?)", (sid, a))
                     n_alias += 1
-                    if not work_level:
-                        protected_aliases.add((sid, a.lower()))
             if not work_level:
                 continue
             for head in heads(alias):
@@ -631,43 +623,6 @@ def export(src_path, out_path, carry_ids_from=None):
                         seen.add(a.lower())
                         out.execute("INSERT OR IGNORE INTO series_alias VALUES(?,?)", (sid, a))
                         n_alias += 1
-
-    # ---- alias hygiene: drop a generated alias that collides with a volume
-    # title (2026-09-23 follow-up) -------------------------------------------
-    # A work-level alias (a Wikipedia redirect, an official title) can equal one
-    # of the work's own volume titles: 'Aincrad' is both a Sword Art Online
-    # redirect (attached to every main line of the work, is_main branch above)
-    # AND the title of SAO's English light-novel volume 1 -- which makes it
-    # ambiguous for series-picking (every main line of the work answers to it)
-    # instead of useful. Checked against the line's OWN volume titles and its
-    # origin line's (a licensed line whose own titles are often None/untitled
-    # is where this bites hardest -- the collision lives on the origin's
-    # volumes). A run AFTER the main loop, over the OUTPUT tables: only there
-    # does every line's final titles and orig_series_id already exist, so this
-    # does not depend on iteration order over `lines`. protected_aliases (the
-    # line's own name, and its raw arc name) is exempt no matter what it
-    # collides with -- see the comment where it is built, above.
-    n_alias_dropped = 0
-    title_sets = {}
-
-    def _titles_of(s):
-        if s not in title_sets:
-            title_sets[s] = {normalize(t) for (t,) in out.execute(
-                "SELECT title FROM volumes WHERE gcd_series_id=? AND title IS NOT NULL", (s,))}
-        return title_sets[s]
-
-    for sid, orig_sid in out.execute("SELECT gcd_series_id, orig_series_id FROM series").fetchall():
-        collide = _titles_of(sid) | (_titles_of(orig_sid) if orig_sid is not None else set())
-        if not collide:
-            continue
-        for (alias,) in out.execute(
-                "SELECT alias FROM series_alias WHERE gcd_series_id=?", (sid,)).fetchall():
-            if (sid, alias.lower()) in protected_aliases:
-                continue
-            if normalize(alias) in collide:
-                out.execute("DELETE FROM series_alias WHERE gcd_series_id=? AND alias=?", (sid, alias))
-                n_alias_dropped += 1
-    n_alias -= n_alias_dropped
 
     # Hand-checked alias corrections (corrections/aliases.json). Applied last so
     # a correction always reaches the artifact, and asserted by test_artifact.py
@@ -744,7 +699,7 @@ def export(src_path, out_path, carry_ids_from=None):
             fh.write("\t".join("" if x is None else str(x) for x in row) + "\n")
     out.commit()
     return dict(series=n_series, volumes=n_vol, specials=n_special, aliases=n_alias,
-                omnibus_lines=n_omni, aliases_dropped=n_alias_dropped)
+                omnibus_lines=n_omni)
 
 
 if __name__ == "__main__":
