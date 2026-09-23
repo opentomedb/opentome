@@ -206,5 +206,13 @@
     "source_url": "https://en.wikipedia.org/wiki/Pok%C3%A9mon:_The_Electric_Tale_of_Pikachu",
     "reason": "one VIZ tankobon's own volume title within \"Pokémon: The Electric Tale of Pikachu\" (a Wikipedia redirect to the work, fanned as a work-level alias to both EN line copies); not the series name (curated review 2026-09-23, \"Good (31)\", the \"Pokémon volume names\" group -- the review reports 10, this corpus's own volume-title collisions for this line only account for 6 semantic strings across 2 line copies (8 rows once raw+normalized forms are counted); not padding the list to reach 10 without a verified string)",
     "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_1214b9fd5709",
+    "alias": "dr",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Dr._Koto%27s_Clinic",
+    "reason": "junk fragment: the exporter's ASCII-only normalize() collapses the line's native title (“Dr.コトー診療所”) to \"dr\"; not how anyone refers to the series (review of cleanup-0923, 2026-09-23)",
+    "checked": "2026-09-23"
   }
 ]
