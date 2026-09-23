@@ -11,6 +11,7 @@ on:
       - 'tier2/corrections.py'
       - 'tier2/test_corrections_check.py'
       - 'tier0/test_parser.py'
+      - 'export/to_mangarr.py'
       - '.github/workflows/corrections-check.yml'
 
 permissions:

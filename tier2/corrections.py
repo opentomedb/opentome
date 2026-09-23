@@ -34,6 +34,13 @@ ORIGIN_MARKETS = ("JP", "KR", "CN", "TW")
 VOLUME_KEYS = ("volume", "field", "value", "source_url", "checked")
 LINE_KEYS = ("work", "market", "medium", "name", "volumes", "source_url", "checked")
 ALIAS_KEYS = ("line", "alias", "source_url", "checked")
+# A title that is just the series/line name plus an optional bracketed qualifier
+# ("(Light Novel)") plus a volume number says nothing the row's own number column
+# doesn't already say -- same shape as the exporter's _REDUNDANT_SUFFIX (item 3),
+# plus the bare 'v' form the exporter does not need to recognise (title_for_export
+# only ever sees a real Wikipedia LicensedTitle, which does not use it).
+_REDUNDANT_TITLE_SUFFIX = (r"(?:(?:\s*\([^)]*\))?(?:\s*[:\-–,])?"
+                           r"\s*(?:(?:vol(?:ume)?\.?|tome|band|v)\s*)?\d+)?")
 ARTIFACT_URL = "https://github.com/DrAwesome441/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite"
 
 sys.path.insert(0, os.path.join(ROOT, "schema"))
@@ -276,6 +283,47 @@ def check(directory=DIR, artifact=None):
         return 1
     problems, stale = [], []          # (reason) / (file, index, what)
 
+    # Reused from the exporter (function-local: export/to_mangarr.py imports this
+    # module at its own top level -- `from corrections import load_aliases` -- so a
+    # module-level import here would be circular; by the time check() runs this
+    # module has already finished initializing, so importing to_mangarr now is safe).
+    sys.path.insert(0, os.path.join(ROOT, "export"))
+    from to_mangarr import MARKUP_TITLE_RE, NUMBER_ONLY_TITLE  # noqa: E402
+
+    def bad_title(title, name):
+        """None, or the reason a hand-typed title is not a correction (markup,
+        number-only, or a restatement of the line/series name and its volume
+        number) -- refused at authoring time instead of round-tripping to the
+        artifact verbatim, which is what trusted=True corrections otherwise do."""
+        title = str(title)
+        if MARKUP_TITLE_RE.search(title):
+            return "markup"
+        if NUMBER_ONLY_TITLE.match(title):
+            return "number-only"
+        name = re.sub(r"\s+", " ", (name or "")).strip()
+        if name and re.match(r"^" + re.escape(name) + _REDUNDANT_TITLE_SUFFIX + r"$",
+                             re.sub(r"\s+", " ", title).strip(), re.I):
+            return "redundant"
+        return None
+
+    def series_name_for(key):
+        """The artifact's series.name for a volumes.json `volume` key (v_... id or
+        ISBN), so a redundant title can be recognised without the entry itself
+        carrying a series name."""
+        if key.startswith("v_"):
+            row = db.execute("""SELECT s.name FROM volumes v JOIN series s
+                                ON s.gcd_series_id=v.gcd_series_id WHERE v.tome_id=?""",
+                             (key,)).fetchone()
+        else:
+            isbn = re.sub(r"[^0-9Xx]", "", key)
+            row = db.execute("""SELECT s.name FROM volumes v JOIN series s
+                                ON s.gcd_series_id=v.gcd_series_id WHERE v.isbn13=?
+                                UNION
+                                SELECT s.name FROM volumes_special v JOIN series s
+                                ON s.gcd_series_id=v.gcd_series_id WHERE v.isbn13=?""",
+                             (isbn, isbn)).fetchone()
+        return row[0] if row else None
+
     def entries(name, keys):
         try:
             data = _read(name, directory)
@@ -322,6 +370,11 @@ def check(directory=DIR, artifact=None):
             elif n > 1:
                 problems.append("volumes.json[%d]: ISBN %s is on %d volumes -- key the "
                                 "correction on a v_ id instead" % (i, isbn, n))
+        if field == "title":
+            reason = bad_title(e["value"], series_name_for(key))
+            if reason:
+                problems.append("volumes.json[%d]: title %r looks %s -- not a correctable "
+                                "title (see corrections/README.md)" % (i, e["value"], reason))
         n_vol += 1
     for i, e in entries("lines.json", LINE_KEYS):
         market = str(e["market"]).upper()
@@ -344,6 +397,12 @@ def check(directory=DIR, artifact=None):
                     elif isbn_market(isbn) not in (market, None):
                         problems.append("lines.json[%d] v%s: ISBN %s belongs to the %s market, not %s"
                                         % (i, num, isbn, isbn_market(isbn), market))
+                if v.get("title"):
+                    reason = bad_title(v["title"], e.get("name"))
+                    if reason:
+                        problems.append("lines.json[%d] v%s: title %r looks %s -- not a "
+                                        "correctable title (see corrections/README.md)"
+                                        % (i, num, v["title"], reason))
         work = str(e["work"]).strip()
         if not exists("SELECT 1 FROM series WHERE tome_work_id=?", work):
             stale.append(("lines.json", i, "work %s" % work))
