@@ -4,8 +4,9 @@ Hand-checked facts that the pipeline gets wrong, as data rather than as code.
 
 This is the alternative to a community editing website. What a correction
 actually needs is a value, a source, and a guarantee that the next rebuild keeps
-it — none of which requires a server. So corrections are three JSON files in
-this directory, and they arrive as **pull requests**.
+it — none of which requires a server. So corrections are four JSON files in
+this directory (`volumes.json`, `aliases.json`, `lines.json`, `excluded.json`),
+and they arrive as **pull requests**.
 
 Every correction is applied by `tier2/corrections.py`, which runs as a stage of
 `tier0/rebuild_all.sh`, and every one is asserted by `export/test_artifact.py`,
@@ -80,6 +81,46 @@ artifact). Aliases are added to that line only, never fanned out.
 Folder-name bridges belong here — a library whose folder is misspelled
 ("Jujustu Kaisen") is a fact about that library, and recording it as a
 correction keeps it out of the catalogue's own naming.
+
+### `aliases.json` — curated removal (`"remove": true`, same file)
+
+For a specific alias the export's own fan-out generated that is actually a
+volume or story-arc title, not a name anyone uses for the whole line: My Hero
+Academia's alias list includes the bare fragment "My Hero" (a head-split of
+the alternate title "My Hero: Ultra Impact"), which is ambiguous and belongs
+to no reader's folder name.
+
+```json
+[
+  {
+    "line": "rl_82d4b3ac7f3f",
+    "alias": "My Hero",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/List_of_My_Hero_Academia_chapters",
+    "reason": "a head-split fragment, too generic to stand alone as a series name",
+    "checked": "2026-09-23"
+  }
+]
+```
+
+Required: same as an addition (`line`, `alias`, `source_url`, `checked`), plus
+`remove: true`. This is a curated, exact-string removal — **not a rule**. An
+earlier attempt automated this (drop any alias whose normalized form equals a
+volume title anywhere reachable from the line) and was reverted: of 360
+aliases it dropped, only about 30 were actually bad; the rest included every
+native-script series name whose ASCII-only ambiguity check made it collapse
+to nothing, and a handful of real series and licensed titles (see HANDOFF.md
+and `.superpowers/sdd/2026-09-23-followups/review.md`). A removal entry
+targets one exact string on one exact line; it never infers a second one.
+
+`export/to_mangarr.py` applies every removal last, after every other alias
+source (the auto-generated fan-out and every `aliases.json` addition), and
+deletes both the string as written and its `normalize()`-d form — the same
+two rows an addition's `variants()` would have inserted for it, since
+Mangarr's own lookup queries the normalized form. It raises if a removal
+matches nothing: the export regenerates every alias from scratch each run, so
+a removal that deletes 0 rows means the string or the line is stale, the same
+"fails loudly" contract every other correction has.
 
 ### `lines.json` — a whole edition the sources do not carry
 
@@ -173,6 +214,49 @@ changed there) recomputes the same id and the correction keeps applying
 cleanly; if the line is ever renamed or reclassified upstream, the id changes
 and this correction fails loudly (`STALE CORRECTION`) instead of silently
 attaching to the wrong line.
+
+### `excluded.json` — a whole work that should not be in the catalogue at all
+
+For a work that entered through a source but is not in scope: *The Walking
+Dead (comic book)* is a US comic that came in through an English Wikipedia
+list-of-volumes page, not manga/light-novel/manhwa/manhua.
+
+```json
+[
+  {
+    "work": "w_5e8c089527e9",
+    "source_url": "https://en.wikipedia.org/wiki/The_Walking_Dead_(comic_book)",
+    "reason": "a US comic; out of scope",
+    "checked": "2026-09-23"
+  }
+]
+```
+
+Required: `work`, `source_url`, `checked`. Optional: `reason`.
+
+`work` is the OpenTome work id (`series.tome_work_id` in the published
+artifact, on every sibling line) -- the same identity a medium override keys
+its line on, and stable the same way: a rebuild that reprocesses the same
+Wikipedia article recomputes the same id, so the exclusion keeps applying.
+
+Applied before every other correction (`tier2/corrections.py`'s
+`apply_exclusions`, stage 5b, first): every release line the work owns, their
+volumes, compositions, and every claim/override/external_id on any of those
+entities or the work itself is deleted outright. Aliases and volumes "go with
+the line" -- once the release_line row is gone there is nothing left for a
+later stage, including the exporter's own alias fan-out, to read. Be certain:
+this is broader than a single line, and removes every market edition of the
+work at once. Do not use it on a work that is legitimately in scope just
+because one of its lines is bad -- *Arrietty (Comics)*, a real Japanese
+Studio Ghibli film comic that also came in through a list-of-volumes page,
+stays.
+
+`check()` accepts a `work` that resolves against the published artifact's
+`series.tome_work_id` as usual, OR one recorded in the artifact's
+`meta.excluded_works` (a JSON array the exporter writes for every exclusion it
+applied): once a publish actually removes the work, `series` no longer
+carries it, and treating that as a stale correction would fail every future
+corrections PR for a correction that is working exactly as intended.
 
 ## Checking before you open the pull request
 
