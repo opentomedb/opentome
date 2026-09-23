@@ -258,6 +258,41 @@ applied): once a publish actually removes the work, `series` no longer
 carries it, and treating that as a stale correction would fail every future
 corrections PR for a correction that is working exactly as intended.
 
+### `lines.json` — market override (a third entry shape, same file)
+
+For a line the pipeline has correctly found but tagged the wrong MARKET.
+The case: Denma's line tagged `ja` is not a Japanese print edition at all --
+its titles are hangul and its numbering is the Naver webtoon's own
+episode-arc list (2010-01 to 2012-01), i.e. the same Korean web serialization
+the `ko` line's print volumes collect, not a translation of it.
+
+```json
+[
+  {
+    "line": "rl_266a70c679ed",
+    "market": "KR",
+    "source_url": "https://en.wikipedia.org/wiki/Denma",
+    "reason": "hangul titles, Naver webtoon episode-arc numbering -- the same Korean serialization the ko line collects, not a JP translation of it",
+    "checked": "2026-09-23"
+  }
+]
+```
+
+Required: `line`, `market`, `source_url`, `checked`. Like the medium override,
+this entry has no `volumes` key -- and, to keep the two override shapes
+unambiguous, no `medium` key either: an entry with neither `volumes` nor
+`medium` but a `market` is a market override, checked against the pipeline's
+own `MARKET_LANG` table (`schema/load.py`). It targets an EXISTING line by its
+own id; do not add `work`, `medium` or `name`.
+
+Applied as a plain `UPDATE release_line SET market=?, language=?` (language
+follows `MARKET_LANG[market]` automatically) -- the line's id never changes,
+so a rebuild that re-detects the same market upstream (nothing changed there)
+recomputes the same id and the correction keeps applying cleanly. Retagging a
+line's market can change which line the origin picker treats as another
+line's counterpart (`export/to_mangarr.py`'s `origin_line`, matched by exact
+name within a market) -- read the result, do not assume it.
+
 ## Checking before you open the pull request
 
 Every key is resolved against the **published artifact**, not against a

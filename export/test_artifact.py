@@ -155,11 +155,20 @@ def run(path):
 
     missing_medium = 0
     for e in corr._read("lines.json"):
-        if "volumes" in e:
+        if "volumes" in e or "medium" not in e:
             continue
         row = db.execute("SELECT medium FROM series WHERE tome_id=?", (e["line"],)).fetchone()
         missing_medium += (row is None or row[0] != e["medium"])
     rule("medium corrections not present in the artifact", missing_medium)
+
+    missing_market = 0
+    for e in corr._read("lines.json"):
+        if "volumes" in e or "market" not in e:
+            continue
+        row = db.execute("SELECT language FROM series WHERE tome_id=?", (e["line"],)).fetchone()
+        want_lang = corr.MARKET_LANG.get(str(e["market"]).upper())
+        missing_market += (row is None or row[0] != want_lang)
+    rule("market corrections not present in the artifact", missing_market)
 
     missing_removal = 0
     for line_id, alias in corr.load_alias_removals():

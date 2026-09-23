@@ -67,6 +67,17 @@ MEDIUM_KEYS = ("line", "medium", "source_url", "checked")
 # counterparts (review round 1, finding 8).
 KNOWN_MEDIA = {name for name, _ in MEDIUM_HINTS}
 
+# A MARKET override entry (2026-09-23 cleanup, item 3: Denma's "ja" line is
+# really the Naver webtoon, not a Japanese print edition -- hangul titles,
+# 2010-01..2012-01 episode-arc numbering, the same Korean web serialization
+# the ko line's print volumes collect). Same shape as a medium override --
+# recognised by the absence of "volumes" -- but distinguished from one by
+# which of "medium" / "market" is present: an entry needs exactly one of the
+# three override/add discriminators (volumes, medium, market) so the three
+# shapes never collide. Applied as a plain UPDATE (market + the language
+# MARKET_LANG derives from it), so the line's id never changes.
+MARKET_KEYS = ("line", "market", "source_url", "checked")
+
 
 def _read(name, directory=DIR):
     path = os.path.join(directory, name)
@@ -211,21 +222,39 @@ def apply_line_corrections(db, entries=None, verbose=True):
     """
     c = db.cursor()
     entries = _read("lines.json") if entries is None else entries
-    n_lines = n_vols = n_medium = 0
+    n_lines = n_vols = n_medium = n_market = 0
     for i, e in enumerate(entries):
         if "volumes" not in e:
-            _require(e, MEDIUM_KEYS, "lines.json", i)
-            line, medium = e["line"], e["medium"]
-            if medium not in KNOWN_MEDIA:
-                raise ValueError("lines.json[%d]: unknown medium %r (%s)"
-                                 % (i, medium, ", ".join(sorted(KNOWN_MEDIA))))
-            if not c.execute("SELECT 1 FROM release_line WHERE id=?", (line,)).fetchone():
-                print("\n  STALE CORRECTION -- lines.json[%d]: line %s is not in the catalogue"
-                      % (i, line), flush=True)
-                raise SystemExit(1)
-            c.execute("UPDATE release_line SET medium=?, updated_at=? WHERE id=?", (medium, NOW, line))
-            n_medium += 1
-            continue
+            if "medium" in e:
+                _require(e, MEDIUM_KEYS, "lines.json", i)
+                line, medium = e["line"], e["medium"]
+                if medium not in KNOWN_MEDIA:
+                    raise ValueError("lines.json[%d]: unknown medium %r (%s)"
+                                     % (i, medium, ", ".join(sorted(KNOWN_MEDIA))))
+                if not c.execute("SELECT 1 FROM release_line WHERE id=?", (line,)).fetchone():
+                    print("\n  STALE CORRECTION -- lines.json[%d]: line %s is not in the catalogue"
+                          % (i, line), flush=True)
+                    raise SystemExit(1)
+                c.execute("UPDATE release_line SET medium=?, updated_at=? WHERE id=?", (medium, NOW, line))
+                n_medium += 1
+                continue
+            if "market" in e:
+                _require(e, MARKET_KEYS, "lines.json", i)
+                line, market = e["line"], e["market"].upper()
+                if market not in MARKET_LANG:
+                    raise ValueError("lines.json[%d]: unknown market %r" % (i, market))
+                if not c.execute("SELECT 1 FROM release_line WHERE id=?", (line,)).fetchone():
+                    print("\n  STALE CORRECTION -- lines.json[%d]: line %s is not in the catalogue"
+                          % (i, line), flush=True)
+                    raise SystemExit(1)
+                c.execute("UPDATE release_line SET market=?, language=?, updated_at=? WHERE id=?",
+                          (market, MARKET_LANG[market], NOW, line))
+                n_market += 1
+                continue
+            raise ValueError(
+                "lines.json[%d]: has none of 'volumes' (a new line), 'medium' (a medium "
+                "override) or 'market' (a market override) -- not a recognised correction "
+                "shape (see corrections/README.md)" % i)
         _require(e, LINE_KEYS, "lines.json", i)
         wid, market, medium = e["work"], e["market"].upper(), e["medium"]
         name = e["name"].strip()
@@ -302,6 +331,7 @@ def apply_line_corrections(db, entries=None, verbose=True):
         print("  line corrections applied          %8s  (%s volumes)"
               % (format(n_lines, ","), format(n_vols, ",")))
         print("  medium overrides applied          %8s" % format(n_medium, ","))
+        print("  market overrides applied          %8s" % format(n_market, ","))
     return n_lines
 
 
@@ -480,7 +510,7 @@ def check(directory=DIR, artifact=None):
     def exists(sql, value):
         return db.execute(sql, (value,)).fetchone() is not None
 
-    n_vol = n_line = n_medium = n_alias = 0
+    n_vol = n_line = n_medium = n_market = n_alias = 0
     for i, e in entries("volumes.json", VOLUME_KEYS):
         field = str(e["field"])
         if field not in VOLUME_FIELDS:
@@ -522,21 +552,42 @@ def check(directory=DIR, artifact=None):
             problems.append("lines.json[%d]: not an object" % i)
             continue
         if "volumes" not in e:
-            # a medium override (2026-09-23 follow-up): a narrower shape than a
-            # normal entry -- see MEDIUM_KEYS -- so it gets its own validation
-            # instead of LINE_KEYS's required work/market/name/volumes.
-            try:
-                _require(e, MEDIUM_KEYS, "lines.json", i)
-            except ValueError as err:
-                problems.append(str(err))
+            # a medium or market override (2026-09-23): narrower shapes than a
+            # normal entry -- see MEDIUM_KEYS / MARKET_KEYS -- so each gets its
+            # own validation instead of LINE_KEYS's required work/market/name/
+            # volumes. Distinguished from each other by which of "medium" /
+            # "market" is present.
+            if "medium" in e:
+                try:
+                    _require(e, MEDIUM_KEYS, "lines.json", i)
+                except ValueError as err:
+                    problems.append(str(err))
+                    continue
+                if e["medium"] not in KNOWN_MEDIA:
+                    problems.append("lines.json[%d]: unknown medium %r (%s)"
+                                    % (i, e["medium"], ", ".join(sorted(KNOWN_MEDIA))))
+                line = str(e["line"]).strip()
+                if not exists("SELECT 1 FROM series WHERE tome_id=?", line):
+                    stale.append(("lines.json", i, "line %s" % line))
+                n_medium += 1
                 continue
-            if e["medium"] not in KNOWN_MEDIA:
-                problems.append("lines.json[%d]: unknown medium %r (%s)"
-                                % (i, e["medium"], ", ".join(sorted(KNOWN_MEDIA))))
-            line = str(e["line"]).strip()
-            if not exists("SELECT 1 FROM series WHERE tome_id=?", line):
-                stale.append(("lines.json", i, "line %s" % line))
-            n_medium += 1
+            if "market" in e:
+                try:
+                    _require(e, MARKET_KEYS, "lines.json", i)
+                except ValueError as err:
+                    problems.append(str(err))
+                    continue
+                if str(e["market"]).upper() not in MARKET_LANG:
+                    problems.append("lines.json[%d]: unknown market %r" % (i, e["market"]))
+                line = str(e["line"]).strip()
+                if not exists("SELECT 1 FROM series WHERE tome_id=?", line):
+                    stale.append(("lines.json", i, "line %s" % line))
+                n_market += 1
+                continue
+            problems.append(
+                "lines.json[%d]: has none of 'volumes' (a new line), 'medium' (a medium "
+                "override) or 'market' (a market override) -- not a recognised correction "
+                "shape (see corrections/README.md)" % i)
             continue
         try:
             _require(e, LINE_KEYS, "lines.json", i)
@@ -610,9 +661,9 @@ def check(directory=DIR, artifact=None):
         label = db.execute("SELECT value FROM meta WHERE key='gcd_dump'").fetchone()
     except sqlite3.OperationalError:
         label = None
-    print("  corrections check ok: %d volume, %d line, %d medium, %d alias, %d excluded "
-          "entries resolve against %s%s"
-          % (n_vol, n_line, n_medium, n_alias, n_excluded, os.path.basename(artifact),
+    print("  corrections check ok: %d volume, %d line, %d medium, %d market, %d alias, "
+          "%d excluded entries resolve against %s%s"
+          % (n_vol, n_line, n_medium, n_market, n_alias, n_excluded, os.path.basename(artifact),
              " (%s)" % label[0] if label else ""))
     return 0
 

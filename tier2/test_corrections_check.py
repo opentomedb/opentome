@@ -130,6 +130,36 @@ class CheckTests(unittest.TestCase):
         self.assertIn("lines.json[0]", out)
         self.assertIn("medium", out)
 
+    # -- market override (2026-09-23 cleanup, item 3: Denma's mislabelled "ja" line)
+    def test_market_override_resolves(self):
+        m = {"line": "rl_aaaaaaaaaaaa", "market": "KR",
+             "source_url": "https://example.org/market", "checked": "2026-09-23"}
+        code, out = self.check(self.corrections(lines=[m]))
+        self.assertEqual(code, 0, out)
+
+    def test_market_override_bad_market_fails(self):
+        m = {"line": "rl_aaaaaaaaaaaa", "market": "XX",
+             "source_url": "https://example.org/market", "checked": "2026-09-23"}
+        code, out = self.check(self.corrections(lines=[m]))
+        self.assertEqual(code, 1)
+        self.assertIn("lines.json[0]", out)
+        self.assertIn("XX", out)
+
+    def test_market_override_stale_line_fails(self):
+        m = {"line": "rl_999999999999", "market": "KR",
+             "source_url": "https://example.org/market", "checked": "2026-09-23"}
+        code, out = self.check(self.corrections(lines=[m]))
+        self.assertEqual(code, 1)
+        self.assertIn("STALE CORRECTION", out)
+        self.assertIn("rl_999999999999", out)
+
+    def test_market_override_missing_key_fails(self):
+        m = {"line": "rl_aaaaaaaaaaaa", "source_url": "https://example.org/market", "checked": "2026-09-23"}
+        code, out = self.check(self.corrections(lines=[m]))
+        self.assertEqual(code, 1)
+        self.assertIn("lines.json[0]", out)
+        self.assertIn("market", out)
+
     # -- curated alias removal (2026-09-23 cleanup, item 2): "remove": true on
     # an otherwise-normal aliases.json entry. load_aliases() (additions, read by
     # export's normal alias-correction loop) and load_alias_removals() (the new

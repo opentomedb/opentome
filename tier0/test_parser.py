@@ -414,6 +414,39 @@ try:
 except ValueError:
     eq("medium override: unknown medium rejected", True, True)
 
+# ---- market override (2026-09-23 cleanup, item 3: Denma's mislabelled "ja" line) --
+MARKET_OVERRIDE = [{"line": "rl_jp", "market": "KR",
+                    "source_url": "https://example.test/market", "checked": "2026-09-23"}]
+corr.apply_line_corrections(cdb, entries=MARKET_OVERRIDE, verbose=False)
+eq("market override: market + language updated",
+   cdb.execute("SELECT market, language FROM release_line WHERE id='rl_jp'").fetchone(),
+   ("KR", "ko"))
+eq("market override: id unchanged", cdb.execute("SELECT 1 FROM release_line WHERE id='rl_jp'").fetchone(), (1,))
+corr.apply_line_corrections(cdb, entries=MARKET_OVERRIDE, verbose=False)
+eq("market override: idempotent",
+   cdb.execute("SELECT market FROM release_line WHERE id='rl_jp'").fetchone(), ("KR",))
+try:
+    corr.apply_line_corrections(cdb, entries=[{"line": "rl_does_not_exist", "market": "KR",
+                                               "source_url": "https://example.test/market", "checked": "2026-09-23"}],
+                                verbose=False)
+    eq("market override: stale line rejected", "no error", "SystemExit")
+except SystemExit:
+    eq("market override: stale line rejected", True, True)
+try:
+    corr.apply_line_corrections(cdb, entries=[{"line": "rl_jp", "market": "XX",
+                                               "source_url": "https://example.test/market", "checked": "2026-09-23"}],
+                                verbose=False)
+    eq("market override: unknown market rejected", "no error", "ValueError")
+except ValueError:
+    eq("market override: unknown market rejected", True, True)
+try:
+    corr.apply_line_corrections(cdb, entries=[{"line": "rl_jp",
+                                               "source_url": "https://example.test/x", "checked": "2026-09-23"}],
+                                verbose=False)
+    eq("neither medium nor market nor volumes rejected", "no error", "ValueError")
+except ValueError:
+    eq("neither medium nor market nor volumes rejected", True, True)
+
 # ---- exclusion (2026-09-23 cleanup: The Walking Dead is not in scope) --------
 cdb.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_x','Excluded Work','x','x')")
 cdb.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at)"
