@@ -168,6 +168,34 @@ eq("nihongo with a nested lang template (no leaked '}}')",
 eq("an unterminated nested template stays literal (still markup, not garbled)",
    _clean("{{japonais|A|{{nowrap|B}}"), "{{japonais|A|{{nowrap|B}}")
 
+# ---- pass-through templates + recursive unwrap on the returned slot -----
+# (review round 1, finding 5): _unwrap_one used to return the chosen slot
+# RAW, so a template nested inside it (not alongside it) still leaked. These
+# are the real shapes found by re-measuring every cached title value:
+# {{ruby-ja}}/{{lang}}/{{langue}}/{{nowrap}} are pure wrappers around real
+# title text, not noise, and a bare roman-numeral template name ({{I}}..
+# {{XII}}) is a volume/part number, not noise either.
+eq("ruby-ja passes through its base (first) parameter",
+   _clean("{{ruby-ja|恐ろしき恋人|おそろしきこいびと}}"), "恐ろしき恋人")
+eq("fr langue passes through its LAST positional parameter (not the language code)",
+   _clean("{{Langue|en|Kase-san and Morning Glories}}"), "Kase-san and Morning Glories")
+eq("nowrap passes through its parameter", _clean("{{nowrap|Some Text}}"), "Some Text")
+eq("a bare roman-numeral template name passes through as the numeral",
+   _clean("{{XII}}"), "XII")
+eq("a roman-numeral template nested inside plain text passes through in place",
+   _clean('Dai-yon-bu "Kizoku-in no jisho tosho iin {{VIII}}"'),
+   'Dai-yon-bu "Kizoku-in no jisho tosho iin VIII"')
+eq("nihongo's returned slot is itself recursively unwrapped (a nested roman numeral)",
+   _clean("{{Nihongo|Part {{VIII}} Title|パート8}}"), "Part VIII Title")
+eq("japonais's returned slot is itself recursively unwrapped (a nested ruby-ja)",
+   _clean("{{japonais|{{ruby-ja|恐ろしき恋人|おそろしきこいびと}}|オソロシキ}}"), "恐ろしき恋人")
+# a real interlanguage-link template ({{ill}}) is not a roman numeral just because
+# every one of its letters is also a roman-numeral letter -- caught by re-measuring
+# the fix over .cache/ (review round 1's re-measure step)
+eq("{{ill}} is not mistaken for a roman numeral", _clean("Denma S.E. {{ill|Rami Record|ko|라미레코드}}"), "Denma S.E.")
+eq("a lowercase word made only of IVXLCDM letters is not a roman numeral", _clean("{{mix}}"), "")
+eq("a real uppercase roman numeral still passes through", _clean("{{XII}}"), "XII")
+
 # ---- omnibus collapse --------------------------------------------------
 def rec(n, isbn, date, pos):
     return {"volume": str(n), "_offset": pos, "medium": "manga", "line": "X",

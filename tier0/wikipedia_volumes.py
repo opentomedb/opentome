@@ -166,20 +166,52 @@ def _japonais_parts(parts):
     return cleaned[0] if cleaned else ""
 
 
+# A proper roman-numeral GRAMMAR, uppercase only (real Wikipedia part-number
+# templates are written {{I}}, {{VIII}}, {{XII}}) -- not just "every character is
+# one of IVXLCDM", which also matched {{ill}} (a real interlanguage-link template)
+# and any lowercase word built only from those letters (e.g. 'mix', 'did', 'civil').
+_ROMAN_NUMERAL_RE = re.compile(r"^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$")
+
+
+def _last_positional(params):
+    """The last parameter that is not a named 'key=value' one -- {{lang|en|Kase-san
+    and Morning Glories}}'s real text is its LAST positional slot (often a language
+    code comes first), not its first."""
+    positional = [p for p in params if not re.match(r"^\s*[\w-]+\s*=", p)]
+    chosen = positional or params
+    return chosen[-1].strip() if chosen else ""
+
+
 def _unwrap_one(body):
     """body is one brace-balanced '{{...}}' span, braces included (see _unwrap_templates).
-    nihongo/nihongo2/nihongo3 and japonais unwrap to clean text; every other template --
-    known or not -- contributes nothing, same as the old flat catch-all, but a template
-    nested inside one of these (a {{nowrap}}, a {{lang}}, a footnote) is now consumed
-    whole by the depth-0 param split instead of leaking a stray '}}' or '|'."""
+    nihongo/nihongo2/nihongo3 and japonais unwrap to clean text; lang/langue/nowrap pass
+    through their last positional parameter and ruby-ja its base (first) parameter --
+    these are pure formatting/language-tag wrappers around real title text, not noise; a
+    bare roman-numeral template name ({{I}}..{{XII}}, or generally {{<ROMAN>}}) passes
+    through as the numeral itself -- a volume/part number, not noise either. Every other
+    template -- known or not -- contributes nothing, same as the old flat catch-all, but
+    a template nested inside one of these (a {{nowrap}}, a {{lang}}, a footnote) is now
+    consumed whole by the depth-0 param split instead of leaking a stray '}}' or '|'.
+    Whatever a branch below returns is run back through _unwrap_templates(): a template
+    nested INSIDE the chosen slot (not just alongside it) needs resolving too, or it is
+    left as literal, still-templated text in the output (review round 1, finding 5)."""
     inner = body[2:-2]
-    name = inner.split("|", 1)[0].strip().lower()
-    if name not in ("nihongo", "nihongo2", "nihongo3", "japonais"):
-        return ""
+    name_raw = inner.split("|", 1)[0].strip()
+    name = name_raw.lower()
     params = _split_params(inner.split("|", 1)[1]) if "|" in inner else []
-    if name == "japonais":
-        return _japonais_parts(params)
-    return params[0].strip() if params else ""
+    if name in ("nihongo", "nihongo2", "nihongo3"):
+        result = params[0].strip() if params else ""
+    elif name == "japonais":
+        result = _japonais_parts(params)
+    elif name in ("lang", "langue", "nowrap"):
+        result = _last_positional(params)
+    elif name == "ruby-ja":
+        result = params[0].strip() if params else ""
+    elif name_raw and _ROMAN_NUMERAL_RE.match(name_raw):
+        result = name_raw
+    else:
+        return ""
+    return _unwrap_templates(result)
 
 
 def _unwrap_templates(v):
