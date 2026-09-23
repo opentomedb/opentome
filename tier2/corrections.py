@@ -40,6 +40,26 @@ sys.path.insert(0, os.path.join(ROOT, "schema"))
 sys.path.insert(0, os.path.join(ROOT, "tier0"))
 from load import _id, LICENCE, MARKET_LANG        # noqa: E402  (ids must match the loader's)
 from isbn import isbn_market, normalise_isbn      # noqa: E402
+from release_lines import MEDIUM_HINTS            # noqa: E402  (canonical medium names)
+
+# A medium OVERRIDE entry (2026-09-23 follow-up, the Denma orig_series_id defect):
+# unlike a normal lines.json entry, which ADDS a release line the sources don't
+# carry, this retags the `medium` of a line that already exists -- keyed on the
+# line's own id (never on work/medium/market/name, which is what a normal entry's
+# id is HASHED from: computing a fresh id from an overridden medium would not
+# match the real line and would create a duplicate, id-contract-breaking row).
+# Recognised by the absence of "volumes" (a normal entry always has a non-empty
+# one -- see LINE_KEYS/_require). Applied as a plain UPDATE, so the line's id
+# never changes.
+MEDIUM_KEYS = ("line", "medium", "source_url", "checked")
+# The canonical medium names tier0/release_lines.py's detect_medium() ever
+# assigns. 'webtoon' is deliberately NOT included even though to_mangarr.py's
+# MEDIUM_ORIGIN_HINT recognises it as a hint key: tier0 always canonicalises a
+# webtoon heading to 'manhwa' (MEDIUM_HINTS maps both to the same name), so no
+# release_line ever carries medium='webtoon' -- an override to it would put that
+# one line in a (work, medium) group of its own instead of joining its manhwa
+# counterparts (review round 1, finding 8).
+KNOWN_MEDIA = {name for name, _ in MEDIUM_HINTS}
 
 
 def _read(name, directory=DIR):
@@ -92,8 +112,21 @@ def apply_line_corrections(db, entries=None, verbose=True):
     """
     c = db.cursor()
     entries = _read("lines.json") if entries is None else entries
-    n_lines = n_vols = 0
+    n_lines = n_vols = n_medium = 0
     for i, e in enumerate(entries):
+        if "volumes" not in e:
+            _require(e, MEDIUM_KEYS, "lines.json", i)
+            line, medium = e["line"], e["medium"]
+            if medium not in KNOWN_MEDIA:
+                raise ValueError("lines.json[%d]: unknown medium %r (%s)"
+                                 % (i, medium, ", ".join(sorted(KNOWN_MEDIA))))
+            if not c.execute("SELECT 1 FROM release_line WHERE id=?", (line,)).fetchone():
+                print("\n  STALE CORRECTION -- lines.json[%d]: line %s is not in the catalogue"
+                      % (i, line), flush=True)
+                raise SystemExit(1)
+            c.execute("UPDATE release_line SET medium=?, updated_at=? WHERE id=?", (medium, NOW, line))
+            n_medium += 1
+            continue
         _require(e, LINE_KEYS, "lines.json", i)
         wid, market, medium = e["work"], e["market"].upper(), e["medium"]
         name = e["name"].strip()
@@ -169,6 +202,7 @@ def apply_line_corrections(db, entries=None, verbose=True):
     if verbose:
         print("  line corrections applied          %8s  (%s volumes)"
               % (format(n_lines, ","), format(n_vols, ",")))
+        print("  medium overrides applied          %8s" % format(n_medium, ","))
     return n_lines
 
 
@@ -276,6 +310,57 @@ def check(directory=DIR, artifact=None):
         return 1
     problems, stale = [], []          # (reason) / (file, index, what)
 
+    # Reused from the exporter (function-local: export/to_mangarr.py imports this
+    # module at its own top level -- `from corrections import load_aliases` -- so a
+    # module-level import here would be circular; by the time check() runs this
+    # module has already finished initializing, so importing to_mangarr now is safe).
+    # _REDUNDANT_SUFFIX is the SAME regex title_for_export uses for the non-trusted
+    # export path (one source of truth, review round 1 finding 7 -- this used to be
+    # a separate copy here, which could drift from the exporter's and, wrapped in
+    # an extra layer of its own optionality, refused a title that was just the bare
+    # line/series name with no number at all).
+    sys.path.insert(0, os.path.join(ROOT, "export"))
+    from to_mangarr import MARKUP_TITLE_RE, NUMBER_ONLY_TITLE, _REDUNDANT_SUFFIX  # noqa: E402
+
+    def bad_title(title, name):
+        """None, or the reason a hand-typed title is not a correction (markup,
+        number-only, or a restatement of the line/series name and its volume
+        number) -- refused at authoring time instead of round-tripping to the
+        artifact verbatim, which is what trusted=True corrections otherwise do.
+        The redundancy check REQUIRES a volume number (_REDUNDANT_SUFFIX ends in
+        a mandatory \\d+): a title that is just the bare name, or the name plus a
+        bracketed qualifier ("Name (Light Novel)") with nothing else, is not
+        redundant on its own -- it says nothing the row's number doesn't, but it
+        also isn't obviously the wrong shape, so this rule leaves it alone."""
+        title = str(title)
+        if MARKUP_TITLE_RE.search(title):
+            return "markup"
+        if NUMBER_ONLY_TITLE.match(title):
+            return "number-only"
+        name = re.sub(r"\s+", " ", (name or "")).strip()
+        if name and re.match(r"^" + re.escape(name) + _REDUNDANT_SUFFIX + r"$",
+                             re.sub(r"\s+", " ", title).strip(), re.I):
+            return "redundant"
+        return None
+
+    def series_name_for(key):
+        """The artifact's series.name for a volumes.json `volume` key (v_... id or
+        ISBN), so a redundant title can be recognised without the entry itself
+        carrying a series name."""
+        if key.startswith("v_"):
+            row = db.execute("""SELECT s.name FROM volumes v JOIN series s
+                                ON s.gcd_series_id=v.gcd_series_id WHERE v.tome_id=?""",
+                             (key,)).fetchone()
+        else:
+            isbn = re.sub(r"[^0-9Xx]", "", key)
+            row = db.execute("""SELECT s.name FROM volumes v JOIN series s
+                                ON s.gcd_series_id=v.gcd_series_id WHERE v.isbn13=?
+                                UNION
+                                SELECT s.name FROM volumes_special v JOIN series s
+                                ON s.gcd_series_id=v.gcd_series_id WHERE v.isbn13=?""",
+                             (isbn, isbn)).fetchone()
+        return row[0] if row else None
+
     def entries(name, keys):
         try:
             data = _read(name, directory)
@@ -296,7 +381,7 @@ def check(directory=DIR, artifact=None):
     def exists(sql, value):
         return db.execute(sql, (value,)).fetchone() is not None
 
-    n_vol = n_line = n_alias = 0
+    n_vol = n_line = n_medium = n_alias = 0
     for i, e in entries("volumes.json", VOLUME_KEYS):
         field = str(e["field"])
         if field not in VOLUME_FIELDS:
@@ -322,8 +407,43 @@ def check(directory=DIR, artifact=None):
             elif n > 1:
                 problems.append("volumes.json[%d]: ISBN %s is on %d volumes -- key the "
                                 "correction on a v_ id instead" % (i, isbn, n))
+        if field == "title":
+            reason = bad_title(e["value"], series_name_for(key))
+            if reason:
+                problems.append("volumes.json[%d]: title %r looks %s -- not a correctable "
+                                "title (see corrections/README.md)" % (i, e["value"], reason))
         n_vol += 1
-    for i, e in entries("lines.json", LINE_KEYS):
+    try:
+        line_data = _read("lines.json", directory)
+    except ValueError as err:            # json.JSONDecodeError is a ValueError
+        problems.append("lines.json: %s" % err)
+        line_data = []
+    for i, e in enumerate(line_data):
+        if not isinstance(e, dict):
+            problems.append("lines.json[%d]: not an object" % i)
+            continue
+        if "volumes" not in e:
+            # a medium override (2026-09-23 follow-up): a narrower shape than a
+            # normal entry -- see MEDIUM_KEYS -- so it gets its own validation
+            # instead of LINE_KEYS's required work/market/name/volumes.
+            try:
+                _require(e, MEDIUM_KEYS, "lines.json", i)
+            except ValueError as err:
+                problems.append(str(err))
+                continue
+            if e["medium"] not in KNOWN_MEDIA:
+                problems.append("lines.json[%d]: unknown medium %r (%s)"
+                                % (i, e["medium"], ", ".join(sorted(KNOWN_MEDIA))))
+            line = str(e["line"]).strip()
+            if not exists("SELECT 1 FROM series WHERE tome_id=?", line):
+                stale.append(("lines.json", i, "line %s" % line))
+            n_medium += 1
+            continue
+        try:
+            _require(e, LINE_KEYS, "lines.json", i)
+        except ValueError as err:
+            problems.append(str(err))
+            continue
         market = str(e["market"]).upper()
         if market not in MARKET_LANG:
             problems.append("lines.json[%d]: unknown market %r" % (i, e["market"]))
@@ -344,6 +464,12 @@ def check(directory=DIR, artifact=None):
                     elif isbn_market(isbn) not in (market, None):
                         problems.append("lines.json[%d] v%s: ISBN %s belongs to the %s market, not %s"
                                         % (i, num, isbn, isbn_market(isbn), market))
+                if v.get("title"):
+                    reason = bad_title(v["title"], e.get("name"))
+                    if reason:
+                        problems.append("lines.json[%d] v%s: title %r looks %s -- not a "
+                                        "correctable title (see corrections/README.md)"
+                                        % (i, num, v["title"], reason))
         work = str(e["work"]).strip()
         if not exists("SELECT 1 FROM series WHERE tome_work_id=?", work):
             stale.append(("lines.json", i, "work %s" % work))
@@ -367,8 +493,8 @@ def check(directory=DIR, artifact=None):
         label = db.execute("SELECT value FROM meta WHERE key='gcd_dump'").fetchone()
     except sqlite3.OperationalError:
         label = None
-    print("  corrections check ok: %d volume, %d line, %d alias entries resolve against %s%s"
-          % (n_vol, n_line, n_alias, os.path.basename(artifact),
+    print("  corrections check ok: %d volume, %d line, %d medium, %d alias entries resolve against %s%s"
+          % (n_vol, n_line, n_medium, n_alias, os.path.basename(artifact),
              " (%s)" % label[0] if label else ""))
     return 0
 

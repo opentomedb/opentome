@@ -125,6 +125,55 @@ The line receives exactly the id the pipeline would give the same edition, so
 if a source later carries it the two meet instead of duplicating, and the
 consumer's series id never changes.
 
+### `lines.json` — medium override (a narrower entry shape, same file)
+
+For a line the pipeline already has, but has classified as the wrong medium.
+The case: Denma is a Korean webtoon (Naver, printed and licensed as a manga),
+but every one of its three lines was tagged plain `manga` upstream (no medium
+hint applies to it), which made the origin-market picker compare release
+dates instead of trusting the medium — and the Japanese edition's earlier
+print date won, so the Korean line resolved to its own Japanese translation
+as "the origin".
+
+```json
+[
+  {
+    "line": "rl_266a70c679ed",
+    "medium": "manhwa",
+    "source_url": "https://en.wikipedia.org/wiki/Denma",
+    "reason": "a Korean webtoon tagged plain 'manga' upstream; see the other two entries for the same work",
+    "checked": "2026-09-23"
+  }
+]
+```
+
+Required: `line`, `medium`, `source_url`, `checked`. This entry has no
+`volumes` key at all — that absence is exactly what distinguishes it from a
+normal `lines.json` entry above (a normal entry always requires a non-empty
+one). Do not add a `work`, `market` or `name` to one of these; it targets an
+EXISTING line by its own id, not a natural key.
+
+`line` is an OpenTome release-line id (`series.tome_id` in the published
+artifact) — **not** the work id, and not something you compute: copy it from
+the pipeline or the published artifact. `medium` is one of the pipeline's own
+names (`manga`, `light_novel`, `manhwa`, `manhua`, `novel`, `artbook` —
+`tier0/release_lines.py`'s `MEDIUM_HINTS`; not `webtoon`, which tier0 always
+canonicalises to `manhwa`, so no line ever carries that value).
+
+**Retag every line of the work that should move together, not just one.** The
+origin picker groups a work's lines by `(work, medium)` and only ever compares
+candidates inside the same group: retagging only the Korean line would split
+it into a group of its own (an origin of one market is trivially itself) and
+leave the English line still resolving to the Japanese one. Denma needed all
+three of its lines (Japanese, English, Korean) retagged together.
+
+Applied as a plain `UPDATE release_line SET medium = ...` — the line's id
+never changes, so a rebuild that re-detects the same medium upstream (nothing
+changed there) recomputes the same id and the correction keeps applying
+cleanly; if the line is ever renamed or reclassified upstream, the id changes
+and this correction fails loudly (`STALE CORRECTION`) instead of silently
+attaching to the wrong line.
+
 ## Checking before you open the pull request
 
 Every key is resolved against the **published artifact**, not against a

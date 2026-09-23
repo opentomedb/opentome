@@ -1,6 +1,26 @@
 # HANDOFF — OpenTome
 
-_Last updated: 2026-09-21_
+_Last updated: 2026-09-23_
+
+## 2026-09-23 — follow-up: Denma's "ja" line is really the Naver webtoon
+
+Logged during the `followups-0923` branch review (item 4, the Denma `orig_series_id`
+fix — a `corrections/lines.json` medium override retagging all three of Denma's
+lines `manhwa` so the KR line resolves as the origin; see `corrections/README.md`'s
+"medium override" section). The override is correct, but it exposed a mislabelling
+one level up: the line tagged `ja` is not a Japanese print edition at all — its
+titles are hangul and its numbering is the Naver webtoon's own episode-arc list
+(2010-01 to 2012-01), i.e. the SAME Korean web serialization the `ko` line's print
+volumes collect, not a translation of it. The `en` line is the LINE Webtoon
+translation of those same episode arcs. Follow-up (not done): either correct the
+`ja` line's `market` to `KR` (it would then likely fold into the `ko` line or need
+its own composition mapping), or teach `export/line_status.py` to exclude an
+episode-arc line from the stalled/behind comparison entirely — comparing 16 web
+episode arcs against 19 print volumes is comparing different units, which is why
+the fix's two newly-`stalled` lines (`Denma (Episodes) [en]` and `[ja]`, both "16 of
+19, last dated vs. origin last dated") are an artefact of the mislabelling rather
+than a real signal. Not blocking; the origin fix itself (`orig_series_id` now
+pointing at the Korean line) is correct and should ship.
 
 ## 2026-09-21 — publish opentome-2026-09-21 (Rascal Does Not Dream vol. 16)
 

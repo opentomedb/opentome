@@ -154,6 +154,48 @@ eq("ruby keeps the base text", _clean("いとしき<ruby>歳月<rp>(</rp><rt>と
 eq("an unterminated comment is not a title", _clean("<!--"), "")
 eq("angle brackets in plain text survive", _clean("境界線上のホライゾンI<上>"), "境界線上のホライゾンI<上>")
 
+# ---- _clean nested-template unwrap (2026-09-23 follow-up) ---------------
+# The old regex unwrap only matched up to the FIRST '}}' it found, so a
+# template nesting another template leaked a stray '}}' (or, when the outer
+# match failed to close at all, a stray '|'). _clean now walks every
+# top-level {{...}} brace-balanced, the same depth counter _templates() uses.
+eq("japonais survives a nested nowrap (no leaked '}}')",
+   _clean("{{japonais|A|B|{{nowrap|C}}}}"), "A")
+eq("japonais with a nested nowrap earlier in the slot list",
+   _clean("{{japonais|A|{{nowrap|B}}|C}}"), "A")
+eq("nihongo with a nested lang template (no leaked '}}')",
+   _clean("{{Nihongo|Attack on Titan|{{lang|ja|進撃の巨人}}|Shingeki no Kyojin}}"), "Attack on Titan")
+eq("an unterminated nested template stays literal (still markup, not garbled)",
+   _clean("{{japonais|A|{{nowrap|B}}"), "{{japonais|A|{{nowrap|B}}")
+
+# ---- pass-through templates + recursive unwrap on the returned slot -----
+# (review round 1, finding 5): _unwrap_one used to return the chosen slot
+# RAW, so a template nested inside it (not alongside it) still leaked. These
+# are the real shapes found by re-measuring every cached title value:
+# {{ruby-ja}}/{{lang}}/{{langue}}/{{nowrap}} are pure wrappers around real
+# title text, not noise, and a bare roman-numeral template name ({{I}}..
+# {{XII}}) is a volume/part number, not noise either.
+eq("ruby-ja passes through its base (first) parameter",
+   _clean("{{ruby-ja|恐ろしき恋人|おそろしきこいびと}}"), "恐ろしき恋人")
+eq("fr langue passes through its LAST positional parameter (not the language code)",
+   _clean("{{Langue|en|Kase-san and Morning Glories}}"), "Kase-san and Morning Glories")
+eq("nowrap passes through its parameter", _clean("{{nowrap|Some Text}}"), "Some Text")
+eq("a bare roman-numeral template name passes through as the numeral",
+   _clean("{{XII}}"), "XII")
+eq("a roman-numeral template nested inside plain text passes through in place",
+   _clean('Dai-yon-bu "Kizoku-in no jisho tosho iin {{VIII}}"'),
+   'Dai-yon-bu "Kizoku-in no jisho tosho iin VIII"')
+eq("nihongo's returned slot is itself recursively unwrapped (a nested roman numeral)",
+   _clean("{{Nihongo|Part {{VIII}} Title|パート8}}"), "Part VIII Title")
+eq("japonais's returned slot is itself recursively unwrapped (a nested ruby-ja)",
+   _clean("{{japonais|{{ruby-ja|恐ろしき恋人|おそろしきこいびと}}|オソロシキ}}"), "恐ろしき恋人")
+# a real interlanguage-link template ({{ill}}) is not a roman numeral just because
+# every one of its letters is also a roman-numeral letter -- caught by re-measuring
+# the fix over .cache/ (review round 1's re-measure step)
+eq("{{ill}} is not mistaken for a roman numeral", _clean("Denma S.E. {{ill|Rami Record|ko|라미레코드}}"), "Denma S.E.")
+eq("a lowercase word made only of IVXLCDM letters is not a roman numeral", _clean("{{mix}}"), "")
+eq("a real uppercase roman numeral still passes through", _clean("{{XII}}"), "XII")
+
 # ---- omnibus collapse --------------------------------------------------
 def rec(n, isbn, date, pos):
     return {"volume": str(n), "_offset": pos, "medium": "manga", "line": "X",
@@ -332,6 +374,45 @@ try:
     eq("line corr: JP ISBN on an EN line rejected", "no error", "ValueError")
 except ValueError:
     eq("line corr: JP ISBN on an EN line rejected", True, True)
+
+# ---- medium override (2026-09-23 follow-up: the Denma orig_series_id defect) --
+# Denma's shape: three already-cataloged lines (JP/EN/KR), all tagged plain
+# 'manga' upstream (no medium hint), so pick_origin's step 2 (earliest date)
+# picks JP even though the work is Korean in origin. The fix is a correction
+# that retags the medium WITHOUT re-keying the line (medium is hashed into the
+# id -- see _id() below -- so a fresh id computed from the new medium would not
+# match the real line and would create a duplicate).
+cdb.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at)"
+            " VALUES('rl_kr','w_t','manga','KR','ko','x','x')")
+before_ids = {r[0] for r in cdb.execute("SELECT id FROM release_line WHERE work_id='w_t'")}
+MEDIUM_OVERRIDE = [
+    {"line": "rl_jp", "medium": "manhwa", "source_url": "https://example.test/medium", "checked": "2026-09-23"},
+    {"line": rid, "medium": "manhwa", "source_url": "https://example.test/medium", "checked": "2026-09-23"},
+    {"line": "rl_kr", "medium": "manhwa", "source_url": "https://example.test/medium", "checked": "2026-09-23"},
+]
+corr.apply_line_corrections(cdb, entries=MEDIUM_OVERRIDE, verbose=False)
+after_ids = {r[0] for r in cdb.execute("SELECT id FROM release_line WHERE work_id='w_t'")}
+eq("medium override: ids unchanged", after_ids, before_ids)
+eq("medium override: medium updated on all three lines",
+   sorted(v for (v,) in cdb.execute("SELECT medium FROM release_line WHERE id IN ('rl_jp', ?, 'rl_kr')", (rid,))),
+   ["manhwa", "manhwa", "manhwa"])
+corr.apply_line_corrections(cdb, entries=MEDIUM_OVERRIDE, verbose=False)
+eq("medium override: idempotent (still 3 lines, still manhwa)",
+   cdb.execute("SELECT COUNT(*) FROM release_line WHERE work_id='w_t' AND medium='manhwa'").fetchone()[0], 3)
+try:
+    corr.apply_line_corrections(cdb, entries=[{"line": "rl_does_not_exist", "medium": "manhwa",
+                                               "source_url": "https://example.test/medium", "checked": "2026-09-23"}],
+                                verbose=False)
+    eq("medium override: stale line rejected", "no error", "SystemExit")
+except SystemExit:
+    eq("medium override: stale line rejected", True, True)
+try:
+    corr.apply_line_corrections(cdb, entries=[{"line": "rl_jp", "medium": "not_a_medium",
+                                               "source_url": "https://example.test/medium", "checked": "2026-09-23"}],
+                                verbose=False)
+    eq("medium override: unknown medium rejected", "no error", "ValueError")
+except ValueError:
+    eq("medium override: unknown medium rejected", True, True)
 
 print()
 if FAILS:

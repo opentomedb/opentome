@@ -66,10 +66,13 @@ NUMBER_ONLY_TITLE = re.compile(r"^\s*(?:vol(?:ume)?\.?\s*|tome\s*|band\s*)?\d+\s
 MARKUP_TITLE_RE = re.compile(r"\{\{|\}\}|\[\[|\]\]|<ref|<br|<!--|<ruby|</", re.I)
 # Kana, CJK ideographs, hangul -- the scripts a non-origin-market reader cannot use.
 NATIVE_SCRIPT_RE = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
-# series_name, optionally followed by a separator (punctuation or plain whitespace),
-# an optional vol/tome/band word, and a volume number -- i.e. nothing the row's own
-# volume_number column doesn't already say.
-_REDUNDANT_SUFFIX = r"(?:\s*[:\-–,])?\s*(?:(?:vol(?:ume)?\.?|tome|band)\s*)?\d+"
+# series_name, optionally followed by a bracketed qualifier ("(Light Novel)" --
+# 2026-09-23 follow-up: "Mushoku Tensei: Jobless Reincarnation (Light Novel) Vol.
+# 14" survived this check because nothing sat between the name and the separator),
+# a separator (punctuation or plain whitespace), an optional vol/tome/band word,
+# and a volume number -- i.e. nothing the row's own volume_number column doesn't
+# already say.
+_REDUNDANT_SUFFIX = r"(?:\s*\([^)]*\))?(?:\s*[:\-–,])?\s*(?:(?:vol(?:ume)?\.?|tome|band)\s*)?\d+"
 # The English wiki's LicensedTitle often carries the series name and volume number
 # AHEAD OF the real subtitle ("Sword Art Online 1: Aincrad", "Sword Art Online, Vol.
 # 1: Aincrad") -- Task 7's spot check. Strip that lead-in so what's left is just the
@@ -126,6 +129,50 @@ def title_for_export(title, series_name, native_script_ok, drops=None, trusted=F
 MARKET_LANG = {"JP": "ja", "EN": "en", "FR": "fr", "DE": "de", "KR": "ko",
                "IT": "it", "ES": "es", "BR": "pt-BR", "CN": "zh", "TW": "zh-TW",
                "HK": "zh-HK"}
+
+# Module level (2026-09-23 follow-up) so pick_origin is independently testable and
+# a corrections-driven medium override (tier2/corrections.py) can be exercised
+# without a database: originally a closure inside export(), which meant the only
+# way to test it was a full export run.
+ORIGIN = ("JP", "KR", "CN", "TW")
+# A medium hint decides the origin market before falling back to the fixed
+# JP>KR>CN>TW order: that fixed order picked JP as the origin for a Korean manhwa
+# that ALSO has a Japanese edition (Saver, Warlord) and for Denma (a manga) --
+# their KO line then pointed at its own JA translation as "the origin" and
+# inherited a licensed-line status backwards (Warlord read 'stalled'). See
+# pick_origin() below.
+MEDIUM_ORIGIN_HINT = {"manhwa": ("KR",), "webtoon": ("KR",), "manhua": ("CN", "TW")}
+
+
+def pick_origin(medium, markets, first_dated_by_market):
+    """The market a work's ORIGINAL edition is in, for one (work, medium):
+    1. a medium hint (manhwa/webtoon -> KR; manhua -> CN, then TW) -- these two
+       are unconditional: a Korean/Chinese label on the medium itself is a
+       stronger signal than any recorded date;
+    2. otherwise (medium has no hint, e.g. plain 'manga' -- 'prefer JP' falls out
+       of this step on its own, since JP is what usually shipped first) the
+       ORIGIN candidate whose main line's first dated volume is earliest;
+    3. the old fixed JP>KR>CN>TW order, when no candidate has a usable date.
+    Step 2, not a hard JP default, is why: Saver and Warlord (both manhwa) are
+    caught by step 1, but Denma is tagged plain 'manga' upstream, so it depends on
+    step 2 -- and even there its JP line's first PRINT date (2008/2010) predates
+    its KR line's first PRINT date (2015, a late collected edition; the original
+    web serialization has no volume-level date in this data), so Denma's ko line
+    still resolves to a ja origin -- UNLESS a corrections/lines.json medium
+    override (tier2/corrections.py) has retagged its lines 'manhwa', which routes
+    it through step 1 instead. Flagged, not hidden: hard-coding one title's id
+    here would be exactly the kind of un-generalizable special case this
+    pipeline avoids -- see the fix-round-2 report."""
+    for m in MEDIUM_ORIGIN_HINT.get(medium, ()):
+        if m in markets:
+            return m
+    dated = [(d, m) for m in ORIGIN if m in markets
+             for d in [first_dated_by_market.get(m)] if d]
+    if dated:
+        # A tie on date falls back to the documented JP>KR>CN>TW order, not an
+        # alphabetical one ("CN" < "JP" would otherwise win the tie wrongly).
+        return min(dated, key=lambda dm: (dm[0], ORIGIN.index(dm[1])))[1]
+    return next((m for m in ORIGIN if m in markets), None)
 
 
 def normalize(value):
@@ -358,14 +405,7 @@ def export(src_path, out_path, carry_ids_from=None):
     # every line's highest plain-integer volume number. Highest number, not
     # count: an arc line keeps Wikipedia's continuous numbering (34-36) and a
     # table with gaps still reaches its last volume.
-    ORIGIN = ("JP", "KR", "CN", "TW")
-    # A medium hint decides the origin market before falling back to the fixed
-    # JP>KR>CN>TW order: that fixed order picked JP as the origin for a Korean manhwa
-    # that ALSO has a Japanese edition (Saver, Warlord) and for Denma (a manga) --
-    # their KO line then pointed at its own JA translation as "the origin" and
-    # inherited a licensed-line status backwards (Warlord read 'stalled'). See
-    # pick_origin() below.
-    MEDIUM_ORIGIN_HINT = {"manhwa": ("KR",), "webtoon": ("KR",), "manhua": ("CN", "TW")}
+    # ORIGIN, MEDIUM_ORIGIN_HINT and pick_origin() are module-level (above).
     markets_of, line_key = {}, {}
     for rid, wid, market, medium, *_rest, wtitle, lname in lines:
         markets_of.setdefault((wid, medium), set()).add(market)
@@ -378,34 +418,6 @@ def export(src_path, out_path, carry_ids_from=None):
                                          WHERE release_date IS NOT NULL
                                            AND release_date_precision IN ('day','month')
                                          GROUP BY 1"""))
-
-    def pick_origin(medium, markets, first_dated_by_market):
-        """The market a work's ORIGINAL edition is in, for one (work, medium):
-        1. a medium hint (manhwa/webtoon -> KR; manhua -> CN, then TW) -- these two
-           are unconditional: a Korean/Chinese label on the medium itself is a
-           stronger signal than any recorded date;
-        2. otherwise (medium has no hint, e.g. plain 'manga' -- 'prefer JP' falls out
-           of this step on its own, since JP is what usually shipped first) the
-           ORIGIN candidate whose main line's first dated volume is earliest;
-        3. the old fixed JP>KR>CN>TW order, when no candidate has a usable date.
-        Step 2, not a hard JP default, is why: Saver and Warlord (both manhwa) are
-        caught by step 1, but Denma is tagged plain 'manga' upstream, so it depends on
-        step 2 -- and even there its JP line's first PRINT date (2008/2010) predates
-        its KR line's first PRINT date (2015, a late collected edition; the original
-        web serialization has no volume-level date in this data), so Denma's ko line
-        still resolves to a ja origin after this change. Flagged, not hidden: hard-
-        coding one title's id here would be exactly the kind of un-generalizable
-        special case this pipeline avoids -- see the fix-round-2 report."""
-        for m in MEDIUM_ORIGIN_HINT.get(medium, ()):
-            if m in markets:
-                return m
-        dated = [(d, m) for m in ORIGIN if m in markets
-                 for d in [first_dated_by_market.get(m)] if d]
-        if dated:
-            # A tie on date falls back to the documented JP>KR>CN>TW order, not an
-            # alphabetical one ("CN" < "JP" would otherwise win the tie wrongly).
-            return min(dated, key=lambda dm: (dm[0], ORIGIN.index(dm[1])))[1]
-        return next((m for m in ORIGIN if m in markets), None)
 
     origin_of = {}
     for (wid, medium), ms in markets_of.items():

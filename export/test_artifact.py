@@ -145,11 +145,21 @@ def run(path):
 
     missing_line = 0
     for e in corr._read("lines.json"):
+        if "volumes" not in e:
+            continue        # a medium override, not a new line -- checked below
         rid = corr._id("rl_", e["work"], e["medium"], e["market"].upper(), e["name"].strip())
         want = sum(1 for v in e["volumes"] if str(v.get("number", "")).strip().isdigit())
         row = db.execute("SELECT volume_count FROM series WHERE tome_id=?", (rid,)).fetchone()
         missing_line += (row is None or row[0] < want)
     rule("line corrections missing from the artifact", missing_line)
+
+    missing_medium = 0
+    for e in corr._read("lines.json"):
+        if "volumes" in e:
+            continue
+        row = db.execute("SELECT medium FROM series WHERE tome_id=?", (e["line"],)).fetchone()
+        missing_medium += (row is None or row[0] != e["medium"])
+    rule("medium corrections not present in the artifact", missing_medium)
 
     # status / covers (schema_version 2 additions)
     rule("licensed line 'completed' while behind its same-named original-market line",
