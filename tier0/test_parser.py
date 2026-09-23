@@ -154,6 +154,20 @@ eq("ruby keeps the base text", _clean("いとしき<ruby>歳月<rp>(</rp><rt>と
 eq("an unterminated comment is not a title", _clean("<!--"), "")
 eq("angle brackets in plain text survive", _clean("境界線上のホライゾンI<上>"), "境界線上のホライゾンI<上>")
 
+# ---- _clean nested-template unwrap (2026-09-23 follow-up) ---------------
+# The old regex unwrap only matched up to the FIRST '}}' it found, so a
+# template nesting another template leaked a stray '}}' (or, when the outer
+# match failed to close at all, a stray '|'). _clean now walks every
+# top-level {{...}} brace-balanced, the same depth counter _templates() uses.
+eq("japonais survives a nested nowrap (no leaked '}}')",
+   _clean("{{japonais|A|B|{{nowrap|C}}}}"), "A")
+eq("japonais with a nested nowrap earlier in the slot list",
+   _clean("{{japonais|A|{{nowrap|B}}|C}}"), "A")
+eq("nihongo with a nested lang template (no leaked '}}')",
+   _clean("{{Nihongo|Attack on Titan|{{lang|ja|進撃の巨人}}|Shingeki no Kyojin}}"), "Attack on Titan")
+eq("an unterminated nested template stays literal (still markup, not garbled)",
+   _clean("{{japonais|A|{{nowrap|B}}"), "{{japonais|A|{{nowrap|B}}")
+
 # ---- omnibus collapse --------------------------------------------------
 def rec(n, isbn, date, pos):
     return {"volume": str(n), "_offset": pos, "medium": "manga", "line": "X",

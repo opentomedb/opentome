@@ -154,14 +154,63 @@ def _templates(w, name="Graphic novel list"):
 _CJK = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
 
 
-def _japonais(m):
+def _japonais_parts(parts):
     """{{japonais|texte|kana|romaji}} (fr-wiki): the first slot that carries no Japanese
-    script, taking the part after ' / ' when an editor glued 'romaji / translation' into one."""
-    parts = [re.sub(r"<br\s*/?>", " ", p).strip() for p in m.group(1).split("|")]
-    for p in parts:
+    script, taking the part after ' / ' when an editor glued 'romaji / translation' into
+    one. `parts` is already split at depth 0 (see _unwrap_one) -- a slot that is itself a
+    nested template ('{{nowrap|C}}') travels as one whole param, never split on its own '|'."""
+    cleaned = [re.sub(r"<br\s*/?>", " ", p).strip() for p in parts]
+    for p in cleaned:
         if p and not _CJK.search(p):
             return p.split(" / ")[-1].strip() if " / " in p else p
-    return parts[0] if parts else ""
+    return cleaned[0] if cleaned else ""
+
+
+def _unwrap_one(body):
+    """body is one brace-balanced '{{...}}' span, braces included (see _unwrap_templates).
+    nihongo/nihongo2/nihongo3 and japonais unwrap to clean text; every other template --
+    known or not -- contributes nothing, same as the old flat catch-all, but a template
+    nested inside one of these (a {{nowrap}}, a {{lang}}, a footnote) is now consumed
+    whole by the depth-0 param split instead of leaking a stray '}}' or '|'."""
+    inner = body[2:-2]
+    name = inner.split("|", 1)[0].strip().lower()
+    if name not in ("nihongo", "nihongo2", "nihongo3", "japonais"):
+        return ""
+    params = _split_params(inner.split("|", 1)[1]) if "|" in inner else []
+    if name == "japonais":
+        return _japonais_parts(params)
+    return params[0].strip() if params else ""
+
+
+def _unwrap_templates(v):
+    """Brace-balanced pass over every top-level {{...}} in v, the same depth counter
+    _templates() uses to pull whole template bodies. The regex it replaces only ever
+    matched up to the FIRST '}}' it found, so a template nesting another template
+    (a {{nowrap}}, a {{lang}}, a footnote) either leaked the outer's own trailing '}}'
+    (when the inner one had its own) or, unterminated, matched nothing and left a
+    stray '{{' + '|' in the output."""
+    out, i, n = [], 0, len(v)
+    while i < n:
+        if v[i:i + 2] == "{{":
+            start, depth, j = i, 0, i
+            while j < n:
+                if v[j:j + 2] == "{{":
+                    depth += 1; j += 2; continue
+                if v[j:j + 2] == "}}":
+                    depth -= 1; j += 2
+                    if depth == 0:
+                        break
+                    continue
+                j += 1
+            if depth != 0:
+                out.append(v[start:])          # unterminated: not a template, leave literal
+                break
+            out.append(_unwrap_one(v[start:j]))
+            i = j
+            continue
+        out.append(v[i])
+        i += 1
+    return "".join(out)
 
 
 def _clean(v):
@@ -172,11 +221,9 @@ def _clean(v):
     v = re.sub(r"<br\s*/?>", " ", v, flags=re.I)
     v = re.sub(r"<rp>.*?</rp>|<rt>.*?</rt>", "", v, flags=re.S | re.I)   # furigana: keep the base text
     v = re.sub(r"</?ruby[^>]*>", "", v, flags=re.I)
-    v = re.sub(r"\{\{\s*nihongo[23]?\s*\|([^|}]*)(?:\|[^}]*)?\}\}", r"\1", v, flags=re.S | re.I)
-    v = re.sub(r"\{\{\s*japonais\s*\|([^}]*)\}\}", _japonais, v, flags=re.S | re.I)
+    v = _unwrap_templates(v)
     v = re.sub(r"\[\[[^\]|]*\|([^\]]*)\]\]", r"\1", v)
     v = re.sub(r"\[\[([^\]]*)\]\]", r"\1", v)
-    v = re.sub(r"\{\{[^{}]*\}\}", "", v)
     v = re.sub(r"'''?", "", v)
     return re.sub(r"\s+", " ", v).strip()
 
