@@ -7,6 +7,13 @@
     "checked": "2026-09-23"
   },
   {
+    "line": "rl_266a70c679ed",
+    "market": "KR",
+    "source_url": "https://en.wikipedia.org/wiki/Denma",
+    "reason": "2026-09-23 cleanup (item 3), follow-up to the medium override above: this line's titles are hangul (파마나의 개, 해적선장 하독, ...) and its numbering is the Naver webtoon's own episode-arc list (2010-01 to 2012-01) -- the SAME Korean web serialization the ko line's print volumes (rl_b6ed029e46f3) collect, not a Japanese translation of it. It was tagged market 'JP' upstream because tier0 has no signal that distinguishes a webtoon's episode-arc list from a print edition once the language field said 'ja'. Retagging it 'KR' (language follows to 'ko' automatically) makes it a second KR line in the (work, manhwa) group -- pick_origin's medium hint already routes the group to KR regardless of how many KR lines exist, and export/to_mangarr.py's origin_line() matches the EN 'Denma (Episodes)' line to THIS line by exact name, which is the correct origin now (episode-arc list to episode-arc list) instead of the mismatched 16-arcs-vs-19-print-volumes comparison HANDOFF.md's 2026-09-23 entry described.",
+    "checked": "2026-09-23"
+  },
+  {
     "line": "rl_bc84c55a1f7e",
     "medium": "manhwa",
     "source_url": "https://en.wikipedia.org/wiki/Denma",

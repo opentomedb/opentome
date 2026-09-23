@@ -34,6 +34,12 @@ ORIGIN_MARKETS = ("JP", "KR", "CN", "TW")
 VOLUME_KEYS = ("volume", "field", "value", "source_url", "checked")
 LINE_KEYS = ("work", "market", "medium", "name", "volumes", "source_url", "checked")
 ALIAS_KEYS = ("line", "alias", "source_url", "checked")
+# A whole WORK the catalogue should not carry at all (2026-09-23 cleanup): a work
+# that entered through a Wikipedia list-of-volumes page but is not in scope (The
+# Walking Dead, a US comic -- Arrietty (Comics), a legitimate Japanese Ghibli
+# film comic, is NOT this). Keyed on the work id tier 0 computes (`w_...`),
+# stable across rebuilds the same way the medium override's line id is.
+EXCLUDED_KEYS = ("work", "source_url", "checked")
 ARTIFACT_URL = "https://github.com/DrAwesome441/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite"
 
 sys.path.insert(0, os.path.join(ROOT, "schema"))
@@ -61,6 +67,17 @@ MEDIUM_KEYS = ("line", "medium", "source_url", "checked")
 # counterparts (review round 1, finding 8).
 KNOWN_MEDIA = {name for name, _ in MEDIUM_HINTS}
 
+# A MARKET override entry (2026-09-23 cleanup, item 3: Denma's "ja" line is
+# really the Naver webtoon, not a Japanese print edition -- hangul titles,
+# 2010-01..2012-01 episode-arc numbering, the same Korean web serialization
+# the ko line's print volumes collect). Same shape as a medium override --
+# recognised by the absence of "volumes" -- but distinguished from one by
+# which of "medium" / "market" is present: an entry needs exactly one of the
+# three override/add discriminators (volumes, medium, market) so the three
+# shapes never collide. Applied as a plain UPDATE (market + the language
+# MARKET_LANG derives from it), so the line's id never changes.
+MARKET_KEYS = ("line", "market", "source_url", "checked")
+
 
 def _read(name, directory=DIR):
     path = os.path.join(directory, name)
@@ -81,17 +98,110 @@ def _require(entry, keys, name, i):
                          % (name, i, ", ".join(missing)))
 
 
-def load_aliases():
-    """-> [(release_line_id, alias)] after validation."""
+def load_aliases(directory=None):
+    """-> [(release_line_id, alias)] after validation. Add-only: an entry with
+    `"remove": true` is a curated removal (see load_alias_removals) and is
+    skipped here, so it is never re-inserted as if it were a normal addition.
+    `directory` is test-only (mirrors check()'s parameter); every real caller
+    reads the repo's own corrections/."""
     out = []
-    for i, e in enumerate(_read("aliases.json")):
+    for i, e in enumerate(_read("aliases.json", directory or DIR)):
         _require(e, ALIAS_KEYS, "aliases.json", i)
+        if e.get("remove"):
+            continue
         out.append((e["line"], e["alias"]))
+    return out
+
+
+def load_alias_removals(directory=None):
+    """-> [(release_line_id, alias)] for aliases.json entries marked
+    `"remove": true` (2026-09-23 cleanup, item 2): a curated, exact-string
+    removal of a specific bad alias the export's own fan-out generated --
+    NOT a rule (the automated 'drop anything that collides with a volume
+    title' pass was tried and reverted; see HANDOFF and the followups-0923
+    review). Keyed on the exact line + alias string, same required keys as
+    a normal aliases.json entry (a removal needs a source and a checked date
+    just as much as an addition does)."""
+    out = []
+    for i, e in enumerate(_read("aliases.json", directory or DIR)):
+        _require(e, ALIAS_KEYS, "aliases.json", i)
+        if e.get("remove"):
+            out.append((e["line"], e["alias"]))
+    return out
+
+
+def load_exclusions(directory=None):
+    """-> [work_id] after validation (corrections/excluded.json)."""
+    out = []
+    for i, e in enumerate(_read("excluded.json", directory or DIR)):
+        _require(e, EXCLUDED_KEYS, "excluded.json", i)
+        out.append(e["work"])
     return out
 
 
 def _precision(value):
     return "day" if len(value) == 10 else "month" if len(value) == 7 else "year"
+
+
+def apply_exclusions(db, entries=None, verbose=True):
+    """Remove a whole work the catalogue should not carry at all (corrections/
+    excluded.json). The case: 'The Walking Dead (comic book)' entered through a
+    Wikipedia list-of-volumes page even though it is a US comic, out of scope
+    for a manga/light-novel/manhwa/manhua catalogue.
+
+    Keyed on the work id (`w_...`) tier 0 computes -- stable across a rebuild
+    the same way a medium override's line id is: reprocessing the SAME Wikipedia
+    article recomputes the same id, so the exclusion keeps applying; if the work
+    is ever merged or reclassified upstream, the id changes and this fails
+    loudly (STALE CORRECTION) instead of silently doing nothing.
+
+    Deletes every row the work owns -- its release lines, their volumes and
+    compositions, and every claim/override/external_id attached to any of
+    those entities plus the work itself. Aliases and volumes "go with the
+    line": once the release_line row is gone, nothing later in the pipeline
+    (export's own alias fan-out included) has anything left to read."""
+    c = db.cursor()
+    entries = _read("excluded.json") if entries is None else entries
+    n = 0
+    for i, e in enumerate(entries):
+        _require(e, EXCLUDED_KEYS, "excluded.json", i)
+        wid = e["work"]
+        if not c.execute("SELECT 1 FROM work WHERE id=?", (wid,)).fetchone():
+            print("\n  STALE CORRECTION -- excluded.json[%d]: work %s is not in the catalogue"
+                  % (i, wid), flush=True)
+            raise SystemExit(1)
+        line_ids = [r[0] for r in c.execute("SELECT id FROM release_line WHERE work_id=?", (wid,))]
+        vol_ids = []
+        if line_ids:
+            qs = ",".join("?" * len(line_ids))
+            vol_ids = [r[0] for r in c.execute(
+                "SELECT id FROM volume WHERE release_line_id IN (%s)" % qs, line_ids)]
+        if vol_ids:
+            qs = ",".join("?" * len(vol_ids))
+            c.execute("DELETE FROM composition WHERE volume_id IN (%s)" % qs, vol_ids)
+            c.execute("DELETE FROM claim WHERE entity='volume' AND entity_id IN (%s)" % qs, vol_ids)
+            c.execute("DELETE FROM override WHERE entity='volume' AND entity_id IN (%s)" % qs, vol_ids)
+            c.execute("DELETE FROM external_id WHERE entity='volume' AND entity_id IN (%s)" % qs, vol_ids)
+            c.execute("DELETE FROM volume WHERE id IN (%s)" % qs, vol_ids)
+        if line_ids:
+            qs = ",".join("?" * len(line_ids))
+            c.execute("DELETE FROM composition WHERE ref_line_id IN (%s)" % qs, line_ids)
+            c.execute("DELETE FROM claim WHERE entity='release_line' AND entity_id IN (%s)" % qs, line_ids)
+            c.execute("DELETE FROM override WHERE entity='release_line' AND entity_id IN (%s)" % qs, line_ids)
+            c.execute("DELETE FROM external_id WHERE entity='release_line' AND entity_id IN (%s)" % qs, line_ids)
+            c.execute("DELETE FROM release_line WHERE id IN (%s)" % qs, line_ids)
+        c.execute("DELETE FROM claim WHERE entity='work' AND entity_id=?", (wid,))
+        c.execute("DELETE FROM override WHERE entity='work' AND entity_id=?", (wid,))
+        c.execute("DELETE FROM external_id WHERE entity='work' AND entity_id=?", (wid,))
+        c.execute("DELETE FROM work_title WHERE work_id=?", (wid,))
+        c.execute("DELETE FROM chapter WHERE work_id=?", (wid,))
+        c.execute("DELETE FROM work_relation WHERE from_work_id=? OR to_work_id=?", (wid, wid))
+        c.execute("DELETE FROM work WHERE id=?", (wid,))
+        n += 1
+    db.commit()
+    if verbose:
+        print("  excluded works removed             %8s" % format(n, ","))
+    return n
 
 
 def apply_line_corrections(db, entries=None, verbose=True):
@@ -112,21 +222,39 @@ def apply_line_corrections(db, entries=None, verbose=True):
     """
     c = db.cursor()
     entries = _read("lines.json") if entries is None else entries
-    n_lines = n_vols = n_medium = 0
+    n_lines = n_vols = n_medium = n_market = 0
     for i, e in enumerate(entries):
         if "volumes" not in e:
-            _require(e, MEDIUM_KEYS, "lines.json", i)
-            line, medium = e["line"], e["medium"]
-            if medium not in KNOWN_MEDIA:
-                raise ValueError("lines.json[%d]: unknown medium %r (%s)"
-                                 % (i, medium, ", ".join(sorted(KNOWN_MEDIA))))
-            if not c.execute("SELECT 1 FROM release_line WHERE id=?", (line,)).fetchone():
-                print("\n  STALE CORRECTION -- lines.json[%d]: line %s is not in the catalogue"
-                      % (i, line), flush=True)
-                raise SystemExit(1)
-            c.execute("UPDATE release_line SET medium=?, updated_at=? WHERE id=?", (medium, NOW, line))
-            n_medium += 1
-            continue
+            if "medium" in e:
+                _require(e, MEDIUM_KEYS, "lines.json", i)
+                line, medium = e["line"], e["medium"]
+                if medium not in KNOWN_MEDIA:
+                    raise ValueError("lines.json[%d]: unknown medium %r (%s)"
+                                     % (i, medium, ", ".join(sorted(KNOWN_MEDIA))))
+                if not c.execute("SELECT 1 FROM release_line WHERE id=?", (line,)).fetchone():
+                    print("\n  STALE CORRECTION -- lines.json[%d]: line %s is not in the catalogue"
+                          % (i, line), flush=True)
+                    raise SystemExit(1)
+                c.execute("UPDATE release_line SET medium=?, updated_at=? WHERE id=?", (medium, NOW, line))
+                n_medium += 1
+                continue
+            if "market" in e:
+                _require(e, MARKET_KEYS, "lines.json", i)
+                line, market = e["line"], e["market"].upper()
+                if market not in MARKET_LANG:
+                    raise ValueError("lines.json[%d]: unknown market %r" % (i, market))
+                if not c.execute("SELECT 1 FROM release_line WHERE id=?", (line,)).fetchone():
+                    print("\n  STALE CORRECTION -- lines.json[%d]: line %s is not in the catalogue"
+                          % (i, line), flush=True)
+                    raise SystemExit(1)
+                c.execute("UPDATE release_line SET market=?, language=?, updated_at=? WHERE id=?",
+                          (market, MARKET_LANG[market], NOW, line))
+                n_market += 1
+                continue
+            raise ValueError(
+                "lines.json[%d]: has none of 'volumes' (a new line), 'medium' (a medium "
+                "override) or 'market' (a market override) -- not a recognised correction "
+                "shape (see corrections/README.md)" % i)
         _require(e, LINE_KEYS, "lines.json", i)
         wid, market, medium = e["work"], e["market"].upper(), e["medium"]
         name = e["name"].strip()
@@ -203,6 +331,7 @@ def apply_line_corrections(db, entries=None, verbose=True):
         print("  line corrections applied          %8s  (%s volumes)"
               % (format(n_lines, ","), format(n_vols, ",")))
         print("  medium overrides applied          %8s" % format(n_medium, ","))
+        print("  market overrides applied          %8s" % format(n_market, ","))
     return n_lines
 
 
@@ -381,7 +510,7 @@ def check(directory=DIR, artifact=None):
     def exists(sql, value):
         return db.execute(sql, (value,)).fetchone() is not None
 
-    n_vol = n_line = n_medium = n_alias = 0
+    n_vol = n_line = n_medium = n_market = n_alias = 0
     for i, e in entries("volumes.json", VOLUME_KEYS):
         field = str(e["field"])
         if field not in VOLUME_FIELDS:
@@ -423,21 +552,42 @@ def check(directory=DIR, artifact=None):
             problems.append("lines.json[%d]: not an object" % i)
             continue
         if "volumes" not in e:
-            # a medium override (2026-09-23 follow-up): a narrower shape than a
-            # normal entry -- see MEDIUM_KEYS -- so it gets its own validation
-            # instead of LINE_KEYS's required work/market/name/volumes.
-            try:
-                _require(e, MEDIUM_KEYS, "lines.json", i)
-            except ValueError as err:
-                problems.append(str(err))
+            # a medium or market override (2026-09-23): narrower shapes than a
+            # normal entry -- see MEDIUM_KEYS / MARKET_KEYS -- so each gets its
+            # own validation instead of LINE_KEYS's required work/market/name/
+            # volumes. Distinguished from each other by which of "medium" /
+            # "market" is present.
+            if "medium" in e:
+                try:
+                    _require(e, MEDIUM_KEYS, "lines.json", i)
+                except ValueError as err:
+                    problems.append(str(err))
+                    continue
+                if e["medium"] not in KNOWN_MEDIA:
+                    problems.append("lines.json[%d]: unknown medium %r (%s)"
+                                    % (i, e["medium"], ", ".join(sorted(KNOWN_MEDIA))))
+                line = str(e["line"]).strip()
+                if not exists("SELECT 1 FROM series WHERE tome_id=?", line):
+                    stale.append(("lines.json", i, "line %s" % line))
+                n_medium += 1
                 continue
-            if e["medium"] not in KNOWN_MEDIA:
-                problems.append("lines.json[%d]: unknown medium %r (%s)"
-                                % (i, e["medium"], ", ".join(sorted(KNOWN_MEDIA))))
-            line = str(e["line"]).strip()
-            if not exists("SELECT 1 FROM series WHERE tome_id=?", line):
-                stale.append(("lines.json", i, "line %s" % line))
-            n_medium += 1
+            if "market" in e:
+                try:
+                    _require(e, MARKET_KEYS, "lines.json", i)
+                except ValueError as err:
+                    problems.append(str(err))
+                    continue
+                if str(e["market"]).upper() not in MARKET_LANG:
+                    problems.append("lines.json[%d]: unknown market %r" % (i, e["market"]))
+                line = str(e["line"]).strip()
+                if not exists("SELECT 1 FROM series WHERE tome_id=?", line):
+                    stale.append(("lines.json", i, "line %s" % line))
+                n_market += 1
+                continue
+            problems.append(
+                "lines.json[%d]: has none of 'volumes' (a new line), 'medium' (a medium "
+                "override) or 'market' (a market override) -- not a recognised correction "
+                "shape (see corrections/README.md)" % i)
             continue
         try:
             _require(e, LINE_KEYS, "lines.json", i)
@@ -480,6 +630,24 @@ def check(directory=DIR, artifact=None):
             stale.append(("aliases.json", i, "line %s" % line))
         n_alias += 1
 
+    # A work an exclusion already removed from `series` is not stale: the
+    # exporter records every applied exclusion in meta.excluded_works, and this
+    # accepts either a work still present (a PR opened before the next publish)
+    # or one recorded there (the publish that actually excluded it already
+    # happened) -- otherwise every future corrections PR would fail STALE for
+    # an exclusion that did exactly what it was supposed to.
+    try:
+        excluded_recorded = set(json.loads(
+            db.execute("SELECT value FROM meta WHERE key='excluded_works'").fetchone()[0]))
+    except (TypeError, sqlite3.OperationalError, ValueError):
+        excluded_recorded = set()
+    n_excluded = 0
+    for i, e in entries("excluded.json", EXCLUDED_KEYS):
+        work = str(e["work"]).strip()
+        if work not in excluded_recorded and not exists("SELECT 1 FROM series WHERE tome_work_id=?", work):
+            stale.append(("excluded.json", i, "work %s" % work))
+        n_excluded += 1
+
     for reason in problems:
         print("  %s" % reason)
     for name, i, what in stale:
@@ -493,8 +661,9 @@ def check(directory=DIR, artifact=None):
         label = db.execute("SELECT value FROM meta WHERE key='gcd_dump'").fetchone()
     except sqlite3.OperationalError:
         label = None
-    print("  corrections check ok: %d volume, %d line, %d medium, %d alias entries resolve against %s%s"
-          % (n_vol, n_line, n_medium, n_alias, os.path.basename(artifact),
+    print("  corrections check ok: %d volume, %d line, %d medium, %d market, %d alias, "
+          "%d excluded entries resolve against %s%s"
+          % (n_vol, n_line, n_medium, n_market, n_alias, n_excluded, os.path.basename(artifact),
              " (%s)" % label[0] if label else ""))
     return 0
 
@@ -517,5 +686,6 @@ if __name__ == "__main__":
         sys.exit(_check_main(sys.argv[1:]))
     path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "build", "opentome.db")
     _db = sqlite3.connect(path, timeout=60)
+    apply_exclusions(_db)                # excluded works first: nothing later should touch their rows
     apply_line_corrections(_db)          # lines first: a volume correction may target one
     apply_volume_corrections(_db)

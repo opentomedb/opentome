@@ -43,7 +43,7 @@ sys.path.insert(0, os.path.join(ROOT, "tier0"))
 sys.path.insert(0, os.path.join(ROOT, "tier2"))
 from build_corpus import work_title
 from release_lines import GENERIC
-from corrections import load_aliases
+from corrections import load_aliases, load_alias_removals, load_exclusions
 from line_status import line_status
 
 
@@ -639,6 +639,35 @@ def export(src_path, out_path, carry_ids_from=None):
             n_corr += out.execute(
                 "INSERT OR IGNORE INTO series_alias VALUES(?,?)", (sid, a)).rowcount
 
+    # Curated alias REMOVALS (2026-09-23 cleanup, item 2): an exact string on an
+    # exact line, not a rule. The automated version of this -- drop any alias
+    # whose normalized form equals a volume title -- was tried (followups-0923)
+    # and reverted: it deleted 360 aliases when only ~30 were actually bad,
+    # including every native-script series name whose ASCII normalize() is the
+    # empty string. Applied last, after every other alias source, so it always
+    # wins regardless of which stage produced the string; deletes BOTH the raw
+    # string as written and its normalize() form (the two rows `variants()`
+    # would have inserted for it), since Mangarr's own lookup queries the
+    # normalized form. Raises when a removal deletes nothing: the export
+    # regenerates every alias from scratch each run, so a removal that matches
+    # 0 rows means the string or line is stale, the same "fails loudly" contract
+    # every other correction has (asserted again in export/test_artifact.py).
+    n_removed = 0
+    for line_id, alias in load_alias_removals():
+        sid = mapping.get(line_id)
+        if sid is None or not out.execute(
+                "SELECT 1 FROM series WHERE gcd_series_id=?", (sid,)).fetchone():
+            raise SystemExit(
+                "corrections/aliases.json (remove): release line %s is not in this catalogue --\n"
+                "fix or remove the entry (see corrections/README.md)" % line_id)
+        gone = out.execute("DELETE FROM series_alias WHERE gcd_series_id=? AND alias IN (?,?)",
+                           (sid, alias, normalize(alias))).rowcount
+        if not gone:
+            raise SystemExit(
+                "corrections/aliases.json (remove): %r is not an alias of release line %s --\n"
+                "fix or remove the entry (see corrections/README.md)" % (alias, line_id))
+        n_removed += gone
+
     src_counts = dict(src.execute("SELECT source, COUNT(*) FROM claim GROUP BY source"))
     for k, v in [
         ("schema_version", "2"),
@@ -657,6 +686,11 @@ def export(src_path, out_path, carry_ids_from=None):
         ("volumes_special_count", str(n_special)),
         ("omnibus_lines", str(n_omni)),
         ("correction_aliases", str(len(load_aliases()))),
+        ("correction_alias_removals", str(n_removed)),
+        # Every excluded.json work id, so corrections.py --check can accept one
+        # after a publish actually removes it from `series` (see corrections/
+        # README.md, "excluded.json") instead of reporting it stale forever.
+        ("excluded_works", json.dumps(load_exclusions())),
         # Publishing is gated on this being exactly "opentome": merge_aliases.py
         # overwrites it with the name of any artifact it merged aliases from, so
         # a build that is not clean-room fails the check rather than passing it

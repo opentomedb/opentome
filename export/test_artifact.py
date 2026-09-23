@@ -155,11 +155,33 @@ def run(path):
 
     missing_medium = 0
     for e in corr._read("lines.json"):
-        if "volumes" in e:
+        if "volumes" in e or "medium" not in e:
             continue
         row = db.execute("SELECT medium FROM series WHERE tome_id=?", (e["line"],)).fetchone()
         missing_medium += (row is None or row[0] != e["medium"])
     rule("medium corrections not present in the artifact", missing_medium)
+
+    missing_market = 0
+    for e in corr._read("lines.json"):
+        if "volumes" in e or "market" not in e:
+            continue
+        row = db.execute("SELECT language FROM series WHERE tome_id=?", (e["line"],)).fetchone()
+        want_lang = corr.MARKET_LANG.get(str(e["market"]).upper())
+        missing_market += (row is None or row[0] != want_lang)
+    rule("market corrections not present in the artifact", missing_market)
+
+    missing_removal = 0
+    for line_id, alias in corr.load_alias_removals():
+        hit = db.execute("""SELECT 1 FROM series_alias a JOIN series s USING(gcd_series_id)
+                            WHERE s.tome_id=? AND a.alias=?""", (line_id, alias)).fetchone()
+        missing_removal += bool(hit)
+    rule("removed aliases still present in the artifact", missing_removal)
+
+    missing_excluded = 0
+    for wid in corr.load_exclusions():
+        hit = db.execute("SELECT 1 FROM series WHERE tome_work_id=?", (wid,)).fetchone()
+        missing_excluded += bool(hit)
+    rule("excluded works still present in the artifact", missing_excluded)
 
     # status / covers (schema_version 2 additions)
     rule("licensed line 'completed' while behind its same-named original-market line",

@@ -414,6 +414,74 @@ try:
 except ValueError:
     eq("medium override: unknown medium rejected", True, True)
 
+# ---- market override (2026-09-23 cleanup, item 3: Denma's mislabelled "ja" line) --
+MARKET_OVERRIDE = [{"line": "rl_jp", "market": "KR",
+                    "source_url": "https://example.test/market", "checked": "2026-09-23"}]
+corr.apply_line_corrections(cdb, entries=MARKET_OVERRIDE, verbose=False)
+eq("market override: market + language updated",
+   cdb.execute("SELECT market, language FROM release_line WHERE id='rl_jp'").fetchone(),
+   ("KR", "ko"))
+eq("market override: id unchanged", cdb.execute("SELECT 1 FROM release_line WHERE id='rl_jp'").fetchone(), (1,))
+corr.apply_line_corrections(cdb, entries=MARKET_OVERRIDE, verbose=False)
+eq("market override: idempotent",
+   cdb.execute("SELECT market FROM release_line WHERE id='rl_jp'").fetchone(), ("KR",))
+try:
+    corr.apply_line_corrections(cdb, entries=[{"line": "rl_does_not_exist", "market": "KR",
+                                               "source_url": "https://example.test/market", "checked": "2026-09-23"}],
+                                verbose=False)
+    eq("market override: stale line rejected", "no error", "SystemExit")
+except SystemExit:
+    eq("market override: stale line rejected", True, True)
+try:
+    corr.apply_line_corrections(cdb, entries=[{"line": "rl_jp", "market": "XX",
+                                               "source_url": "https://example.test/market", "checked": "2026-09-23"}],
+                                verbose=False)
+    eq("market override: unknown market rejected", "no error", "ValueError")
+except ValueError:
+    eq("market override: unknown market rejected", True, True)
+try:
+    corr.apply_line_corrections(cdb, entries=[{"line": "rl_jp",
+                                               "source_url": "https://example.test/x", "checked": "2026-09-23"}],
+                                verbose=False)
+    eq("neither medium nor market nor volumes rejected", "no error", "ValueError")
+except ValueError:
+    eq("neither medium nor market nor volumes rejected", True, True)
+
+# ---- exclusion (2026-09-23 cleanup: The Walking Dead is not in scope) --------
+cdb.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_x','Excluded Work','x','x')")
+cdb.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at)"
+            " VALUES('rl_x1','w_x','manga','EN','en','x','x')")
+cdb.execute("INSERT INTO volume(id,release_line_id,number,created_at,updated_at)"
+            " VALUES('v_x1','rl_x1','1','x','x')")
+cdb.execute("INSERT INTO composition(volume_id,contains,ref_list) VALUES('v_x1','volume','[1]')")
+cdb.execute("INSERT INTO claim(entity,entity_id,field,value,source,licence,retrieved_at)"
+            " VALUES('volume','v_x1','release_date','2020-01-01','wikipedia','facts_only','x')")
+cdb.execute("INSERT INTO claim(entity,entity_id,field,value,source,licence,retrieved_at)"
+            " VALUES('release_line','rl_x1','line_name','Excluded Work','wikipedia','facts_only','x')")
+cdb.execute("INSERT INTO work_title(work_id,language,title,kind) VALUES('w_x','en','Excluded Work','official')")
+EXCLUSION = [{"work": "w_x", "source_url": "https://example.test/excluded", "checked": "2026-09-23"}]
+corr.apply_exclusions(cdb, entries=EXCLUSION, verbose=False)
+eq("exclusion: work row gone", cdb.execute("SELECT 1 FROM work WHERE id='w_x'").fetchone(), None)
+eq("exclusion: release_line gone", cdb.execute("SELECT 1 FROM release_line WHERE id='rl_x1'").fetchone(), None)
+eq("exclusion: volume gone", cdb.execute("SELECT 1 FROM volume WHERE id='v_x1'").fetchone(), None)
+eq("exclusion: composition gone", cdb.execute("SELECT 1 FROM composition WHERE volume_id='v_x1'").fetchone(), None)
+eq("exclusion: claims gone",
+   cdb.execute("SELECT COUNT(*) FROM claim WHERE entity_id IN ('v_x1','rl_x1')").fetchone()[0], 0)
+eq("exclusion: work_title gone", cdb.execute("SELECT 1 FROM work_title WHERE work_id='w_x'").fetchone(), None)
+eq("exclusion: unrelated work untouched", cdb.execute("SELECT 1 FROM work WHERE id='w_t'").fetchone(), (1,))
+# NOT idempotent within one already-built db, unlike the UPDATE-based medium
+# override: a DELETE has nothing to re-apply. That's fine -- corrections run
+# once per rebuild, against a freshly built db where the work always exists
+# again (same as every other stage). Calling it twice on the same db state IS
+# a stale correction: the work really is gone.
+try:
+    corr.apply_exclusions(cdb, entries=[{"work": "w_does_not_exist",
+                                         "source_url": "https://example.test/excluded", "checked": "2026-09-23"}],
+                          verbose=False)
+    eq("exclusion: stale work rejected", "no error", "SystemExit")
+except SystemExit:
+    eq("exclusion: stale work rejected", True, True)
+
 print()
 if FAILS:
     print(f"{len(FAILS)} FAILED: {FAILS}")

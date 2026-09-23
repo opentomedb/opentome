@@ -1,1 +1,218 @@
-[]
+[
+  {
+    "line": "rl_38c9068acc34",
+    "alias": "dr",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/List_of_Dr._Slump_chapters",
+    "reason": "junk fragment: the exporter's ASCII-only normalize() collapses the JP origin line's own volume 6 title (“Dr.マシリトの野望!!の巻”) to \"dr\", which then fans out as an alias to every Dr. Slump line as an origin-line volume-title collision; not how anyone refers to the whole series (curated review 2026-09-23, .superpowers/sdd/2026-09-23-followups/review.md \"Good (31)\")",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_58e74a79a44f",
+    "alias": "dr",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/List_of_Dr._Slump_chapters",
+    "reason": "junk fragment: the exporter's ASCII-only normalize() collapses the JP origin line's own volume 6 title (“Dr.マシリトの野望!!の巻”) to \"dr\", which then fans out as an alias to every Dr. Slump line as an origin-line volume-title collision; not how anyone refers to the whole series (curated review 2026-09-23, .superpowers/sdd/2026-09-23-followups/review.md \"Good (31)\")",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_815da8e7288b",
+    "alias": "dr",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/List_of_Dr._Slump_chapters",
+    "reason": "junk fragment: the exporter's ASCII-only normalize() collapses the JP origin line's own volume 6 title (“Dr.マシリトの野望!!の巻”) to \"dr\", which then fans out as an alias to every Dr. Slump line as an origin-line volume-title collision; not how anyone refers to the whole series (curated review 2026-09-23, .superpowers/sdd/2026-09-23-followups/review.md \"Good (31)\")",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_82d4b3ac7f3f",
+    "alias": "My Hero",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/List_of_My_Hero_Academia_chapters",
+    "reason": "head-split fragment of the alternate title \"My Hero: Ultra Impact\" (a mobile game tie-in), fanned to every My Hero Academia main line; too generic/ambiguous to stand alone as a series name (curated review 2026-09-23, \"Good (31)\")",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_d568cf212fbf",
+    "alias": "My Hero",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/List_of_My_Hero_Academia_chapters",
+    "reason": "head-split fragment of the alternate title \"My Hero: Ultra Impact\" (a mobile game tie-in), fanned to every My Hero Academia main line; too generic/ambiguous to stand alone as a series name (curated review 2026-09-23, \"Good (31)\")",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_f7342215cf62",
+    "alias": "My Hero",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/List_of_My_Hero_Academia_chapters",
+    "reason": "head-split fragment of the alternate title \"My Hero: Ultra Impact\" (a mobile game tie-in), fanned to every My Hero Academia main line; too generic/ambiguous to stand alone as a series name (curated review 2026-09-23, \"Good (31)\")",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_151360694961",
+    "alias": "Double Joker",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Joker_Game",
+    "reason": "volume 2's own title (ダブル・ジョーカー), fanned to the work's Joker Game lines as a romanized work-title candidate; a volume name, not the series name (curated review 2026-09-23, \"Good (31)\")",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_151360694961",
+    "alias": "Paradise Lost",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Joker_Game",
+    "reason": "volume 3's own title (パラダイス・ロスト), same fan-out as \"Double Joker\" above (curated review 2026-09-23, \"Good (31)\")",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_c27aca06ee34",
+    "alias": "Double Joker",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Joker_Game",
+    "reason": "volume 2's own title (ダブル・ジョーカー), fanned to the work's Joker Game lines as a romanized work-title candidate; a volume name, not the series name (curated review 2026-09-23, \"Good (31)\")",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_c27aca06ee34",
+    "alias": "Paradise Lost",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Joker_Game",
+    "reason": "volume 3's own title (パラダイス・ロスト), same fan-out as \"Double Joker\" above (curated review 2026-09-23, \"Good (31)\")",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_a8bfc763a840",
+    "alias": "Spotlight: Blaster",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/The_Transformers:_Spotlight",
+    "reason": "one issue's own title in an anthology one-shot line (\"The Transformers: Spotlight\"); not the line's own name (curated review 2026-09-23, \"Good (31)\")",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_a8c75c107928",
+    "alias": "Uta no Prince-sama Debut",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Uta_no_Prince-sama",
+    "reason": "the debut/pilot chapter volume's own title, fanned to the main \"Uta no Prince-sama\" line; not the series name itself (curated review 2026-09-23, \"Good (31)\")",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_07c470b2a0ea",
+    "alias": "Rascal Does Not Dream of a Dear Friend",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Rascal_Does_Not_Dream_of_Bunny_Girl_Senpai",
+    "reason": "one specific light-novel volume's own title, fanned to every \"Rascal Does Not Dream\" line as a work-level title candidate; distinct from (and easily confused with) \"...of Bunny Girl Senpai\", the actual series name (curated review 2026-09-23, \"Good (31)\"; the review's snapshot found this on 2 lines, this corpus has 5 -- more arc-split line copies since, same classification applies to every one that currently carries the string)",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_54ceaa97d1b3",
+    "alias": "Rascal Does Not Dream of a Dear Friend",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Rascal_Does_Not_Dream_of_Bunny_Girl_Senpai",
+    "reason": "one specific light-novel volume's own title, fanned to every \"Rascal Does Not Dream\" line as a work-level title candidate; distinct from (and easily confused with) \"...of Bunny Girl Senpai\", the actual series name (curated review 2026-09-23, \"Good (31)\"; the review's snapshot found this on 2 lines, this corpus has 5 -- more arc-split line copies since, same classification applies to every one that currently carries the string)",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_860a854637c4",
+    "alias": "Rascal Does Not Dream of a Dear Friend",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Rascal_Does_Not_Dream_of_Bunny_Girl_Senpai",
+    "reason": "one specific light-novel volume's own title, fanned to every \"Rascal Does Not Dream\" line as a work-level title candidate; distinct from (and easily confused with) \"...of Bunny Girl Senpai\", the actual series name (curated review 2026-09-23, \"Good (31)\"; the review's snapshot found this on 2 lines, this corpus has 5 -- more arc-split line copies since, same classification applies to every one that currently carries the string)",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_d727554e1009",
+    "alias": "Rascal Does Not Dream of a Dear Friend",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Rascal_Does_Not_Dream_of_Bunny_Girl_Senpai",
+    "reason": "one specific light-novel volume's own title, fanned to every \"Rascal Does Not Dream\" line as a work-level title candidate; distinct from (and easily confused with) \"...of Bunny Girl Senpai\", the actual series name (curated review 2026-09-23, \"Good (31)\"; the review's snapshot found this on 2 lines, this corpus has 5 -- more arc-split line copies since, same classification applies to every one that currently carries the string)",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_dca32dd437f4",
+    "alias": "Rascal Does Not Dream of a Dear Friend",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Rascal_Does_Not_Dream_of_Bunny_Girl_Senpai",
+    "reason": "one specific light-novel volume's own title, fanned to every \"Rascal Does Not Dream\" line as a work-level title candidate; distinct from (and easily confused with) \"...of Bunny Girl Senpai\", the actual series name (curated review 2026-09-23, \"Good (31)\"; the review's snapshot found this on 2 lines, this corpus has 5 -- more arc-split line copies since, same classification applies to every one that currently carries the string)",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_5383a8b1a888",
+    "alias": "The Tragedy of P",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Rumic_Theater",
+    "reason": "one anthology story's own title within \"Rumic Theater\"; not the line's own name (curated review 2026-09-23, \"Good (31)\")",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_5f4c50ab2a2c",
+    "alias": "The Tragedy of P",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Rumic_Theater",
+    "reason": "one anthology story's own title within \"Rumic Theater\"; not the line's own name (curated review 2026-09-23, \"Good (31)\")",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_3ecd9f22ef05",
+    "alias": "Club Con",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/The_Transformers_(Marvel_Comics)",
+    "reason": "one issue arc's own title within \"The Transformers (Marvel Comics)\"; not the line's own name (curated review 2026-09-23, \"Good (31)\")",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_5ab4ce5b8375",
+    "alias": "Pikachu Shocks Back",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Pok%C3%A9mon:_The_Electric_Tale_of_Pikachu",
+    "reason": "one VIZ tankobon's own volume title within \"Pokémon: The Electric Tale of Pikachu\" (a Wikipedia redirect to the work, fanned as a work-level alias to both EN line copies); not the series name (curated review 2026-09-23, \"Good (31)\", the \"Pokémon volume names\" group -- the review reports 10, this corpus's own volume-title collisions for this line only account for 6 semantic strings across 2 line copies (8 rows once raw+normalized forms are counted); not padding the list to reach 10 without a verified string)",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_5ab4ce5b8375",
+    "alias": "Electric Pikachu Boogaloo",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Pok%C3%A9mon:_The_Electric_Tale_of_Pikachu",
+    "reason": "one VIZ tankobon's own volume title within \"Pokémon: The Electric Tale of Pikachu\" (a Wikipedia redirect to the work, fanned as a work-level alias to both EN line copies); not the series name (curated review 2026-09-23, \"Good (31)\", the \"Pokémon volume names\" group -- the review reports 10, this corpus's own volume-title collisions for this line only account for 6 semantic strings across 2 line copies (8 rows once raw+normalized forms are counted); not padding the list to reach 10 without a verified string)",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_5ab4ce5b8375",
+    "alias": "Surf's Up, Pikachu!",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Pok%C3%A9mon:_The_Electric_Tale_of_Pikachu",
+    "reason": "one VIZ tankobon's own volume title within \"Pokémon: The Electric Tale of Pikachu\" (a Wikipedia redirect to the work, fanned as a work-level alias to both EN line copies); not the series name (curated review 2026-09-23, \"Good (31)\", the \"Pokémon volume names\" group -- the review reports 10, this corpus's own volume-title collisions for this line only account for 6 semantic strings across 2 line copies (8 rows once raw+normalized forms are counted); not padding the list to reach 10 without a verified string)",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_6a6a21b78d93",
+    "alias": "Pikachu Shocks Back",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Pok%C3%A9mon:_The_Electric_Tale_of_Pikachu",
+    "reason": "one VIZ tankobon's own volume title within \"Pokémon: The Electric Tale of Pikachu\" (a Wikipedia redirect to the work, fanned as a work-level alias to both EN line copies); not the series name (curated review 2026-09-23, \"Good (31)\", the \"Pokémon volume names\" group -- the review reports 10, this corpus's own volume-title collisions for this line only account for 6 semantic strings across 2 line copies (8 rows once raw+normalized forms are counted); not padding the list to reach 10 without a verified string)",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_6a6a21b78d93",
+    "alias": "Electric Pikachu Boogaloo",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Pok%C3%A9mon:_The_Electric_Tale_of_Pikachu",
+    "reason": "one VIZ tankobon's own volume title within \"Pokémon: The Electric Tale of Pikachu\" (a Wikipedia redirect to the work, fanned as a work-level alias to both EN line copies); not the series name (curated review 2026-09-23, \"Good (31)\", the \"Pokémon volume names\" group -- the review reports 10, this corpus's own volume-title collisions for this line only account for 6 semantic strings across 2 line copies (8 rows once raw+normalized forms are counted); not padding the list to reach 10 without a verified string)",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_6a6a21b78d93",
+    "alias": "Surf's Up, Pikachu!",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Pok%C3%A9mon:_The_Electric_Tale_of_Pikachu",
+    "reason": "one VIZ tankobon's own volume title within \"Pokémon: The Electric Tale of Pikachu\" (a Wikipedia redirect to the work, fanned as a work-level alias to both EN line copies); not the series name (curated review 2026-09-23, \"Good (31)\", the \"Pokémon volume names\" group -- the review reports 10, this corpus's own volume-title collisions for this line only account for 6 semantic strings across 2 line copies (8 rows once raw+normalized forms are counted); not padding the list to reach 10 without a verified string)",
+    "checked": "2026-09-23"
+  },
+  {
+    "line": "rl_1214b9fd5709",
+    "alias": "dr",
+    "remove": true,
+    "source_url": "https://en.wikipedia.org/wiki/Dr._Koto%27s_Clinic",
+    "reason": "junk fragment: the exporter's ASCII-only normalize() collapses the line's native title (“Dr.コトー診療所”) to \"dr\"; not how anyone refers to the series (review of cleanup-0923, 2026-09-23)",
+    "checked": "2026-09-23"
+  }
+]

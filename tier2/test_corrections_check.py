@@ -130,6 +130,109 @@ class CheckTests(unittest.TestCase):
         self.assertIn("lines.json[0]", out)
         self.assertIn("medium", out)
 
+    # -- market override (2026-09-23 cleanup, item 3: Denma's mislabelled "ja" line)
+    def test_market_override_resolves(self):
+        m = {"line": "rl_aaaaaaaaaaaa", "market": "KR",
+             "source_url": "https://example.org/market", "checked": "2026-09-23"}
+        code, out = self.check(self.corrections(lines=[m]))
+        self.assertEqual(code, 0, out)
+
+    def test_market_override_bad_market_fails(self):
+        m = {"line": "rl_aaaaaaaaaaaa", "market": "XX",
+             "source_url": "https://example.org/market", "checked": "2026-09-23"}
+        code, out = self.check(self.corrections(lines=[m]))
+        self.assertEqual(code, 1)
+        self.assertIn("lines.json[0]", out)
+        self.assertIn("XX", out)
+
+    def test_market_override_stale_line_fails(self):
+        m = {"line": "rl_999999999999", "market": "KR",
+             "source_url": "https://example.org/market", "checked": "2026-09-23"}
+        code, out = self.check(self.corrections(lines=[m]))
+        self.assertEqual(code, 1)
+        self.assertIn("STALE CORRECTION", out)
+        self.assertIn("rl_999999999999", out)
+
+    def test_market_override_missing_key_fails(self):
+        m = {"line": "rl_aaaaaaaaaaaa", "source_url": "https://example.org/market", "checked": "2026-09-23"}
+        code, out = self.check(self.corrections(lines=[m]))
+        self.assertEqual(code, 1)
+        self.assertIn("lines.json[0]", out)
+        self.assertIn("market", out)
+
+    # -- curated alias removal (2026-09-23 cleanup, item 2): "remove": true on
+    # an otherwise-normal aliases.json entry. load_aliases() (additions, read by
+    # export's normal alias-correction loop) and load_alias_removals() (the new
+    # loop that deletes) must partition the file, never double-count an entry.
+    def test_load_aliases_excludes_removals(self):
+        add = dict(ALIAS, alias="Add Me")
+        remove = dict(ALIAS, alias="Remove Me", remove=True)
+        d = self.corrections(aliases=[add, remove])
+        self.assertEqual(C.load_aliases(d), [(ALIAS["line"], "Add Me")])
+        self.assertEqual(C.load_alias_removals(d), [(ALIAS["line"], "Remove Me")])
+
+    def test_removal_entry_still_requires_source_and_checked(self):
+        bad = {"line": "rl_aaaaaaaaaaaa", "alias": "Remove Me", "remove": True}
+        code, out = self.check(self.corrections(aliases=[bad]))
+        self.assertEqual(code, 1)
+        self.assertIn("source_url", out)
+
+    def test_removal_entry_line_still_resolves(self):
+        remove = dict(ALIAS, alias="Remove Me", remove=True)
+        code, out = self.check(self.corrections(aliases=[remove]))
+        self.assertEqual(code, 0, out)
+
+    # -- exclusion (2026-09-23 cleanup: The Walking Dead entered via a
+    # Wikipedia list-of-volumes page and isn't in scope; excluded.json removes
+    # a whole work -- keyed on the work id tier 0 computes, same stability
+    # story as the medium override's line id)
+    def test_exclusion_resolves(self):
+        x = {"work": "w_aaaaaaaaaaaa", "source_url": "https://example.org/excluded",
+             "checked": "2026-09-18"}
+        # excluded.json is a fourth file; write it directly into a fresh corrections dir
+        d = self.corrections()
+        with open(os.path.join(d, "excluded.json"), "w", encoding="utf8") as f:
+            json.dump([x], f)
+        code, out = self.check(d)
+        self.assertEqual(code, 0, out)
+
+    def test_exclusion_stale_work_fails(self):
+        x = {"work": "w_999999999999", "source_url": "https://example.org/excluded",
+             "checked": "2026-09-18"}
+        d = self.corrections()
+        with open(os.path.join(d, "excluded.json"), "w", encoding="utf8") as f:
+            json.dump([x], f)
+        code, out = self.check(d)
+        self.assertEqual(code, 1)
+        self.assertIn("STALE CORRECTION", out)
+        self.assertIn("w_999999999999", out)
+
+    def test_exclusion_missing_key_fails(self):
+        x = {"work": "w_aaaaaaaaaaaa", "checked": "2026-09-18"}
+        d = self.corrections()
+        with open(os.path.join(d, "excluded.json"), "w", encoding="utf8") as f:
+            json.dump([x], f)
+        code, out = self.check(d)
+        self.assertEqual(code, 1)
+        self.assertIn("excluded.json[0]", out)
+        self.assertIn("source_url", out)
+
+    def test_exclusion_recorded_in_meta_passes_once_the_work_is_gone(self):
+        # After a publish that actually excludes the work, series no longer
+        # carries it -- but the exporter records every excluded work id in
+        # meta.excluded_works, and the check accepts either.
+        db = sqlite3.connect(self.art)
+        db.execute("INSERT INTO meta VALUES ('excluded_works', ?)",
+                   (json.dumps(["w_gone0000001"]),))
+        db.commit(); db.close()
+        x = {"work": "w_gone0000001", "source_url": "https://example.org/excluded",
+             "checked": "2026-09-18"}
+        d = self.corrections()
+        with open(os.path.join(d, "excluded.json"), "w", encoding="utf8") as f:
+            json.dump([x], f)
+        code, out = self.check(d)
+        self.assertEqual(code, 0, out)
+
     # -- failures: stale keys
     def test_stale_volume_id_fails(self):
         v = dict(VOL, volume="v_999999999999")
