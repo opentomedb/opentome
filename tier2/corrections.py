@@ -34,13 +34,6 @@ ORIGIN_MARKETS = ("JP", "KR", "CN", "TW")
 VOLUME_KEYS = ("volume", "field", "value", "source_url", "checked")
 LINE_KEYS = ("work", "market", "medium", "name", "volumes", "source_url", "checked")
 ALIAS_KEYS = ("line", "alias", "source_url", "checked")
-# A title that is just the series/line name plus an optional bracketed qualifier
-# ("(Light Novel)") plus a volume number says nothing the row's own number column
-# doesn't already say -- same shape as the exporter's _REDUNDANT_SUFFIX (item 3),
-# plus the bare 'v' form the exporter does not need to recognise (title_for_export
-# only ever sees a real Wikipedia LicensedTitle, which does not use it).
-_REDUNDANT_TITLE_SUFFIX = (r"(?:(?:\s*\([^)]*\))?(?:\s*[:\-–,])?"
-                           r"\s*(?:(?:vol(?:ume)?\.?|tome|band|v)\s*)?\d+)?")
 ARTIFACT_URL = "https://github.com/DrAwesome441/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite"
 
 sys.path.insert(0, os.path.join(ROOT, "schema"))
@@ -314,21 +307,31 @@ def check(directory=DIR, artifact=None):
     # module at its own top level -- `from corrections import load_aliases` -- so a
     # module-level import here would be circular; by the time check() runs this
     # module has already finished initializing, so importing to_mangarr now is safe).
+    # _REDUNDANT_SUFFIX is the SAME regex title_for_export uses for the non-trusted
+    # export path (one source of truth, review round 1 finding 7 -- this used to be
+    # a separate copy here, which could drift from the exporter's and, wrapped in
+    # an extra layer of its own optionality, refused a title that was just the bare
+    # line/series name with no number at all).
     sys.path.insert(0, os.path.join(ROOT, "export"))
-    from to_mangarr import MARKUP_TITLE_RE, NUMBER_ONLY_TITLE  # noqa: E402
+    from to_mangarr import MARKUP_TITLE_RE, NUMBER_ONLY_TITLE, _REDUNDANT_SUFFIX  # noqa: E402
 
     def bad_title(title, name):
         """None, or the reason a hand-typed title is not a correction (markup,
         number-only, or a restatement of the line/series name and its volume
         number) -- refused at authoring time instead of round-tripping to the
-        artifact verbatim, which is what trusted=True corrections otherwise do."""
+        artifact verbatim, which is what trusted=True corrections otherwise do.
+        The redundancy check REQUIRES a volume number (_REDUNDANT_SUFFIX ends in
+        a mandatory \\d+): a title that is just the bare name, or the name plus a
+        bracketed qualifier ("Name (Light Novel)") with nothing else, is not
+        redundant on its own -- it says nothing the row's number doesn't, but it
+        also isn't obviously the wrong shape, so this rule leaves it alone."""
         title = str(title)
         if MARKUP_TITLE_RE.search(title):
             return "markup"
         if NUMBER_ONLY_TITLE.match(title):
             return "number-only"
         name = re.sub(r"\s+", " ", (name or "")).strip()
-        if name and re.match(r"^" + re.escape(name) + _REDUNDANT_TITLE_SUFFIX + r"$",
+        if name and re.match(r"^" + re.escape(name) + _REDUNDANT_SUFFIX + r"$",
                              re.sub(r"\s+", " ", title).strip(), re.I):
             return "redundant"
         return None

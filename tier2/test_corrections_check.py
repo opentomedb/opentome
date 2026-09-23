@@ -210,11 +210,25 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("redundant", out)
 
-    def test_redundant_title_v_form_fails_volumes(self):
+    def test_bare_v_form_is_not_redundant_volumes(self):
+        # review round 1, finding 7: the check derives its redundancy pattern
+        # from the exporter's _REDUNDANT_SUFFIX (one source of truth), which
+        # does not recognise a bare 'v' word -- so this is no longer refused.
         v = dict(VOL, field="title", value="Example v1")
         code, out = self.check(self.corrections(volumes=[v]))
-        self.assertEqual(code, 1)
-        self.assertIn("redundant", out)
+        self.assertEqual(code, 0, out)
+
+    def test_bare_name_no_number_is_not_redundant_volumes(self):
+        # review round 1, finding 7: a title equal to just the line/series name,
+        # with no volume number at all, is not refused by this rule.
+        v = dict(VOL, field="title", value="Example")
+        code, out = self.check(self.corrections(volumes=[v]))
+        self.assertEqual(code, 0, out)
+
+    def test_bracket_qualifier_no_number_is_not_redundant_volumes(self):
+        v = dict(VOL, field="title", value="Example (Light Novel)")
+        code, out = self.check(self.corrections(volumes=[v]))
+        self.assertEqual(code, 0, out)
 
     def test_real_subtitle_title_passes_volumes(self):
         v = dict(VOL, field="title", value="Example: The Beginning")
@@ -247,6 +261,20 @@ class CheckTests(unittest.TestCase):
         line = dict(LINE, name="Example Deluxe",
                     volumes=[{"number": "1", "isbn13": "978-1-234-56789-0",
                              "title": "Example Deluxe: A Real Subtitle"}])
+        code, out = self.check(self.corrections(lines=[line]))
+        self.assertEqual(code, 0, out)
+
+    def test_bare_name_no_number_is_not_redundant_lines(self):
+        line = dict(LINE, name="Example Deluxe",
+                    volumes=[{"number": "1", "isbn13": "978-1-234-56789-0",
+                             "title": "Example Deluxe"}])
+        code, out = self.check(self.corrections(lines=[line]))
+        self.assertEqual(code, 0, out)
+
+    def test_bracket_qualifier_no_number_is_not_redundant_lines(self):
+        line = dict(LINE, name="Example Deluxe",
+                    volumes=[{"number": "1", "isbn13": "978-1-234-56789-0",
+                             "title": "Example Deluxe (Light Novel)"}])
         code, out = self.check(self.corrections(lines=[line]))
         self.assertEqual(code, 0, out)
 
