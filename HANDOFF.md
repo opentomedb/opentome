@@ -2,6 +2,27 @@
 
 _Last updated: 2026-09-23_
 
+## 2026-09-23 — cleanup-0923: exclude Walking Dead, curated alias removals, Denma market fix
+
+Three corrections, TDD'd on branch `cleanup-0923` (not merged/published from here --
+Nick's gate): (1) `corrections/excluded.json` (new file, new shape) removes The Walking
+Dead (comic book) entirely -- a US comic that entered via a Wikipedia list-of-volumes
+page; Arrietty (Comics), a legitimate Japanese Ghibli film comic that came in the same
+way, stays. (2) `corrections/aliases.json` gains a `"remove": true` curated-removal form
+and ~26 exact (line, alias) entries -- the "Good" set from the followups-0923
+alias-hygiene review, re-verified against a fresh rebuild; NOT a re-introduction of the
+reverted automated rule. (3) `corrections/lines.json` gains a market override (a third
+narrow entry shape) retagging Denma's mislabelled "ja" line to KR -- it's the Naver
+webtoon's own episode-arc list, not a Japanese print edition; see the 2026-09-23
+"follow-up" entry below for the defect this fixes. Full details, measured numbers and
+per-string reasoning are in the branch's two commits and `corrections/README.md`.
+
+Deferred (Nick's call, not done): an automated Western-comics check at ingest time
+(flag any incoming Wikipedia list-of-volumes page whose work isn't manga/light-novel/
+manhwa/manhua before it ever reaches the catalogue). Walking Dead is one stray in
+13,001 series -- not enough signal yet to justify a general rule; excluded.json handles
+it and anything like it case by case for now.
+
 ## 2026-09-23 — follow-up: Denma's "ja" line is really the Naver webtoon
 
 Logged during the `followups-0923` branch review (item 4, the Denma `orig_series_id`
