@@ -52,7 +52,14 @@ from release_lines import MEDIUM_HINTS            # noqa: E402  (canonical mediu
 # one -- see LINE_KEYS/_require). Applied as a plain UPDATE, so the line's id
 # never changes.
 MEDIUM_KEYS = ("line", "medium", "source_url", "checked")
-KNOWN_MEDIA = {name for name, _ in MEDIUM_HINTS} | {"webtoon"}
+# The canonical medium names tier0/release_lines.py's detect_medium() ever
+# assigns. 'webtoon' is deliberately NOT included even though to_mangarr.py's
+# MEDIUM_ORIGIN_HINT recognises it as a hint key: tier0 always canonicalises a
+# webtoon heading to 'manhwa' (MEDIUM_HINTS maps both to the same name), so no
+# release_line ever carries medium='webtoon' -- an override to it would put that
+# one line in a (work, medium) group of its own instead of joining its manhwa
+# counterparts (review round 1, finding 8).
+KNOWN_MEDIA = {name for name, _ in MEDIUM_HINTS}
 
 
 def _read(name, directory=DIR):
