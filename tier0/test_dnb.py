@@ -308,6 +308,133 @@ eq("its volumes follow by number",
    cat2.execute("SELECT COUNT(*) FROM id_redirect WHERE entity='volume'").fetchone()[0], 2)
 eq("no orphaned ids", orphans, [])
 
+# ---- the fetcher: politeness, cache, offline -- against a fake DNB (no network) ----------
+import email.message, re as _re, time as _time, urllib.error, urllib.parse
+import dnb_sru as S
+import dnb_enumerate as E
+
+SERVER = {"years": {}, "refuse": 0, "diagnostic": False}
+CALLS, SLEEPS = [], []
+
+
+def _matches(y, cond):
+    if not cond:
+        return True
+    if cond == "not jhr>0":
+        return y is None
+    if y is None:
+        return False
+    m = _re.fullmatch(r"and jhr(=|<|>)(\d+)", cond)
+    if m:
+        return {"=": y == int(m.group(2)), "<": y < int(m.group(2)), ">": y > int(m.group(2))}[m.group(1)]
+    m = _re.fullmatch(r"and jhr>=(\d+) and jhr<=(\d+)", cond)
+    return int(m.group(1)) <= y <= int(m.group(2))
+
+
+class _Resp:
+    def __init__(self, text):
+        self.data = text.encode()
+
+    def read(self):
+        return self.data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def fake_urlopen(req, timeout=None):
+    CALLS.append(req.full_url)
+    if SERVER["refuse"]:
+        SERVER["refuse"] -= 1
+        h = email.message.Message()
+        h["Retry-After"] = "7"
+        raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", h, None)
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(req.full_url).query)
+    if SERVER["diagnostic"]:
+        return _Resp('<searchRetrieveResponse><diag:diagnostic xmlns:diag="x"><diag:message>bad</diag:message>'
+                     '</diag:diagnostic></searchRetrieveResponse>')
+    cond = q["query"][0][len("BASE"):].strip()
+    ids = sorted(i for y, xs in SERVER["years"].items() for i in xs if _matches(y, cond))
+    start, maxr = int(q["startRecord"][0]), int(q["maximumRecords"][0])
+    body = "".join('<record xmlns="http://www.loc.gov/MARC21/slim"><leader>00000pam a2200000 cc4500</leader>'
+                   '<controlfield tag="001">%s</controlfield></record>' % i for i in ids[start - 1:start - 1 + maxr])
+    return _Resp('<searchRetrieveResponse><numberOfRecords>%d</numberOfRecords><records>%s</records>'
+                 '</searchRetrieveResponse>' % (len(ids), body))
+
+
+saved = (S.CACHE, S.STAMP, S.NETLOG, S.OFFLINE, S.REFRESH_DAYS, S.urllib.request.urlopen, S.time.sleep,
+         E.CURRENT_YEAR)
+tmp = tempfile.mkdtemp(prefix="dnb-fetch-")
+S.CACHE, S.STAMP, S.NETLOG = tmp, os.path.join(tmp, ".stamp"), os.path.join(tmp, "netlog.tsv")
+S.OFFLINE, S.REFRESH_DAYS = False, 0
+S.urllib.request.urlopen = fake_urlopen
+S.time.sleep = lambda secs: SLEEPS.append(secs)
+try:
+    SERVER["years"] = {2025: ["a1", "a2"], 2026: ["b1"], None: ["n1"]}
+    E.CURRENT_YEAR = 2026
+    got, gap, _ = E.run_channel("t", "BASE", 2025, (), verbose=False)
+    eq("cold run: every record, no gap (incl. the no-year remainder)", (sorted(got), gap), (["a1", "a2", "b1", "n1"], 0))
+    eq("throttle: never less than 3 s between requests", S.INTERVAL >= 3.0 and all(x <= 3.0 for x in SLEEPS), True)
+    n = len(CALLS)
+    E.run_channel("t", "BASE", 2025, (), verbose=False)
+    eq("rerun: zero requests", len(CALLS) - n, 0)
+
+    # late records: one in a refreshed year, one in a frozen older year
+    SERVER["years"][2026].append("b2")
+    SERVER["years"].setdefault(2020, []).append("z1")
+    for f in os.listdir(tmp):
+        os.utime(os.path.join(tmp, f), (_time.time() - 3 * 86400,) * 2)
+    got, gap, refreshed = E.run_channel("t", "BASE", 2025, (), verbose=False)
+    eq("refresh run: plain rerun keeps the cache (no refresh window)", sorted(got), ["a1", "a2", "b1", "n1"])
+    S.REFRESH_DAYS = 1
+    got, gap, refreshed = E.run_channel("t", "BASE", 2025, (), verbose=False)
+    eq("refresh run: the current year and the frozen slice's late record both arrive, no gap",
+       (sorted(got), gap, refreshed), (["a1", "a2", "b1", "b2", "n1", "z1"], 0, True))
+    S.REFRESH_DAYS = 0
+    E.CURRENT_YEAR = 2027                       # year rollover: new slice urls, cached total
+    got, gap, _ = E.run_channel("t", "BASE", 2025, (), verbose=False)
+    eq("year rollover: no false gap", (len(got), gap), (6, 0))
+
+    # politeness on refusal
+    SLEEPS.clear()
+    SERVER["refuse"] = 1
+    txt = S.get(S.url_for("BASE and jhr=1999"))
+    eq("one 429: waits out Retry-After (7 s), then succeeds", (7 in SLEEPS, "numberOfRecords" in txt), (True, True))
+    SERVER["refuse"] = 1
+    try:
+        S.get(S.url_for("BASE and jhr=1998"))
+        eq("a second 429 in the run stops it", "no exception", "DnbThrottled")
+    except S.DnbThrottled:
+        eq("a second 429 in the run stops it", True, True)
+    SERVER["refuse"], S._refusals[0] = 0, 0
+    SERVER["diagnostic"] = True
+    u = S.url_for("BASE and bad query")
+    try:
+        S.get(u)
+        eq("an SRU diagnostic raises", "no exception", "DnbDiagnostic")
+    except S.DnbDiagnostic:
+        eq("an SRU diagnostic raises and is not cached", os.path.exists(S.cache_path(u)), False)
+    SERVER["diagnostic"] = False
+    S.OFFLINE = True
+    try:
+        S.get(S.url_for("BASE and jhr=1900"))
+        eq("offline: a cache miss raises", "no exception", "DnbOfflineMiss")
+    except S.DnbOfflineMiss:
+        eq("offline: a cache miss raises", True, True)
+    S.REFRESH_DAYS = 1
+    for f in os.listdir(tmp):
+        os.utime(os.path.join(tmp, f), (_time.time() - 3 * 86400,) * 2)
+    n = len(CALLS)
+    E.run_channel("t", "BASE", 2025, (), verbose=False)
+    eq("offline: a stale cached copy is served, not refetched", len(CALLS) - n, 0)
+    eq("every live request is in the netlog", sum(1 for _ in open(S.NETLOG)), len(CALLS))
+finally:
+    (S.CACHE, S.STAMP, S.NETLOG, S.OFFLINE, S.REFRESH_DAYS, S.urllib.request.urlopen, S.time.sleep,
+     E.CURRENT_YEAR) = saved
+
 print()
 if FAILS:
     print("%d FAILED: %s" % (len(FAILS), FAILS))

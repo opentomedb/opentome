@@ -7,15 +7,17 @@
   3. parents                every 773$w set record not already seen, by `idn=` OR-batches
 
 Channels 1 and 2 are sliced by publication year (`jhr`), so a result set is stable while
-it is paged and a past-year slice never needs refetching; only slices that can still
-change (the current year and later, the no-year remainder, and the parent batches) take
-part in the opt-in freshness window (DNB_REFRESH_DAYS, tier0/dnb_sru.py).
+it is paged. Slices that can still change take part in the opt-in freshness window
+(DNB_REFRESH_DAYS, tier0/dnb_sru.py): last year (legal deposit lags a median 120 days,
+p90 293), the current year and later, the no-year remainder, and the parent batches.
 
 Completeness is checked, not assumed, and the first full run (2026-09-24) showed why:
 `jhr` is MULTI-valued (a record can carry several years: 25,933 slice hits for 25,270
 records) and some records have none at all (7 in channel 1, 304 in channel 2). So each
 channel also pages a `not jhr>0` remainder, and the DISTINCT records paged must equal the
 unsliced numberOfRecords; every slice must yield as many distinct records as it announced.
+On a refresh run the total is refetched too; a gap there means an older, frozen slice gained
+a late record, and only the frozen slices whose count changed are re-paged.
 
     python3 tier0/dnb_enumerate.py            # fetch (cached) and print the tally
 """
@@ -35,10 +37,9 @@ IDN_BATCH = 30
 
 
 def year_slices(fine_from, coarse):
-    """(cql suffix, refresh) covering every year exactly once. Years before `fine_from`
-    come in the given coarse buckets; from `fine_from` to CURRENT_YEAR+4 one slice per
-    year; everything later in one open slice. Only slices reaching the current year or
-    later refresh."""
+    """(cql suffix, refresh) covering every year. Years before `fine_from` come in the
+    given coarse buckets; from `fine_from` to CURRENT_YEAR+4 one slice per year; everything
+    later in one open slice; then the records with no year. Last year and later refresh."""
     out = []
     lo = None
     for hi in coarse:                       # coarse: ascending bucket starts, last < fine_from
@@ -52,7 +53,7 @@ def year_slices(fine_from, coarse):
     elif lo is None:
         out.append(("jhr<%d" % fine_from, False))
     for y in range(fine_from, CURRENT_YEAR + 5):
-        out.append(("jhr=%d" % y, y >= CURRENT_YEAR))
+        out.append(("jhr=%d" % y, y >= CURRENT_YEAR - 1))
     out.append(("jhr>%d" % (CURRENT_YEAR + 4), True))
     return [("and " + q, r) for q, r in out] + [("not jhr>0", True)]   # + records with no year
 
@@ -64,28 +65,48 @@ CHANNELS = [
 ]
 
 
+def _page(q, refresh=False, force=False):
+    n, pages = S.search(q, refresh=refresh, force=force)
+    seen = {}
+    for text in pages:
+        for r in M.records(text):
+            seen[M.idn(r)] = r
+    if len(seen) != n:
+        raise RuntimeError("DNB slice %r announced %d records but paged %d distinct" % (q, n, len(seen)))
+    return n, seen
+
+
 def run_channel(name, base, fine_from, coarse, verbose=True):
-    """-> ({idn: record}, gap): gap = unsliced total - distinct records paged (must be 0)."""
+    """-> ({idn: record}, gap, refreshed): gap = unsliced total - distinct records paged."""
     whole = S.total(base)
-    got = {}
-    for suffix, refresh in year_slices(fine_from, coarse):
-        q = "%s %s" % (base, suffix)
-        n, pages = S.search(q, refresh=refresh)
-        seen = {}
-        for text in pages:
-            for r in M.records(text):
-                seen[M.idn(r)] = r
-        if len(seen) != n:
-            raise RuntimeError("DNB slice %r announced %d records but paged %d distinct" % (q, n, len(seen)))
-        got.update(seen)
+    live0 = S.live_requests[0]
+    slices = [("%s %s" % (base, suffix), suffix, refresh) for suffix, refresh in year_slices(fine_from, coarse)]
+    by_slice = {}
+    for q, suffix, refresh in slices:
+        n, by_slice[q] = _page(q, refresh=refresh)
         if verbose and n:
             print("    %-10s %-26s %6d  (live requests so far %d)" % (name, suffix, n, S.live_requests[0]), flush=True)
+    # A refresh run re-reads the total too -- the cached one belongs to the older slices. If
+    # it then disagrees, a FROZEN (older) slice gained a late record: re-count each frozen
+    # slice (one small request each) and re-page only the ones that changed, so the cache is
+    # consistent again for every later run. (A year rollover adds new slice URLs but moves no
+    # record out of the union, so a plain run keeps the cached total and stays consistent.)
+    refreshed = bool(S.REFRESH_DAYS) and S.live_requests[0] > live0
+    got = {k: r for seen in by_slice.values() for k, r in seen.items()}
+    if refreshed:
+        whole = S.total(base, force=True)
+        if len(got) != whole:
+            for q, suffix, refresh in slices:
+                if not refresh and S.total(q, force=True) != len(by_slice[q]):
+                    _, by_slice[q] = _page(q, force=True)
+                    print("    %-10s %-26s re-paged (late records)" % (name, suffix), flush=True)
+            got = {k: r for seen in by_slice.values() for k, r in seen.items()}
     if len(got) != whole:
         # Reported, not raised here, so one run still fetches every channel; build_dnb.py
         # fails the stage on a non-zero gap.
         print("    WARNING DNB channel %s: %d distinct records paged, the unsliced query has %d"
               % (name, len(got), whole), flush=True)
-    return got, whole - len(got)
+    return got, whole - len(got), refreshed
 
 
 def fetch_parents(have, want, verbose=True):
@@ -108,7 +129,7 @@ def enumerate_all(verbose=True):
     """-> ({idn: record} for channels 1+2, {idn: record} for fetched parents, tally)."""
     recs, tally = {}, {}
     for name, base, fine_from, coarse in CHANNELS:
-        got, gap = run_channel(name, base, fine_from, coarse, verbose)
+        got, gap, refreshed = run_channel(name, base, fine_from, coarse, verbose)
         tally[name] = len(got)
         tally[name + "_slice_gap"] = gap
         for k, r in got.items():

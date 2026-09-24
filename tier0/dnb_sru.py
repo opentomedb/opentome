@@ -99,12 +99,15 @@ def _check(text, url):
         raise DnbDiagnostic("SRU diagnostic %r for %s" % (m.group(1) if m else "?", url))
 
 
-def get(url, refresh=False):
-    """The response text for url: from the cache, else one polite live request."""
+def get(url, refresh=False, force=False):
+    """The response text for url: from the cache, else one polite live request. refresh:
+    refetch a copy older than DNB_REFRESH_DAYS; force: refetch whatever its age. Offline, a
+    cached copy is always served, stale or not."""
     key = cache_path(url)
     if os.path.exists(key):
-        stale = refresh and REFRESH_DAYS and time.time() - os.path.getmtime(key) > REFRESH_DAYS * 86400
-        if not stale:
+        stale = force or (refresh and REFRESH_DAYS and
+                          time.time() - os.path.getmtime(key) > REFRESH_DAYS * 86400)
+        if not stale or OFFLINE:
             with open(key, encoding="utf8") as f:
                 return f.read()
     if OFFLINE:
@@ -151,19 +154,19 @@ def count(text):
     return int(m.group(1)) if m else 0
 
 
-def search(query, refresh=False):
+def search(query, refresh=False, force=False):
     """Every record of a CQL query, paged 100 at a time -> list of response texts.
     A result set must stay below DNB's 99,000 paging ceiling; callers slice by jhr."""
-    first = get(url_for(query, 1), refresh)
+    first = get(url_for(query, 1), refresh, force)
     n = count(first)
     if n > 99000:
         raise ValueError("DNB result set too large to page (%d): %s" % (n, query))
     pages = [first]
     for start in range(1 + PAGE, n + 1, PAGE):
-        pages.append(get(url_for(query, start), refresh))
+        pages.append(get(url_for(query, start), refresh, force))
     return n, pages
 
 
-def total(query):
+def total(query, force=False):
     """numberOfRecords only (one maximumRecords=1 request, cached)."""
-    return count(get(url_for(query, 1, 1)))
+    return count(get(url_for(query, 1, 1), force=force))
