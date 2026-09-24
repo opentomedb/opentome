@@ -36,7 +36,8 @@ Gotchas:
   live requests; with it, 8a aborts on `OfflineMiss` (Roxy Gets Serious + two Hoshin Engi
   terms were already uncached). Stages 8-8d were verified piecewise offline (the round's
   report, delivered to the maintainer; replay outputs in the private sdd notes).
-- A pinned id gets no `anilist-covers.json` fallback cover (covers run before the pin).
+- Stage 8a is three calls: resolve, `corrections.py --anilist` (pins), then
+  `resolve_anilist.py --covers-only`, so pinned ids get their fallback cover too.
 - A diacritic fold in `for_search()` rewrites live search strings: NFKD drops kana voicing
   marks and turns ½ into 1⁄2 -- don't retry it without a live A/B.
 

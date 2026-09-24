@@ -1,6 +1,6 @@
 """Bind OpenTome's English lines to AniList ids (series.anilist_id).
 
-    python3 export/resolve_anilist.py [build/manga-metadata.sqlite] [--dry-run] [--limit N] [--only NAME] [--covers]
+    python3 export/resolve_anilist.py [build/manga-metadata.sqlite] [--dry-run] [--limit N] [--only NAME] [--covers | --covers-only]
 
 Mangarr resolves a series' poster / description / aliases from AniList by title, and the
 2026-09-15 audit (mangarr: docs/superpowers/specs/2026-09-15-manga-metadata-audit.md) found
@@ -575,9 +575,18 @@ def main(argv):
     ap.add_argument("--only", help="only the unresolved line(s) with exactly this name")
     ap.add_argument("--covers", action="store_true",
                     help="also fill <build>/anilist-covers.json for bound EN lines without a volume cover")
+    ap.add_argument("--covers-only", action="store_true",
+                    help="resolve nothing, only fill <build>/anilist-covers.json -- stage 8a runs it after "
+                         "corrections/anilist.json's pins land, so a pinned id gets a cover too")
     a = ap.parse_args(argv)
     build = os.path.dirname(os.path.abspath(a.artifact))
     db = sqlite3.connect(a.artifact)
+    if a.covers_only:
+        cpath = os.path.join(build, "anilist-covers.json")
+        have, fetched = covers(db, cpath)
+        print("anilist: covers -> %s (%d ids, %d fetched)" % (cpath, have, fetched))
+        db.close()
+        return
     lines = load_lines(db, a.limit, a.only)
     resolve(lines)
     n = write(db, lines, a.dry_run)

@@ -21,8 +21,9 @@
 #   6. resolve         claims -> values + confidence
 #   7. audit           report remaining defects -- EXITS NON-ZERO on any defect
 #   8. export          Mangarr-shaped artifact (+ curated aliases, + id carry)
-#   8a. anilist ids   series.anilist_id for English lines (export/resolve_anilist.py, cached; also writes build/anilist-covers.json),
-#                      then corrections/anilist.json's hand-checked ids over the resolver's pick
+#   8a. anilist ids   series.anilist_id for English lines (export/resolve_anilist.py, cached), then
+#                      corrections/anilist.json's hand-checked ids over the resolver's pick, then
+#                      build/anilist-covers.json for the final ids (pinned ones included)
 #   8d. measure gate   replay Mangarr's series pick over the committed library snapshot
 #                      (export/fixtures/library.json) -- EXITS NON-ZERO on a coverage
 #                      failure (an owned volume the picked line lacks); log in build/measure.log
@@ -87,8 +88,9 @@ if [ "$DB" != "$FINAL" ]; then
   echo "   catalogue -> $FINAL"
 fi
 echo "== 8. export ==";            python3 export/to_mangarr.py "$FINAL" "$ART.new" "$ID_CARRY"
-echo "== 8a. anilist ids ==";      python3 export/resolve_anilist.py "$ART.new" --covers
+echo "== 8a. anilist ids ==";      python3 export/resolve_anilist.py "$ART.new"
                                    python3 tier2/corrections.py --anilist "$ART.new"
+                                   python3 export/resolve_anilist.py "$ART.new" --covers-only
 # Carry curated aliases forward from the previous artifact. Measured: this is
 # what takes the export from matching FEWER of the live library's series than
 # the artifact it replaces (31/41) to more (38/41).

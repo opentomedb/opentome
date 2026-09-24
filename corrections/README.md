@@ -360,9 +360,10 @@ not in the artifact stops the build (`STALE CORRECTION`), and
 Clean room: the pin is an id, the same lookup key the resolver writes — no AniList
 title, synonym or description enters the artifact through it.
 
-Known gap: `build/anilist-covers.json` (the site's fallback cover, fetched in the
-same stage) is filled before the pin lands, so a pinned id on a line with no
-ISBN-keyed volume cover has no fallback cover. Worst has a cover on every volume.
+Covers: `build/anilist-covers.json` (the site's fallback cover for a line with no
+ISBN-keyed volume cover) is filled last in stage 8a, by
+`export/resolve_anilist.py --covers-only` after the pins land, so a pinned id gets
+its fallback cover exactly like a resolved one.
 
 ## Checking before you open the pull request
 
