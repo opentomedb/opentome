@@ -33,6 +33,8 @@ VALUE_CASES = [
     ("dnb year vs wikipedia day, years differ", {"dnb": "2020", "wikipedia": "2019-12-20"}, "2019-12-20"),
     ("dnb year agrees with wikipedia day",      {"dnb": "2019", "wikipedia": "2019-12-20"}, "2019-12-20"),
     ("dnb year alone",                          {"dnb": "2019"},                            "2019"),
+    # the rule is DNB's alone: a Wikipedia year keeps precedence over Open Library
+    ("wikipedia year vs openlibrary day",       {"wikipedia": "2005", "openlibrary": "2003-11-14"}, "2005"),
 ]
 
 
