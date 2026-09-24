@@ -25,7 +25,7 @@ CC BY-NC 4.0 plus the strictest terms of any source in it. Those terms, per sour
 | Source | Terms | What that means here |
 |---|---|---|
 | Bibliothèque nationale de France (BnF) | Etalab Open Licence (Licence Ouverte) | any use, attribution required |
-| Deutsche Nationalbibliothek (DNB) | CC0 | any use, no conditions — the German primary source, not yet wired in (no DNB values in the current build) |
+| Deutsche Nationalbibliothek (DNB) | CC0 | any use, no conditions — the German primary source: German volumes, ISBNs, year dates and page counts. Bibliographic data only: DNB's cover images (VG Bild-Kunst / VLB agreement) and publisher blurbs are not CC0 and are never read |
 | Wikipedia | facts only | we extract facts (dates, ISBNs, counts), never prose; CC BY-SA does not attach to facts |
 | openBD | purpose-limited | granted for "book promotion and introduction"; the data must not be altered |
 | Open Library / Internet Archive | non-commercial, research | access is for scholarship and research; use certified non-commercial |
@@ -42,7 +42,7 @@ provenance) is possible and is a separate, later decision.
 
 Ship this with any copy of the data (it is `meta.attribution` in the artifact):
 
-> Bibliographic data: Bibliotheque nationale de France (Licence Ouverte/Open Licence); openBD; Open Library / Internet Archive; Wikipedia contributors (facts only). Cover art is not included.
+> Bibliographic data: Bibliotheque nationale de France (Licence Ouverte/Open Licence); Deutsche Nationalbibliothek (CC0); openBD; Open Library / Internet Archive; Wikipedia contributors (facts only). Cover art is not included.
 
 ## What we do not know
 

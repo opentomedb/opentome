@@ -249,6 +249,9 @@ CREATE TABLE IF NOT EXISTS volumes (
     release_date_precision TEXT, release_date_raw TEXT, volume_chapters TEXT,
     tome_id TEXT,
     cover_url TEXT, cover_source TEXT,      -- looked up by THIS edition's ISBN; never hosted
+    -- 2026-09-24 (DNB): which milestone release_date_raw is -- published | on_sale | projected
+    -- (a planned month from an announcement, never a publication) | unknown; NULL when undated
+    release_date_type TEXT,
     UNIQUE (gcd_series_id, volume_number));
 CREATE TABLE IF NOT EXISTS series_alias (
     gcd_series_id INTEGER NOT NULL REFERENCES series(gcd_series_id),
@@ -342,7 +345,15 @@ def export(src_path, out_path, carry_ids_from=None):
         except sqlite3.OperationalError:
             pass
 
-    # resolved page counts (BnF / Open Library) -- tier0 never fills volume.page_count
+    # A line id the pipeline retired (id_redirect: a DNB line whose source key changed) keeps
+    # its consumer-facing integer on the successor, so a Mangarr that stored the old integer
+    # still finds the line. Only when the successor has no integer of its own yet.
+    for old_id, new_id in src.execute("""SELECT old_id, new_id FROM id_redirect
+                                         WHERE entity='release_line' ORDER BY created_at, old_id"""):
+        if new_id not in mapping and old_id in mapping:
+            mapping[new_id] = mapping[old_id]
+
+    # resolved page counts (BnF / Open Library / DNB) -- tier0 never fills volume.page_count
     pages = {}
     for vid, val in src.execute("""SELECT entity_id, value FROM resolution
                                    WHERE entity='volume' AND field='page_count'"""):
@@ -495,7 +506,7 @@ def export(src_path, out_path, carry_ids_from=None):
         native_script_ok = (om == market) if om is not None else (market in ORIGIN)
 
         vols = src.execute("""SELECT id, number, title, release_date, release_date_precision,
-                                     isbn13, isbn10, format
+                                     isbn13, isbn10, format, release_date_type
                               FROM volume WHERE release_line_id=? ORDER BY rowid""", (rid,)).fetchall()
         comp_vol, comp_ch = {}, {}
         for vid, contains, ref_list in src.execute(
@@ -503,7 +514,7 @@ def export(src_path, out_path, carry_ids_from=None):
                    WHERE c.volume_id IN (SELECT id FROM volume WHERE release_line_id=?)""", (rid,)):
             (comp_vol if contains == "volume" else comp_ch)[vid] = ref_list
         ints_written, dated, years, is_omni = set(), 0, [], 0
-        for vid, num, title, rdate, prec, i13, i10, fmt in vols:
+        for vid, num, title, rdate, prec, i13, i10, fmt, rtype in vols:
             c = comp_vol.get(vid)
             cv = covers.get(vid) or {}
             cover_src = ("correction" if "correction" in cv else          # a picked cover wins
@@ -530,10 +541,10 @@ def export(src_path, out_path, carry_ids_from=None):
             cur = out.execute("""INSERT OR IGNORE INTO volumes
                 (gcd_series_id,volume_number,title,release_date,isbn13,isbn10,page_count,
                  composition,release_date_precision,release_date_raw,volume_chapters,tome_id,
-                 cover_url,cover_source)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 cover_url,cover_source,release_date_type)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (sid, iv, title_out, day, i13, i10, pages.get(vid), c, prec, rdate,
-                 comp_ch.get(vid), vid, cover_url, cover_src))
+                 comp_ch.get(vid), vid, cover_url, cover_src, (rtype or "unknown") if rdate else None))
             if cur.rowcount:
                 ints_written.add(iv)
                 n_vol += 1
@@ -691,16 +702,23 @@ def export(src_path, out_path, carry_ids_from=None):
         n_removed += gone
 
     src_counts = dict(src.execute("SELECT source, COUNT(*) FROM claim GROUP BY source"))
+    try:
+        dnb_lines = {"roles": dict(src.execute("SELECT role, COUNT(*) FROM dnb_line GROUP BY 1")),
+                     "exported_tiers": dict(src.execute("""SELECT tier, COUNT(*) FROM dnb_line
+                                                           WHERE role='linked' GROUP BY 1"""))}
+    except sqlite3.OperationalError:
+        dnb_lines = {}
     for k, v in [
         ("schema_version", "2"),
         ("generator", "opentome"),
         ("generated_at", NOW),
-        ("source", "OpenTome — reconciled from Wikipedia, openBD, Open Library, BnF"),
-        # BnF's Etalab licence and openBD's terms both REQUIRE retained attribution.
-        # Names only the sources the pipeline actually reads (DNB is not wired in yet);
-        # LICENSE-DATA.md carries this string byte-for-byte -- change both together.
+        ("source", "OpenTome — reconciled from Wikipedia, openBD, Open Library, BnF, DNB"),
+        # BnF's Etalab licence and openBD's terms both REQUIRE retained attribution; DNB's
+        # CC0 does not, but naming it is accurate. Names only the sources the pipeline
+        # actually reads; LICENSE-DATA.md carries this string byte-for-byte -- change both
+        # together.
         ("attribution", "Bibliographic data: Bibliotheque nationale de France (Licence Ouverte/Open Licence); "
-                        "openBD; Open Library / Internet Archive; "
+                        "Deutsche Nationalbibliothek (CC0); openBD; Open Library / Internet Archive; "
                         "Wikipedia contributors (facts only). Cover art is not included."),
         ("licence", "Free/non-commercial use. openBD and Open Library terms are non-commercial; "
                     "see docs/legal-position.md before any paid use."),
@@ -719,10 +737,13 @@ def export(src_path, out_path, carry_ids_from=None):
         # by omission. Fail-closed, not fail-open.
         ("alias_provenance", "opentome"),
         ("claim_sources", json.dumps(src_counts)),
+        # DNB line tally (tier0/build_dnb.py): the measure gate's link-rate floor reads it
+        ("dnb_lines", json.dumps(dnb_lines)),
         ("composition_semantics", "volumes.composition = original-market volume numbers this "
                                   "volume contains (omnibus). Chapters are in volume_chapters."),
         ("release_date_semantics", "release_date is day-precision only; coarser values are in "
-                                   "release_date_raw with release_date_precision."),
+                                   "release_date_raw with release_date_precision; release_date_type "
+                                   "says which milestone (projected = a planned month, not a publication)."),
     ]:
         out.execute("INSERT OR REPLACE INTO meta VALUES(?,?)", (k, v))
 

@@ -87,10 +87,46 @@ def run():
     eq("no pin: an EN line with no name match falls back to the JP main line (the defect, reproduced)",
        orig_of[unpinned_rid], gcd_of["rl_jp_main"])
 
+    # ---- a redirected line keeps its consumer-facing integer (2026-09-24, DNB) --------
+    # A DNB line whose source key changed (a parent record appeared) gets a new rl_ id and
+    # an id_redirect row; the integer a Mangarr stored for the old id must follow it.
+    sid, rtype = fixture_redirect_carry()
+    eq("a redirected line carries the old line's integer id", sid, 424242)
+    eq("release_date_type ships with a dated volume", rtype, "projected")
+
     if FAILS:
         print("FAILED: " + ", ".join(FAILS))
         sys.exit(1)
     print("to_mangarr ok")
+
+
+def fixture_redirect_carry():
+    tmp = tempfile.mkdtemp(prefix="opentome-redirect-")
+    src_path, out_path, carry = (os.path.join(tmp, n) for n in ("pipeline.db", "artifact.sqlite", "carry.sqlite"))
+    db = sqlite3.connect(src_path)
+    db.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+    db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_r','Redirect Work','x','x')")
+    db.execute("""INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at)
+                 VALUES('rl_new','w_r','manga','DE','de','x','x')""")
+    db.execute("""INSERT INTO volume(id,release_line_id,number,isbn13,release_date,release_date_precision,
+                  release_date_type,created_at,updated_at)
+                  VALUES('v_new1','rl_new','1','9783753935874','2026-11','month','projected','x','x')""")
+    db.execute("INSERT INTO id_redirect VALUES('rl_old','rl_new','release_line','correction','x')")
+    db.commit()
+    c = sqlite3.connect(carry)
+    c.execute("CREATE TABLE id_map (opentome_id TEXT PRIMARY KEY, int_id INTEGER UNIQUE NOT NULL, kind TEXT NOT NULL)")
+    c.execute("INSERT INTO id_map VALUES('rl_old', 424242, 'release_line')")
+    c.commit()
+    real_dir = corr.DIR
+    corr.DIR = tempfile.mkdtemp(prefix="opentome-nocorr-")      # no corrections in play
+    try:
+        export(src_path, out_path, carry)
+    finally:
+        corr.DIR = real_dir
+    out = sqlite3.connect(out_path)
+    sid = out.execute("SELECT gcd_series_id FROM series WHERE tome_id='rl_new'").fetchone()[0]
+    rtype = out.execute("SELECT release_date_type FROM volumes WHERE tome_id='v_new1'").fetchone()[0]
+    return sid, rtype
 
 
 def fixture_origin_line_pin():

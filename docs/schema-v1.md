@@ -142,3 +142,30 @@ English lines with a NULL `anilist_id`; `via` in {`parent`, `medium`}; `medium` 
 mediums; every `parent` id is the unambiguous `anilist_id` of its same-work parent line.
 Written by `export/resolve_anilist.py --display` in stage 8a, after `corrections/anilist.json`'s
 pins and before `--covers-only`, which fills `build/anilist-covers.json` for display ids too.
+
+## 2026-09-24 — the German market from DNB: `projected` dates, `volumes.release_date_type`
+
+`volume.release_date_type` gains **`projected`**: a planned publication month (MARC `263`,
+`YYYYMM`) from a DNB announcement record -- a book announced but not yet deposited. It is
+always month precision, it is only used for a volume that has no published / on-sale date
+from any source, and an announcement whose year is after the current year produces no
+volume at all (2027-2030 placeholders are often cancellations). DNB's deposited records give
+`published` at year precision (the `008` year). See `docs/dnb-design.md`.
+
+The artifact's `volumes` table gains **`release_date_type TEXT`** (additive; Mangarr selects
+named columns): the milestone `release_date_raw` states -- `published`, `on_sale`,
+`projected`, `unknown` -- and NULL exactly when the volume is undated. Without it a
+projected month would ship indistinguishable from a published one.
+
+Claims: a DNB published year is `field='release_date'`; a projected month is its own field,
+`projected_date` (the claim key is `(entity, entity_id, field, source)`, and one DNB volume
+can carry both kinds of record). In `tier2/resolve.py` a bare-year claim never beats a finer
+claim it disagrees with, whatever the source precedence says -- a late-December release is
+catalogued by DNB under the next year.
+
+Pipeline staging tables, written by `tier0/build_dnb.py` and never exported: `dnb_line`
+(every DNB line, exported or not: its key, the `rl_` id it is or would be, the linker's tier
+and work, its role -- merged / sibling / linked / review / unlinked / absorbed -- and, for
+lines that share ISBNs with a German Wikipedia line, that line's work as ground truth) and
+`dnb_member` (every DNB volume record kept: its line, number, ISBN, the volume it reached and
+its fate). The contract test and the measure gate read them.
