@@ -124,4 +124,8 @@ Code: `tier0/dnb_sru.py` (client), `tier0/dnb_enumerate.py`, `tier0/dnb_marc.py`
 - **Redirects.** Prior-build state is the carried artifact: a German tome_id it has that the
   build lost is redirected to the line now holding most of its ISBNs, volumes by number, and
   the export hands the old integer id to the successor.
-- **Resolve.** A bare-year claim never beats a finer claim it disagrees with.
+- **Freshness.** `DNB_REFRESH_DAYS=N` refetches last year's slice (deposit lag), the current
+  and future years, the no-year remainder and parent batches older than N days; a refresh run
+  re-reads the totals and re-pages only frozen slices whose count changed. Default off.
+- **Resolve.** A bare DNB year never beats a finer claim it disagrees with (9 of the 223
+  volumes with both a DNB year and another date); scoped to DNB, it changes 0 other values.

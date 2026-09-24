@@ -13,12 +13,16 @@ Done (design: `docs/dnb-design.md`, results: `docs/german-market.md`):
   totals checked), `tier0/dnb_marc.py`, `tier0/dnb_link.py`, `tier0/build_dnb.py` (stage 3e,
   after relations), tests `tier0/test_dnb.py` (stage 0).
 - Export: `volumes.release_date_type` (additive), DNB in `meta.attribution` + LICENSE-DATA.md,
-  `meta.dnb_lines`, redirected lines keep their integer id. `tier2/resolve.py`: a bare year
-  never beats a finer date it disagrees with.
+  `meta.dnb_lines`, redirected lines keep their integer id. `tier2/resolve.py`: a bare DNB
+  year never beats a finer date it disagrees with (9 volumes; 0 resolution changes elsewhere).
+- CI uploads `build/dnb-review.tsv`, `dnb-report.json`, `dnb-netlog.tsv` with the build.
 - Gates: DNB rules in `export/test_artifact.py` (needs the catalogue as 2nd arg -- the
   rebuild passes it) incl. the linker fixture `export/fixtures/dnb_linker_labels.json` and
   the 35 pre-DNB ids `export/fixtures/de_lines_pre_dnb.json`; German floors in
   `export/measure_library.py` (`--catalogue=`), printed after the `matched` line.
+- Stage 8a ran locally through a driver in `build/` (not committed) that leaves uncached
+  AniList terms unbound; the rebuild's final `mv` never ran, so `build/manga-metadata.sqlite`
+  is still the 2026-09-20 artifact and the DNB build is `build/manga-metadata.sqlite.new`.
 - Measured (offline rebuild, warm cache): DE 35 lines / 391 vols -> **1,593 / 12,678**
   (1,557 linked + 30 merged + 1 sibling + the 5 unmerged Wikipedia lines); linker
   high 1,246 / medium 353 / low 210 / ambiguous 7 / none 2,740; ground truth 30/32 linked,
@@ -27,13 +31,16 @@ Done (design: `docs/dnb-design.md`, results: `docs/german-market.md`):
   export; replay `--base main` 0 new / 0 changed / 0 lost.
 
 Next:
-- **CI's cache has no DNB responses.** The first CI build makes ~390 SRU requests (~20 min at
-  3 s) inside stage 3e; a second 429/503 stops the build (DnbThrottled). Either let it run, or
-  seed: tar the `.cache/*.xml` DNB files into the opentome-cache seed (they are the entries
-  listed in `build/dnb-netlog.tsv`, key = sha256(url)[:32]).
-- Refreshing: nothing re-fetches by default. `DNB_REFRESH_DAYS=N` refetches current/future-
-  year slices, the no-year remainder and parent batches older than N days -- a scheduled
-  build would need it set (no recurring manual step), Nick's call on N.
+- **CI's cache has no DNB responses -- seed it before the next CI build.** Unseeded, the
+  first CI build makes ~390 SRU requests inside stage 3e; `actions/cache` saves only on a
+  successful job, so a throttled (DnbThrottled) or otherwise failed run keeps nothing and
+  repeats the burst every week. Seed: add the DNB `.cache/*.xml` files (the urls in
+  `build/dnb-netlog.tsv`, key = sha256(url)[:32] + '.xml') to the opentome-cache seed tarball
+  and re-run seed-cache.
+- Refreshing: nothing re-fetches by default, so German data never updates until
+  `DNB_REFRESH_DAYS=N` is set in the catalogue workflow (last year + current/future years, the
+  no-year remainder and parent batches older than N days; frozen slices re-paged only when
+  their count changed). Nick's call on N (7 = weekly with the Sunday build, ~60-90 requests).
 - Nick: `build/dnb-review.tsv` (217 low/ambiguous lines) -- confirmed ones could become
   corrections; the design has no correction type for "link this DNB line" yet.
 - Follow-ups: KR/CN round (decision 4); light novels are thin (19 lines) -- LN works are
