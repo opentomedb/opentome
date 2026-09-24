@@ -12,8 +12,11 @@ disk cache.
 
 Only a URL and its source are stored -- never the image. Mangarr fetches at
 display time into its own cache; nothing is hosted. A record without a cover
-yields no claim, so there is no placeholder image to filter: Open Library only
-includes `cover` when one exists, and openBD leaves `cover` empty otherwise.
+yields no claim. One placeholder does exist: Open Library sometimes answers with a
+cover whose id is -1 (".../b/id/-1-L.jpg" -- a removed or never-uploaded cover), which
+redirects to a 404 on archive.org (15 volumes in opentome-2026-09-24, e.g. Kaiju No. 8
+Relax, Haikyu!!). `ol_cover_ok` drops any Open Library cover id that isn't positive;
+openBD leaves `cover` empty when it has none.
 """
 import datetime, glob, json, os, re, sqlite3, sys
 
@@ -23,6 +26,15 @@ from load import LICENCE
 
 CACHE = os.path.join(ROOT, ".cache")
 NOW = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+
+
+_OL_ID = re.compile(r"/b/id/(-?\d+)-[SML]\.jpg")
+
+
+def ol_cover_ok(url):
+    """False for an Open Library cover URL whose numeric id is not positive (-1 = no cover)."""
+    m = _OL_ID.search(url or "")
+    return not (m and int(m.group(1)) <= 0)
 
 
 def covers_from_cache(verbose=True):
@@ -40,7 +52,7 @@ def covers_from_cache(verbose=True):
                 isbn = key.split(":", 1)[1]
                 cover = (rec.get("cover") or {})
                 url = cover.get("large") or cover.get("medium")
-                if url and isbn not in out:
+                if url and ol_cover_ok(url) and isbn not in out:
                     out[isbn] = (url, "openlibrary")
         elif isinstance(d, list) and any(isinstance(x, dict) and "summary" in x for x in d):
             # openBD answers a batch as a list with a null per unknown ISBN; a batch whose

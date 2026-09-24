@@ -189,6 +189,13 @@ def run(path):
         missing_excluded += bool(hit)
     rule("excluded works still present in the artifact", missing_excluded)
 
+    # Open Library's "no cover" placeholder (id -1, a 404 on archive.org) must never ship as a
+    # cover: tier1/covers.py drops it at the source (2026-09-24, 15 volumes).
+    placeholder = db.execute("""SELECT COUNT(*) FROM volumes
+                                WHERE cover_url LIKE '%covers.openlibrary.org/b/id/-%'
+                                   OR cover_url LIKE '%covers.openlibrary.org/b/id/0-%'""").fetchone()[0]
+    rule("Open Library placeholder covers (id <= 0) in the artifact", placeholder)
+
     # status / covers (schema_version 2 additions)
     rule("licensed line 'completed' while behind its same-named original-market line",
          g("""SELECT COUNT(*) FROM series l JOIN series o
