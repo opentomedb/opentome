@@ -9,7 +9,8 @@ serial's title as a synonym. Mangarr now binds by id and consults the catalogue 
 this step gives every English line the id up front, with the rules Mangarr's AniListRanker
 applies (kept in step on purpose) plus FALLBACK tiers that run only where those rules find
 nothing (R4 on; each measured by export/replay_anilist.py to move no existing bind). Mangarr
-does not have the fallback tiers yet -- whether it should is its own decision:
+mirrors R4-R7 since 10.0.0.615 (2026-09-24); there R4/R5 also require the entry name to BE the
+hinted catalogue line's own name, never an alias or arc title it was matched by:
 
   * candidates = AniList `Page(perPage: 10) { media(search:) }`, type MANGA; manga-family
     mediums query `format_not: NOVEL`, novel mediums (light_novel, novel) `format: NOVEL`
@@ -36,7 +37,7 @@ does not have the fallback tiers yet -- whether it should is its own decision:
     the 4-volume "Onegai, Sore wo Yamenaide" carries "Doll" as a synonym), a same-named
     ONE_SHOT is that serial's pilot -- either way the carrier is a chapter title wearing the
     name, and unresolved is recoverable where a wrong bind is not
-  * R7 (article, 2026-09-24, OpenTome only): below exact equality, the same primary-then-
+  * R7 (article, 2026-09-24; Mangarr since 10.0.0.615): below exact equality, the same primary-then-
     synonym equality after dropping one leading "the" / "a" / "an" (a whole word) from both
     sides, R1 included across tiers (never beside an exact primary-title candidate, even a
     rejected one). The catalogue's "Hollow Regalia" is AniList's "The Hollow Regalia"
@@ -70,7 +71,7 @@ does not have the fallback tiers yet -- whether it should is its own decision:
       (47536, the main Hidan no Aria manga) with 16 vs the origin line's 26
   * no equality on the name -> D3 retry, in Mangarr's order: the de-slugged form of the name
     first (its slug with the dashes back as spaces -- Mangarr's foreign id); then (R6,
-    2026-09-24, OpenTome only) the name without a trailing parenthetical that is an edition /
+    2026-09-24; Mangarr since 10.0.0.615) the name without a trailing parenthetical that is an edition /
     format qualifier -- edition, volume list, release (re-release too), version, tankōbon,
     shinsōban, VizBig, 2-in-1, parution, printing; never one naming a chapter or a nested
     "series (" or a quoted title (`Amazing Agent Luna ("Amazing Agent Jennifer" Volume list)`
