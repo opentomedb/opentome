@@ -119,6 +119,12 @@ def resolve(db, verbose=False):
                 # one: precedence used to hand out openBD's '2023-02' over a
                 # corroborated '2023-02-25' on 42,985 fields.
                 best = max(claims, key=lambda vs: (len(vs[0]), -RANK.get(vs[1], 99)))
+            elif len(best[0]) == 4 and any(len(v) > 4 for v, _ in claims):
+                # A bare year is the coarsest thing a date claim can say, and DNB's (008)
+                # disagrees with a day date exactly where it is least reliable: a
+                # late-December release catalogued under the next year. Precedence ranks
+                # sources, not precisions -- the finer claim wins (docs/dnb-design.md).
+                best = min((vs for vs in claims if len(vs[0]) > 4), key=lambda vs: RANK.get(vs[1], 99))
             n_agree = sum(1 for v, _ in claims if v == best[0])
             note = " | ".join(f"{s}={v}" for v, s in
                               sorted(claims, key=lambda x: RANK.get(x[1], 99)))
