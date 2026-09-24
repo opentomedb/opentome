@@ -30,7 +30,13 @@ hinted catalogue line's own name, never an alias or arc title it was matched by:
     serial ("Attack on Titan: Harsh Mistress of the City", 2 volumes, to "Attack on Titan",
     34, through "Shingeki no Kyojin")
   * primary-title equality (romaji / english / native) beats synonym equality; ties go to
-    `popularity`; equality is Mangarr's TitleMatcher: lower-case letters and digits only.
+    `popularity`; equality is Mangarr's TitleMatcher: lower-case letters and digits only,
+    after fold() -- which key() and the outbound for_search() term share. fold() strips a
+    combining accent ONLY from a Latin-script letter ("Fushigi Yûgi" = "Fushigi Yugi"); kana
+    voicing marks, Hangul, CJK and Cyrillic are untouched (2026-09-24: the broad NFKD fold that
+    also turned ゲ into ケ was reverted). PARITY: Mangarr's TitleMatcher.Normalize /
+    TitleNormalizer.ForSearch do not fold yet -- they mirror fold() in a follow-up task; until
+    then the two differ on accented titles only.
     A synonym-only carrier never wins while ANY candidate on the page has primary-title
     equality, even one the rules rejected (R1, the 2026-09-15 live run): a primary rejected
     on volumes says "this is the work but the count disagrees" (Doll: "DOLL" 1 vol vs 6, and
@@ -103,7 +109,7 @@ anilist_id IS NULL are considered, and only resolved ones are written. Clean roo
 is a lookup-key source here (an id, and with --covers a cover URL) -- no title, synonym or
 description ever enters the artifact.
 """
-import argparse, hashlib, json, os, re, sqlite3, sys, time, urllib.error, urllib.request
+import argparse, hashlib, json, os, re, sqlite3, sys, time, unicodedata, urllib.error, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 API = "https://graphql.anilist.co"
@@ -135,14 +141,42 @@ class OfflineMiss(RuntimeError):
 
 # ---------------------------------------------------------------- Mangarr mirrors
 
+def _latin(c):
+    return c.isalpha() and "LATIN" in unicodedata.name(c, "")
+
+
+def strip_latin_marks(s):
+    """Latin-only accent strip (2026-09-24): NFD, a combining mark (Mn) dropped ONLY when its base
+    letter is Latin-script, then NFC -- "Fushigi Y\u00fbgi" -> "Fushigi Yugi", "\u00dcbel Blatt" ->
+    "Ubel Blatt", "\u014coku" -> "Ooku". Kana voicing marks, Hangul, Cyrillic (\u0439), CJK keep theirs;
+    a string with nothing to drop comes back as it was, byte for byte."""
+    out, base, dropped = [], "", False
+    for c in unicodedata.normalize("NFD", s):
+        if unicodedata.category(c) == "Mn":
+            if _latin(base):
+                dropped = True
+                continue
+        else:
+            base = c
+        out.append(c)
+    return unicodedata.normalize("NFC", "".join(out)) if dropped else s
+
+
+def fold(s):
+    """The one normalization key() and for_search() share (Mangarr mirrors it in TitleMatcher.Normalize
+    and TitleNormalizer.ForSearch in a follow-up task)."""
+    return strip_latin_marks(s or "")
+
+
 def key(s):
-    """Mangarr's TitleMatcher.Normalize: lower-case, letters and digits only."""
-    return "".join(c for c in (s or "").lower() if c.isalnum())
+    """Mangarr's TitleMatcher.Normalize: lower-case, letters and digits only -- after fold()."""
+    return "".join(c for c in fold(s).lower() if c.isalnum())
 
 
 def for_search(s):
-    """Mangarr's TitleNormalizer.ForSearch: typographic quotes/dashes/NBSP -> ASCII, spaces collapsed."""
-    s = (s or "").replace("\u2018", "'").replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"')
+    """Mangarr's TitleNormalizer.ForSearch: typographic quotes/dashes/NBSP -> ASCII, spaces collapsed,
+    fold()ed -- so deslug()'s ASCII-only slug keeps the letter ("fushigi yugi", not "fushigi y gi")."""
+    s = fold(s).replace("\u2018", "'").replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"')
     s = s.replace("\u2013", "-").replace("\u2014", "-").replace("\u00a0", " ")
     return " ".join(s.split())
 
