@@ -312,6 +312,13 @@ class CheckTests(unittest.TestCase):
             self.assertEqual(code, 1, bad)
             self.assertIn("not a positive integer", out)
 
+    def test_anilist_pin_duplicate_line_fails(self):
+        code, out = self.check(self.anilist(self.PIN, dict(self.PIN, anilist_id=147044)))
+        self.assertEqual(code, 1)
+        self.assertIn("anilist.json[1]: line rl_aaaaaaaaaaaa is already pinned by anilist.json[0]", out)
+        with self.assertRaises(ValueError):
+            C.load_anilist_pins(self.anilist(self.PIN, dict(self.PIN, anilist_id=147044)))
+
     def test_anilist_pin_apply_overrides_and_fails_stale(self):
         art = sqlite3.connect(":memory:")
         art.execute("CREATE TABLE series (gcd_series_id INTEGER PRIMARY KEY, tome_id TEXT, anilist_id INTEGER)")

@@ -38,7 +38,8 @@ does not have the fallback tiers yet -- whether it should is its own decision:
     name, and unresolved is recoverable where a wrong bind is not
   * R7 (article, 2026-09-24, OpenTome only): below exact equality, the same primary-then-
     synonym equality after dropping one leading "the" / "a" / "an" (a whole word) from both
-    sides, R1 included. The catalogue's "Hollow Regalia" is AniList's "The Hollow Regalia"
+    sides, R1 included across tiers (never beside an exact primary-title candidate, even a
+    rejected one). The catalogue's "Hollow Regalia" is AniList's "The Hollow Regalia"
     (133016) on its own novel page. Measured: that one line, nothing else moved
   * fallback tiers, tried only while the tiers above found nothing on the page (R5 needs no
     equal title on the page -- exact or R7 -- and R4 needs one, so the two never compete):
@@ -50,7 +51,9 @@ does not have the fallback tiers yet -- whether it should is its own decision:
       Queen" (3); AniList lists the Bookworm novel per Part, so the catalogue's longer
       "Ascendance of a Bookworm (Part 2: Apprentice Shrine Maiden)" (4) is the SHORTER
       "Ascendance of a Bookworm: Part 2" (4) while Parts 1/3/4/5 (3/5/9/12) share the base
-      name. Own-name terms only: allowed on alias terms it bound "Diamond Is Unbreakable"
+      name. In that candidate-shorter direction the exact count plus uniqueness is the WHOLE
+      guard -- any shorter franchise name inside the term qualifies on text alone (Re:Zero
+      (A Week at the Mansion) matched 85814 through its synonym "ReZero"). Own-name terms only: allowed on alias terms it bound "Diamond Is Unbreakable"
       to Battle Angel Alita through the alias "Angelo" and moved an existing bind (replay,
       2026-09-24). Measured: 14 new, 1 changed (Der Werwolf: the alias-found 98367, null
       volumes, to 114483 "~Origins~", 11 = the line's 11 and its JP line's 11)
@@ -60,15 +63,18 @@ does not have the fallback tiers yet -- whether it should is its own decision:
       old rule fell through to a franchise relative's alias and bound 38901). Own-name terms
       only (R3), and never over an equal-titled candidate that passes the ceiling, even a
       synonym carrier R1 rejected (Worst: 147044, 4 vols,
-      stays; the right 31741 is a corrections/anilist.json pin, not a rule). Measured on
-      opentome-2026-09-24: Weed plus 10 unbound lines, each an exact title whose AniList
-      volume count matches the line's own origin line (Billy Bat 20, City Hunter 35, ...)
+      stays; the right 31741 is a corrections/anilist.json pin, not a rule). Nor beside an
+      article-equal (R7) candidate. Measured on opentome-2026-09-24: Weed plus 10 unbound
+      lines, each an exact title; for 9 the AniList volume count equals the line's own origin
+      line (Billy Bat 20, City Hunter 35, ...); Aria the Scarlet Ammo is the right work
+      (47536, the main Hidan no Aria manga) with 16 vs the origin line's 26
   * no equality on the name -> D3 retry, in Mangarr's order: the de-slugged form of the name
     first (its slug with the dashes back as spaces -- Mangarr's foreign id); then (R6,
     2026-09-24, OpenTome only) the name without a trailing parenthetical that is an edition /
     format qualifier -- edition, volume list, release (re-release too), version, tankōbon,
     shinsōban, VizBig, 2-in-1, parution, printing; never one naming a chapter or a nested
-    "series (" -- ranked against the name page, else one search. The catalogue names sibling
+    "series (" or a quoted title (`Amazing Agent Luna ("Amazing Agent Jennifer" Volume list)`
+    names another work) -- ranked against the name page, else one search. The catalogue names sibling
     editions after Wikipedia's headings ("Inuyasha (VizBig edition)", "Ranma ½ (2014 English
     release (2-in-1 Edition)"), and AniList has one entry for the work. It is ranked like an
     ALIAS (R3, no fallback tiers), not like the name: stripping can drop content, and the
@@ -217,15 +223,15 @@ def pick(cands, term, volume_count, own_name=True):
     pool = primary or synonym
     if pool:
         via = "primary" if primary else "synonym"
-    elif art_primary or art_synonym:
-        pool, via = art_primary or art_synonym, "article"   # R7: below exact equality
+    elif (art_primary or art_synonym) and not primary_on_page:
+        pool, via = art_primary or art_synonym, "article"   # R7: below exact equality, R1 across tiers
     elif not equality_on_page and len(substring) == 1:
         # R5: no equality anywhere on the page (R1's reading: a rejected equal title is the
         # work with a disputed count, so a substring candidate beside it is a side story)
         pool, via = substring, "substring"
-    elif not carrier:
+    elif not carrier and not (art_primary or art_synonym):
         # R4 (Weed): only when nothing equal passed the ceiling -- an R1-rejected synonym carrier
-        # counts as passing -- and R1 still holds inside the tier
+        # or an article-equal candidate counts as passing -- and R1 still holds inside the tier
         pool = [m for m in oversized if primary_title(m)] or \
                ([] if primary_on_page else [m for m in oversized if synonym_title(m)])
         via = "ceiling"
@@ -276,7 +282,8 @@ def edition_stripped(name):
         i = base.rfind("(")
         base, inner = base[:i], base[i + 1:] + "(" + inner + ")"
     base, low = base.strip(), inner.lower()
-    if not base or "chapter" in low or "series (" in low or not EDITION_QUALIFIER.search(inner):
+    if not base or "chapter" in low or "series (" in low or any(q in inner for q in '"\u201c\u201d') \
+            or not EDITION_QUALIFIER.search(inner):
         return None
     return base
 
@@ -426,8 +433,8 @@ def _search_round(todo, novel):
     for ln, t, own in todo:
         m, via, rej = pick(results[t], t, ln["volume_count"], own_name=own)
         ln["rejected"] += rej
-        if m:
-            ln.update(pick=m, via="alias", term=t)
+        if m:   # a fallback tier (own-name terms: the de-slugged form) is reported as itself
+            ln.update(pick=m, via=via if via in ("substring", "ceiling") else "alias", term=t)
 
 
 def _next_alias_search(ln):

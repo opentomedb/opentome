@@ -154,13 +154,17 @@ def load_anilist_pins(directory=None):
     """-> [(release_line_id, anilist_id)] after validation (corrections/anilist.json).
     `anilist_id` must be a positive JSON integer -- not a string, not a bool (a bool is
     an int in Python, and `true` would pin every line to id 1)."""
-    out = []
+    out, seen = [], {}
     for i, e in enumerate(_read("anilist.json", directory or DIR)):
         _require(e, ANILIST_KEYS, "anilist.json", i)
         aid = e["anilist_id"]
         if isinstance(aid, bool) or not isinstance(aid, int) or aid <= 0:
             raise ValueError("anilist.json[%d]: anilist_id %r is not a positive integer" % (i, aid))
-        out.append((str(e["line"]).strip(), aid))
+        line = str(e["line"]).strip()
+        if line in seen:   # two pins on one line: the later would silently win
+            raise ValueError("anilist.json[%d]: line %s is already pinned by anilist.json[%d]" % (i, line, seen[line]))
+        seen[line] = i
+        out.append((line, aid))
     return out
 
 
@@ -733,13 +737,17 @@ def check(directory=DIR, artifact=None):
             db.execute("SELECT value FROM meta WHERE key='excluded_works'").fetchone()[0]))
     except (TypeError, sqlite3.OperationalError, ValueError):
         excluded_recorded = set()
-    n_anilist = 0
+    n_anilist, pinned = 0, {}
     for i, e in entries("anilist.json", ANILIST_KEYS):
         aid = e["anilist_id"]
         if isinstance(aid, bool) or not isinstance(aid, int) or aid <= 0:
             problems.append("anilist.json[%d]: anilist_id %r is not a positive integer" % (i, aid))
             continue
         line = str(e["line"]).strip()
+        if line in pinned:
+            problems.append("anilist.json[%d]: line %s is already pinned by anilist.json[%d]" % (i, line, pinned[line]))
+            continue
+        pinned[line] = i
         if not exists("SELECT 1 FROM series WHERE tome_id=?", line):
             stale.append(("anilist.json", i, "line %s" % line))
         n_anilist += 1

@@ -16,7 +16,11 @@ Done:
   Seed: Worst (EN, 3 vols) -> 31741.
 - `corrections/aliases.json`: "Ginga Densetsu Riki" and "Ginga Legend Riki" removed from Weed.
 - `pick()` tiers (docstring = spec): R4 ceiling fallback (Weed -> 34010, +10 short English
-  runs; stands down beside any equal title that passes the ceiling), R5 substring + exact volumes (own name only; +14, Der Werwolf 98367 -> 114483),
+  runs; stands down beside any equal title that passes the ceiling), R5 substring + exact volumes (own name only; +14, Der Werwolf 98367 -> 114483 -- 10 of
+  the analysis's 14; the missing 4 (Haruhi-chan, Re:Zero Truth of Zero / Frozen Bond,
+  Restaurant First series) only match through alias terms and are left out by design; the
+  other 4 are one-to-two-volume lines outside the analysis's scope: Bookworm Royal Academy
+  Stories, Fairy Tail: Ice Trail, Slime (Again!) Workaholic, The Obsessed Mage),
   R6 edition-qualifier paren-strip retry (ranked like an alias; +9), R7 leading-article
   equality (+1, Hollow Regalia). Net: 35 new binds, 1 changed (Der Werwolf), 0 lost; vs the
   published artifact also Weed 38901 -> 34010; EN >= 3 vols unresolved 307 -> 280.
