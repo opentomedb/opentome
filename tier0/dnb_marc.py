@@ -102,7 +102,7 @@ def isbns(r):
 
 # ---- volume number ----------------------------------------------------------------
 
-_NUM_WORD = r"(?:vol(?:ume)?\.?|band|bd\.?|teil|nr\.?|no\.?|tome|buch)"
+_NUM_WORD = r"(?:vol(?:ume)?\.?|band|bd\.?|teil|nr\.?|no\.?|tome|buch|#|n[uú]mm?er|folge)"
 _RANGE = re.compile(r"(\d+)\s*(?:[-–/+]|und|bis|&)\s*(\d+)", re.I)
 _NUM = re.compile(r"^\s*\[?\s*(?:" + _NUM_WORD + r"\s*)?(\d{1,4})(?:[.,](\d{1,2}))?\s*\.?\s*\]?\s*$", re.I)
 # a trailing volume number on a bare 245$a: "Car Crush 02", "Die Monster Mädchen – Band 21"
@@ -112,7 +112,8 @@ _TRAILING = re.compile(r"^(.*?\S)\s*(?:[,.:;–—-]\s*)?(?:" + _NUM_WORD + r"\s
 def canon_number(raw):
     """'1.' / '01' / 'Vol. 3' / 'Band 3' -> ('1'|'3', 'int'); '7.5' -> ('7.5', 'decimal');
     '1 - 3' -> ('1-3', 'range'); anything else -> (None, 'none')."""
-    s = clean(raw)
+    # older records append the statement of responsibility: "2. / [Aus dem Japan. von ...]"
+    s = clean(raw).split(" / ")[0].strip()
     if not s or not re.search(r"\d", s):
         return None, "none"
     m = _RANGE.search(s)
@@ -120,8 +121,13 @@ def canon_number(raw):
         return "%d-%d" % (int(m.group(1)), int(m.group(2))), "range"
     m = _NUM.match(s)
     if not m:
+        # a part number with a word or a subtitle around it: "Song 2.", "Lektion 3.",
+        # "23 : Rubin und Saphir" -- $n IS the part number, so one integer in it is that number
+        nums = re.findall(r"\d+", s)
+        if len(nums) == 1 and not re.search(r"\d[.,]\d", s):
+            return str(int(nums[0])), "int"
         return None, "none"
-    if m.group(2) and not (raw.strip().endswith(".") and not m.group(2)):
+    if m.group(2):
         return "%d.%s" % (int(m.group(1)), m.group(2)), "decimal"
     return str(int(m.group(1))), "int"
 
@@ -176,7 +182,7 @@ def pages(r):
     if not m or not re.search(r"Seiten|S\.", a):
         return None
     n = int(m.group(1)) + (int(m.group(2)) if m.group(2) else 0)
-    return n if n > 0 else None
+    return n if 0 < n <= 2000 else None          # beyond 2000 is a box or a misparse
 
 
 def year(r):
@@ -200,14 +206,26 @@ def origin_languages(r):
     return {v.strip().lower() for v in subs(r, "041", "h")}
 
 
-def japanese_origin(r):
-    """041$h jpn; where 041$h is absent, the statement of responsibility's
-    'aus dem Japanischen' (translated from Japanese) -- a German original has neither."""
+def origin_in_scope(r):
+    """Japanese origin, or an origin the record does not state.
+
+    041$h names the original language: 'jpn' is in scope, anything else (kor, chi, eng,
+    fre) is not -- Korean and Chinese titles are the follow-up round (decision 4). Where
+    041$h is absent (~975 records of the manga-imprint channel, 2026-09-24) the record
+    cannot say: those are mostly Japanese manga catalogued without it (Komi Can't
+    Communicate, Yotsuba&!) next to some German originals, and no field separates them
+    reliably. They stay in scope unless the statement of responsibility says 'aus dem
+    Koreanischen / Chinesischen / Englischen / ...' or a keyword says manhwa / webtoon /
+    manhua; a German original then only ships if it links to an OpenTome work -- in which
+    case it IS that work's German line."""
     langs = origin_languages(r)
     if langs:
         return "jpn" in langs
-    text = " ".join(subs(r, "245", "c") + subs(r, "500", "a") + subs(r, "546", "a"))
-    return bool(re.search(r"aus dem japanischen", text, re.I))
+    resp = " ".join(subs(r, "245", "c") + subs(r, "500", "a") + subs(r, "546", "a"))
+    if re.search(r"aus dem (?!japanischen)\w+", resp, re.I):
+        return False
+    kw = {clean(v).lower() for v in subs(r, "653", "a")}
+    return not kw & {"manhwa", "webtoon", "manhua", "k-comic", "korea", "korean"}
 
 
 def thema(r):
@@ -221,7 +239,7 @@ EXTRA_TEXT = re.compile(r"artbook|art book|artworks?\b|malbuch|kochbuch|kalender
                         r"zeichenkurs|how to draw|rätselbuch|notizbuch|tagebuch zum|poster|"
                         r"illustrations?\b|visual ?book|databook|data book|anthology book", re.I)
 BUNDLE_TEXT = re.compile(r"bundle|doppelband|sammelschuber|komplettpack|komplettbox|\bim schuber\b|"
-                         r"\bschuber\b|\bbox\b|\bboxset\b|box-set|starter-?pack|\bset\b.*\d+\s*b[äa]nde", re.I)
+                         r"\bschuber\b|\bbox\b|\bboxset\b|box-set|starter[\s-]?pack|\bset\b.*\d+\s*b[äa]nde", re.I)
 
 
 def _title_text(r):
@@ -230,8 +248,10 @@ def _title_text(r):
 
 
 def comic_signal(r):
-    """DDC 741.5 or the GND content type 'Comic' -- the strong comic signals."""
-    ddc = any(v.strip().startswith("741.5") for v in subs(r, "082", "a"))
+    """DDC 741.5, the older DNB subject group 08 (records before ~2004: Akira, Banana Fish,
+    Spriggan -- every 08 record among the Japanese-origin ones is a comic), or the GND
+    content type 'Comic' -- the strong comic signals."""
+    ddc = any(v.strip().startswith("741.5") or v.strip() == "08" for v in subs(r, "082", "a"))
     return ddc or any(v.strip().lower() == "comic" for v in subs(r, "655", "a"))
 
 

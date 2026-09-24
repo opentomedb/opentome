@@ -8,10 +8,14 @@
 
 Channels 1 and 2 are sliced by publication year (`jhr`), so a result set is stable while
 it is paged and a past-year slice never needs refetching; only slices that can still
-change (the current year and later, and the parent batches) take part in the opt-in
-freshness window (DNB_REFRESH_DAYS, tier0/dnb_sru.py). Completeness is checked, not
-assumed: the slices' numberOfRecords must add up to the unsliced total, and every slice
-must yield as many distinct records as it announced.
+change (the current year and later, the no-year remainder, and the parent batches) take
+part in the opt-in freshness window (DNB_REFRESH_DAYS, tier0/dnb_sru.py).
+
+Completeness is checked, not assumed, and the first full run (2026-09-24) showed why:
+`jhr` is MULTI-valued (a record can carry several years: 25,933 slice hits for 25,270
+records) and some records have none at all (7 in channel 1, 304 in channel 2). So each
+channel also pages a `not jhr>0` remainder, and the DISTINCT records paged must equal the
+unsliced numberOfRecords; every slice must yield as many distinct records as it announced.
 
     python3 tier0/dnb_enumerate.py            # fetch (cached) and print the tally
 """
@@ -50,7 +54,7 @@ def year_slices(fine_from, coarse):
     for y in range(fine_from, CURRENT_YEAR + 5):
         out.append(("jhr=%d" % y, y >= CURRENT_YEAR))
     out.append(("jhr>%d" % (CURRENT_YEAR + 4), True))
-    return out
+    return [("and " + q, r) for q, r in out] + [("not jhr>0", True)]   # + records with no year
 
 
 CHANNELS = [
@@ -61,13 +65,12 @@ CHANNELS = [
 
 
 def run_channel(name, base, fine_from, coarse, verbose=True):
-    """-> ({idn: record}, gap): gap = unsliced total - sum of the slices (must be 0)."""
+    """-> ({idn: record}, gap): gap = unsliced total - distinct records paged (must be 0)."""
     whole = S.total(base)
-    got, announced = {}, 0
+    got = {}
     for suffix, refresh in year_slices(fine_from, coarse):
-        q = "%s and %s" % (base, suffix)
+        q = "%s %s" % (base, suffix)
         n, pages = S.search(q, refresh=refresh)
-        announced += n
         seen = {}
         for text in pages:
             for r in M.records(text):
@@ -77,12 +80,12 @@ def run_channel(name, base, fine_from, coarse, verbose=True):
         got.update(seen)
         if verbose and n:
             print("    %-10s %-26s %6d  (live requests so far %d)" % (name, suffix, n, S.live_requests[0]), flush=True)
-    if announced != whole:
+    if len(got) != whole:
         # Reported, not raised here, so one run still fetches every channel; build_dnb.py
         # fails the stage on a non-zero gap.
-        print("    WARNING DNB channel %s: year slices hold %d records, the unsliced query %d"
-              % (name, announced, whole), flush=True)
-    return got, whole - announced
+        print("    WARNING DNB channel %s: %d distinct records paged, the unsliced query has %d"
+              % (name, len(got), whole), flush=True)
+    return got, whole - len(got)
 
 
 def fetch_parents(have, want, verbose=True):
