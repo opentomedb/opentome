@@ -5,5 +5,47 @@
     "source_url": "https://anilist.co/manga/31741",
     "reason": "Worst (EN manga, 3 volumes): the line's orig_series_id is the JP line 'Worst' (rl_d5aebb55801f) with 33 volumes, and AniList 31741 'Worst' has volumes: 33 -- the same serial. The resolver's rules bind 147044, a different 4-volume 'Worst' (no English title) that passes the volume rule while 31741 (33 > 4x 3) does not; no safe rule can tell the two apart, so it is pinned by hand",
     "checked": "2026-09-24"
+  },
+  {
+    "line": "rl_3defd203410a",
+    "anilist_id": 99141,
+    "source_url": "https://anilist.co/manga/99141",
+    "checked": "2026-09-24",
+    "reason": "DanMachi Familia Chronicle Episode Lyu manga: AniList 99141 'Is It Wrong to Try to Pick Up Girls in a Dungeon? Familia Chronicle Episode Lyu', MANGA, 6 vols = the EN line's 6 (Yen Press). Its own work, not the main series -- the display fallback skipped it as ambiguous (manga 85161 vs LN 85162)."
+  },
+  {
+    "line": "rl_ecfe2fb4b747",
+    "anilist_id": 142917,
+    "source_url": "https://anilist.co/manga/142917",
+    "checked": "2026-09-24",
+    "reason": "DanMachi Familia Chronicle Episode Freya manga: AniList 142917, MANGA, 5 vols = the EN line's 5 (Yen Press). Its own work."
+  },
+  {
+    "line": "rl_e957ae92dcf5",
+    "anilist_id": 167505,
+    "source_url": "https://anilist.co/manga/167505",
+    "checked": "2026-09-24",
+    "reason": "DanMachi Argonaut light novel: AniList 167505 'Argonaut: Is It Wrong to Try to Pick Up Girls in a Dungeon? Tales of Heroes', NOVEL (2 vols; the EN line has 1 so far). Its own work."
+  },
+  {
+    "line": "rl_8f022d95d8b6",
+    "anilist_id": 100477,
+    "source_url": "https://anilist.co/manga/100477",
+    "checked": "2026-09-24",
+    "reason": "The Reprise of the Spear Hero manga (Yari no Yuusha no Yarinaoshi): AniList 100477 'The Reprise of the Spear Hero: The Manga Companion', MANGA, 11 vols (EN line 10). The LN line is already bound to 108437."
+  },
+  {
+    "line": "rl_9022420b2c64",
+    "anilist_id": 185638,
+    "source_url": "https://anilist.co/manga/185638",
+    "checked": "2026-09-24",
+    "reason": "Secrets of the Silent Witch -another- light novel: AniList 185638, NOVEL, 2 vols = the EN line's 2. Its own work (the prequel)."
+  },
+  {
+    "line": "rl_c1d216476a7c",
+    "anilist_id": 100685,
+    "source_url": "https://anilist.co/manga/100685",
+    "checked": "2026-09-24",
+    "reason": "Wolf and Parchment (Spice and Wolf sequel) light novel: AniList 100685 'Wolf & Parchment: New Theory Spice & Wolf', NOVEL, 13 vols (EN line 12, Yen Press). Its own work."
   }
 ]
