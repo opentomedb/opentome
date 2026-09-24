@@ -1,0 +1,329 @@
+"""MARC21-xml parsing and the per-record field logic for DNB records.
+
+Everything here is a pure function of one record (or one response text), so it is
+unit-tested on synthetic records in tier0/test_dnb.py with no network. The field
+choices are the ones the 2026-09-24 spike verified (docs/dnb-design.md):
+
+  volume number   245$n, else 490/830 $v, else a trailing number in 245$a
+                  (DNB vs Wikipedia volume number agreed 368/369)
+  ISBN            020$a (and $z is NOT read: a cancelled/invalid ISBN)
+  pages           300$a in its German shapes ("N Seiten", "N S.", "circa N Seiten",
+                  "[N] S.", "N, [N] S.", "N ungezählte Seiten")
+  year            008[7:11] -- year precision; late-December releases can carry the
+                  next year, which is why a Wikipedia day date wins resolution
+  planned month   263 YYYYMM on announcement records (matched the real month 25/26)
+  announcement    leader/17 = '8' (prepublication level, CIP): the record describes a
+                  book that has not been deposited yet
+
+Never read: 856 (the X:MVB blurb links and table-of-contents PDFs are not CC0 --
+publisher text, and covers belong to the VLB agreement), 245$b as a title (on VLB-fed
+records it is marketing copy: "sexy anthropomorphe Fabelwesen | Harem | ...").
+"""
+import re
+import xml.etree.ElementTree as ET
+
+MARC = "{http://www.loc.gov/MARC21/slim}"
+# DNB wraps a title's non-sorting article in these control characters: "\x98Die\x9c Welt"
+NONSORT = re.compile(r"[\x98\x9c\u0098\u009c]")
+
+
+def records(text):
+    """SRU response text -> list of records {leader, cf: {tag: text}, df: [(tag, i1, i2, [(code, value)])]}."""
+    root = ET.fromstring(text)
+    out = []
+    for rec in root.iter(MARC + "record"):
+        r = {"leader": "", "cf": {}, "df": []}
+        for el in rec:
+            tag = el.tag.rsplit("}", 1)[-1]
+            if tag == "leader":
+                r["leader"] = el.text or ""
+            elif tag == "controlfield":
+                r["cf"][el.get("tag")] = el.text or ""
+            elif tag == "datafield":
+                subs = [(s.get("code"), s.text or "") for s in el]
+                r["df"].append((el.get("tag"), el.get("ind1") or " ", el.get("ind2") or " ", subs))
+        if r["cf"].get("001"):
+            out.append(r)
+    return out
+
+
+def fields(r, tag):
+    """Every datafield with this tag, as its subfield list."""
+    return [s for t, _, _, s in r["df"] if t == tag]
+
+
+def subs(r, tag, code):
+    return [v for s in fields(r, tag) for c, v in s if c == code]
+
+
+def first(r, tag, code):
+    v = subs(r, tag, code)
+    return v[0] if v else None
+
+
+def clean(s):
+    """Strip DNB's non-sort markers and collapse whitespace."""
+    return re.sub(r"\s+", " ", NONSORT.sub("", s or "")).strip()
+
+
+def idn(r):
+    return r["cf"]["001"]
+
+
+def is_parent(r):
+    """A multi-part set record (bbg=Ac): the series head, not a volume."""
+    return len(r["leader"]) > 19 and r["leader"][19] == "a"
+
+
+def is_announcement(r):
+    """leader/17 = '8': prepublication (CIP) level -- the book is announced, not deposited."""
+    return len(r["leader"]) > 17 and r["leader"][17] == "8"
+
+
+def parent_idns(r):
+    """773$w '(DE-101)1234567' -> ['1234567'] (the set this volume belongs to)."""
+    return [m.group(1) for w in subs(r, "773", "w")
+            for m in [re.match(r"\(DE-101\)\s*(\S+)", w)] if m]
+
+
+# ---- identifiers -----------------------------------------------------------------
+
+def isbns(r):
+    """Valid ISBN-13s from 020$a, in record order, ISBN-10s converted. 020$z (cancelled /
+    invalid) is deliberately not read."""
+    from isbn import normalise_isbn, isbn13_check
+    out = []
+    for v in subs(r, "020", "a"):
+        i13, _ = normalise_isbn(v.split(" ")[0])
+        if i13 and isbn13_check(i13) and i13 not in out:
+            out.append(i13)
+    return out
+
+
+# ---- volume number ----------------------------------------------------------------
+
+_NUM_WORD = r"(?:vol(?:ume)?\.?|band|bd\.?|teil|nr\.?|no\.?|tome|buch)"
+_RANGE = re.compile(r"(\d+)\s*(?:[-–/+]|und|bis|&)\s*(\d+)", re.I)
+_NUM = re.compile(r"^\s*\[?\s*(?:" + _NUM_WORD + r"\s*)?(\d{1,4})(?:[.,](\d{1,2}))?\s*\.?\s*\]?\s*$", re.I)
+# a trailing volume number on a bare 245$a: "Car Crush 02", "Die Monster Mädchen – Band 21"
+_TRAILING = re.compile(r"^(.*?\S)\s*(?:[,.:;–—-]\s*)?(?:" + _NUM_WORD + r"\s*)?(\d{1,3})\s*$", re.I)
+
+
+def canon_number(raw):
+    """'1.' / '01' / 'Vol. 3' / 'Band 3' -> ('1'|'3', 'int'); '7.5' -> ('7.5', 'decimal');
+    '1 - 3' -> ('1-3', 'range'); anything else -> (None, 'none')."""
+    s = clean(raw)
+    if not s or not re.search(r"\d", s):
+        return None, "none"
+    m = _RANGE.search(s)
+    if m and int(m.group(2)) > int(m.group(1)):
+        return "%d-%d" % (int(m.group(1)), int(m.group(2))), "range"
+    m = _NUM.match(s)
+    if not m:
+        return None, "none"
+    if m.group(2) and not (raw.strip().endswith(".") and not m.group(2)):
+        return "%d.%s" % (int(m.group(1)), m.group(2)), "decimal"
+    return str(int(m.group(1))), "int"
+
+
+def series_statements(r):
+    """(name, $v) from 490/830 WITH a $v only. A 490 without $v is an imprint collection
+    ("Action", "Romance"), not a series (spike finding)."""
+    out = []
+    for tag in ("830", "490"):
+        for s in fields(r, tag):
+            d = dict(s)
+            if d.get("v") and (d.get("a") or d.get("t")):
+                out.append((clean(d.get("a") or d.get("t")), d["v"]))
+    return out
+
+
+def volume_number(r):
+    """-> (number, kind, source): 245$n, else 490/830 $v, else a trailing number in 245$a."""
+    for n in reversed(subs(r, "245", "n")):
+        num, kind = canon_number(n)
+        if kind != "none":
+            return num, kind, "245n"
+    for _, v in series_statements(r):
+        num, kind = canon_number(v)
+        if kind != "none":
+            return num, kind, "series_v"
+    a = clean(first(r, "245", "a"))
+    m = _TRAILING.match(a)
+    if m and not re.search(r"\d$", m.group(1)):
+        return str(int(m.group(2))), "int", "trailing"
+    return None, "none", None
+
+
+def bare_title(r):
+    """245$a without a trailing volume number ('Car Crush 02' -> 'Car Crush')."""
+    a = clean(first(r, "245", "a"))
+    m = _TRAILING.match(a)
+    if m and not subs(r, "245", "n") and not re.search(r"\d$", m.group(1)):
+        return m.group(1).rstrip(" ,.:;–—-")
+    return a
+
+
+# ---- extent, dates ------------------------------------------------------------------
+
+def pages(r):
+    """300$a -> page count: numbered + unnumbered pages when both are stated."""
+    a = clean(first(r, "300", "a"))
+    if not a:
+        return None
+    m = re.match(r"^(?:ca\.|circa)?\s*\[?(\d{1,4})\]?\s*(?:ungezählte\s+)?(?:Seiten|S\.)?"
+                 r"(?:\s*,\s*\[?(\d{1,3})\]?\s*(?:ungezählte\s+)?(?:Seiten|S\.))?", a)
+    if not m or not re.search(r"Seiten|S\.", a):
+        return None
+    n = int(m.group(1)) + (int(m.group(2)) if m.group(2) else 0)
+    return n if n > 0 else None
+
+
+def year(r):
+    """008[7:11] when it is a plausible year, else None."""
+    y = (r["cf"].get("008") or "")[7:11]
+    return y if re.fullmatch(r"(19|20)\d\d", y) else None
+
+
+def planned_month(r):
+    """263 'YYYYMM' (the planned publication month of an announcement) -> 'YYYY-MM'."""
+    for v in subs(r, "263", "a"):
+        m = re.match(r"^\s*((?:19|20)\d\d)(0[1-9]|1[0-2])", v)
+        if m:
+            return "%s-%s" % (m.group(1), m.group(2))
+    return None
+
+
+# ---- what kind of book ---------------------------------------------------------------
+
+def origin_languages(r):
+    return {v.strip().lower() for v in subs(r, "041", "h")}
+
+
+def japanese_origin(r):
+    """041$h jpn; where 041$h is absent, the statement of responsibility's
+    'aus dem Japanischen' (translated from Japanese) -- a German original has neither."""
+    langs = origin_languages(r)
+    if langs:
+        return "jpn" in langs
+    text = " ".join(subs(r, "245", "c") + subs(r, "500", "a") + subs(r, "546", "a"))
+    return bool(re.search(r"aus dem japanischen", text, re.I))
+
+
+def thema(r):
+    return [v.strip().upper() for v in subs(r, "926", "a")]
+
+
+LN_THEMA = {"FYS", "YFZS"}
+LN_TEXT = re.compile(r"light[\s-]?novel|ranobe", re.I)
+EXTRA_TEXT = re.compile(r"artbook|art book|artworks?\b|malbuch|kochbuch|kalender|postkarten|sticker|"
+                        r"fanbook|fan book|character ?book|making[- ]of|\bguide\b|zeichnen lernen|"
+                        r"zeichenkurs|how to draw|rätselbuch|notizbuch|tagebuch zum|poster|"
+                        r"illustrations?\b|visual ?book|databook|data book|anthology book", re.I)
+BUNDLE_TEXT = re.compile(r"bundle|doppelband|sammelschuber|komplettpack|komplettbox|\bim schuber\b|"
+                         r"\bschuber\b|\bbox\b|\bboxset\b|box-set|starter-?pack|\bset\b.*\d+\s*b[äa]nde", re.I)
+
+
+def _title_text(r):
+    return " ".join(clean(x) for x in subs(r, "245", "a") + subs(r, "245", "n") + subs(r, "245", "p")
+                    + subs(r, "250", "a") + subs(r, "490", "a"))
+
+
+def comic_signal(r):
+    """DDC 741.5 or the GND content type 'Comic' -- the strong comic signals."""
+    ddc = any(v.strip().startswith("741.5") for v in subs(r, "082", "a"))
+    return ddc or any(v.strip().lower() == "comic" for v in subs(r, "655", "a"))
+
+
+def manga_signal(r):
+    """The weaker manga signals: Thema XAM*, VLB-WN 1182/2182 'Manga, Manhwa'."""
+    if any(t.startswith("XAM") for t in thema(r)):
+        return True
+    return any(re.match(r"\(VLB-WN\)[12]182", v) for v in subs(r, "653", "a"))
+
+
+def ln_signal(r):
+    if LN_THEMA & set(thema(r)):
+        return True
+    text = " ".join(subs(r, "245", "a") + subs(r, "490", "a") + subs(r, "653", "a") + subs(r, "500", "a"))
+    return bool(LN_TEXT.search(text))
+
+
+def classify(r):
+    """-> 'manga' | 'light_novel' | 'extra' (artbook, guide, merchandise) | 'bundle' | 'other'.
+
+    Thema FYS/YFZS ("Ranobe") is an explicit light-novel code and wins. Otherwise a strong
+    comic signal (DDC 741.5, GND 'Comic') is manga; a 'Light Novel' / 'Ranobe' mention is a
+    light novel (publishers also stamp Thema XAM on light novels -- XAM != manga); the weak
+    manga signals alone are manga; nothing at all is 'other' (Japanese literature, non-fiction)."""
+    t = _title_text(r)
+    if BUNDLE_TEXT.search(t):
+        return "bundle"
+    if EXTRA_TEXT.search(t):
+        return "extra"
+    if LN_THEMA & set(thema(r)):
+        return "light_novel"
+    if comic_signal(r):
+        return "manga"
+    if ln_signal(r):
+        return "light_novel"
+    if manga_signal(r):
+        return "manga"
+    return "other"
+
+
+EDITION = [
+    ("deluxe", re.compile(r"deluxe", re.I)),
+    ("massiv", re.compile(r"\bmassiv\b", re.I)),
+    ("mehrfachband", re.compile(r"mehrfachband|\b\d\s*in\s*1\b|sammelband|omnibus", re.I)),
+    ("perfect", re.compile(r"perfect edition", re.I)),
+    ("collector", re.compile(r"collector'?s?[’']?s? edition", re.I)),
+    ("limited", re.compile(r"limitierte|limited edition|sonderausgabe|special edition", re.I)),
+    ("kanzenban", re.compile(r"kanzenban|ultimative edition|ultimate edition", re.I)),
+]
+
+
+def edition_marker(r):
+    """An edition that is its own release line ('Naruto Massiv', a Deluxe Edition), or None.
+    Read from 250 and the title proper, never from 245$b (marketing text)."""
+    t = " ".join(clean(x) for x in subs(r, "250", "a") + subs(r, "245", "a") + subs(r, "245", "p")
+                 + [a for a, _ in series_statements(r)])
+    for name, rx in EDITION:
+        if rx.search(t):
+            return name
+    return None
+
+
+# ---- titles and people ---------------------------------------------------------------
+
+def original_titles(r):
+    """240$a (uniform title), 246$a (other titles), and a 245$b parallel title ('= ...')."""
+    out = [clean(v) for v in subs(r, "240", "a") + subs(r, "246", "a")]
+    out += [clean(v.strip()[1:]) for v in subs(r, "245", "b") if v.strip().startswith("=")]
+    return [x for x in out if x]
+
+
+def publisher(r):
+    for tag in ("264", "260"):
+        for v in subs(r, tag, "b"):
+            if clean(v):
+                return clean(v)
+    return None
+
+
+# creator roles (relator codes, $4). 'trl' (translator) and 'edt' never count.
+CREATOR_ROLES = {"aut", "art", "ill", "oth", "ant", "cre", "ctb"}
+
+
+def creators(r):
+    """Raw names of the record's creators from 100/700, translators excluded."""
+    out = []
+    for tag in ("100", "700"):
+        for s in fields(r, tag):
+            roles = {v.strip() for c, v in s if c == "4"}
+            if roles and not roles & CREATOR_ROLES:
+                continue
+            name = next((v for c, v in s if c == "a"), None)
+            if name and clean(name) not in out:
+                out.append(clean(name))
+    return out
