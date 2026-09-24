@@ -363,7 +363,10 @@ title, synonym or description enters the artifact through it.
 Covers: `build/anilist-covers.json` (the site's fallback cover for a line with no
 ISBN-keyed volume cover) is filled last in stage 8a, by
 `export/resolve_anilist.py --covers-only` after the pins land, so a pinned id gets
-its fallback cover exactly like a resolved one.
+its fallback cover exactly like a resolved one. The display-only fallback
+(`--display`, `series.display_anilist_id`; see `docs/schema-v1.md`) runs between
+the two, so a pinned line never keeps a display id and a display id gets a cover
+too.
 
 ## Checking before you open the pull request
 

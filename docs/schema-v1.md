@@ -117,3 +117,28 @@ same-work, same-medium line the status rule and a cross-market join compare agai
 A consumer that maps `status` to its own enum must treat `stalled` as neither
 `completed` nor `ongoing`. Mangarr's `MapGcdStatus` does not recognize it yet and falls
 back to AniList, which is safe but loses the signal.
+
+## 2026-09-24 — display_anilist_id / display_anilist_via (display only)
+
+Two additive `series` columns (Mangarr selects named columns, so an older Mangarr never
+sees them):
+
+- `display_anilist_id INTEGER` — an AniList id to take a **cover / synopsis** from, for an
+  English line the resolver left with `anilist_id` NULL. It is **never a binding**: set only
+  where `anilist_id IS NULL`, never copied into `anilist_id`, never a source of aliases. A
+  consumer must not present it as the line's AniList id (the site links only `anilist_id`).
+- `display_anilist_via TEXT` — how it was found:
+  - `parent`: the line's name cut at its first ` (`, `: `, ` - ` or ` / ` key-equals the name
+    of a **bound** English line of the **same work** (`tome_work_id`, any medium) — that
+    line's `anilist_id` (`Re:Zero (Truth of Zero)` → the bound `Re:Zero`). Never across works,
+    never when the same-work bound lines of that name carry different ids.
+  - `medium`: a `novel` / `light_novel` line whose own (`format: NOVEL`) AniList page has no
+    title-equal candidate at all, but whose manga-family page for the same name gives the
+    resolver's `pick()` a candidate — AniList lists the adaptation, not the novel (Otherside
+    Picnic, Bungo Stray Dogs).
+
+Both columns are NULL or both set. `export/test_artifact.py` asserts: display ids only on
+English lines with a NULL `anilist_id`; `via` in {`parent`, `medium`}; `medium` only on novel
+mediums; every `parent` id is the unambiguous `anilist_id` of its same-work parent line.
+Written by `export/resolve_anilist.py --display` in stage 8a, after `corrections/anilist.json`'s
+pins and before `--covers-only`, which fills `build/anilist-covers.json` for display ids too.

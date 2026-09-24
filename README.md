@@ -150,3 +150,10 @@ rebuild costs no requests for names already seen. A line the rules cannot place 
 NULL; it is never guessed, because Mangarr pins whatever the catalogue says. Measured on
 `opentome-2026-09-04`: 2,614 of 3,053 English lines bound, 87.8 % of those with 3+ volumes
 (the contract allows up to 15 % unresolved; the residue is list-article and edition names).
+
+`series.display_anilist_id` (with `display_anilist_via`, `parent` | `medium`) is **not** a
+binding: a cover / synopsis source for an English line whose `anilist_id` stayed NULL — the
+id of its bound same-work parent line (an arc or side story), or the manga entry of a novel
+AniList lists only as its adaptation. It is set only where `anilist_id` is NULL and never
+copied into it; consumers must not treat it as the line's AniList id. See
+`docs/schema-v1.md`.

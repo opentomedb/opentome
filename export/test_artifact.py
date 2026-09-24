@@ -250,6 +250,37 @@ def run(path):
     print("  info  anilist_id shared by EN lines of different works: %d" % len(shared))
     for aid, names in shared:
         print("        %s: %s" % (aid, names))
+    # Display-only fallback (export/resolve_anilist.py display(), 2026-09-24): a cover / synopsis
+    # id for a line the rules left NULL. It must never look like a binding -- Mangarr pins
+    # anilist_id, and a display id there would be a guess pinned by every future add.
+    rule("display_anilist_id on a line that has an anilist_id, or on a non-EN line",
+         g("""SELECT COUNT(*) FROM series WHERE display_anilist_id IS NOT NULL
+              AND (anilist_id IS NOT NULL OR language<>'en')"""))
+    rule("display_anilist_id and display_anilist_via not set together",
+         g("SELECT COUNT(*) FROM series WHERE (display_anilist_id IS NULL) <> (display_anilist_via IS NULL)"))
+    rule("display_anilist_via outside {parent, medium}",
+         g("SELECT COUNT(*) FROM series WHERE display_anilist_via NOT IN ('parent','medium')"))
+    rule("display_anilist_via 'medium' on a line that is not a novel / light_novel",
+         g("""SELECT COUNT(*) FROM series WHERE display_anilist_via='medium'
+              AND COALESCE(medium,'') NOT IN ('novel','light_novel')"""))
+    # 'parent': the id is the anilist_id of a bound EN line of the SAME work whose name is the
+    # line's name cut at its first ' (' / ': ' / ' - ' / ' / ' (key = letters and digits only)
+    k = lambda s: "".join(c for c in (s or "").lower() if c.isalnum())
+    bound = {}
+    for wid, name, aid in db.execute("""SELECT tome_work_id, name, anilist_id FROM series
+                                        WHERE language='en' AND anilist_id IS NOT NULL"""):
+        bound.setdefault((wid, k(name)), set()).add(aid)
+    bad_parent = 0
+    for wid, name, did in db.execute("""SELECT tome_work_id, name, display_anilist_id FROM series
+                                        WHERE display_anilist_via='parent'"""):
+        s = " ".join(name.replace("–", "-").replace("—", "-").replace(" ", " ").split())
+        m = re.search(r" \(|: | - | / ", s)
+        bad_parent += not (m and bound.get((wid, k(s[:m.start()]))) == {did})   # unambiguous, too
+    rule("'parent' display id that is not its same-work parent line's anilist_id", bad_parent)
+    print("  info  display-only AniList ids (not bindings): %s" % (", ".join(
+        "%s via %s" % (format(n, ","), v) for v, n in db.execute(
+            """SELECT display_anilist_via, COUNT(*) FROM series WHERE display_anilist_via IS NOT NULL
+               GROUP BY 1 ORDER BY 1""")) or "none"))
     print("  info  EN lines with anilist_id: %s / %s (volume_count >= 3: %s / %s)" % (
         format(g("SELECT COUNT(*) FROM series WHERE language='en' AND anilist_id IS NOT NULL"), ","),
         format(g("SELECT COUNT(*) FROM series WHERE language='en'"), ","),
