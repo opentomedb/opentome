@@ -16,5 +16,29 @@
     "source_url": "https://fr.wikipedia.org/wiki/Les_Aventures_de_Rabbi_Harvey",
     "reason": "The Adventures of Rabbi Harvey (Steve Sheinkin): a US comics series published by Jewish Lights Publishing (French edition: Yodea), not manga/manhwa/manhua or an OEL equivalent; entered through the French Wikipedia article. Both lines (EN and FR, 3 volumes each) are that comic",
     "checked": "2026-09-24"
+  },
+  {
+    "work": "w_0544a2e97858",
+    "source_url": "https://en.wikipedia.org/wiki/W.I.T.C.H.",
+    "reason": "W.I.T.C.H.: an Italian Disney comics series (Disney Italy, 2001-2012; Elisabetta Gnone, Alessandro Barbucci, Barbara Canepa), not manga/manhwa/manhua or an OEL equivalent; entered through the Wikipedia article's volume lists. Every line of the work is that comic: the EN lines are Yen Press's 'W.I.T.C.H.: The Graphic Novel' reprint of the Italian comics (ISBN prefixes 978-0-316 / 978-1-9753, Yen Press / JY), the ja-tagged lines are the same Part titles (the origin-link data defect). The article's separate Japanese manga adaptation (Haruko Iida, Kadokawa, 2 volumes) is NOT in the catalogue -- it is AniList 41582, which the resolver had wrongly bound to the EN line 'W.I.T.C.H. (Part IX. 100% W.I.T.C.H.)' (rl_11d6fddb1ba8, this work); that bind goes with the exclusion",
+    "checked": "2026-09-24"
+  },
+  {
+    "work": "w_9c375906111a",
+    "source_url": "https://en.wikipedia.org/wiki/My_Little_Pony_(IDW_Publishing)",
+    "reason": "My Little Pony: IDW Publishing's American tie-in comic books (Friendship Is Magic, November 2012-October 2021, and its secondary titles), not manga/manhwa/manhua or an OEL equivalent. Every line of the work is an IDW comic: the EN 'Friendship Is Magic' (19 volumes) and 'Season 10' (3; issues #89-102) lines carry IDW ISBN prefixes 978-1-61377 / 978-1-63140 / 978-1-68405, and the ja-tagged lines are IDW's secondary titles (Friends Forever, Legends of Magic, Nightmare Knights, ...). No line is Tokyopop's 'My Little Pony: The Manga', which would stay",
+    "checked": "2026-09-24"
+  },
+  {
+    "work": "w_ce686da7e0e1",
+    "source_url": "https://en.wikipedia.org/wiki/Mechademia",
+    "reason": "Mechademia: a peer-reviewed academic journal about Japanese popular culture (University of Minnesota Press), not a comic -- the EN line's 10 volumes are the journal's annual issues (ISBN prefix 978-0-8166, University of Minnesota Press: 'Emerging Worlds of Anime and Manga', 'Networks of Desire', ...); its ja line has 0 volumes",
+    "checked": "2026-09-24"
+  },
+  {
+    "work": "w_40edd3e8dead",
+    "source_url": "https://en.wikipedia.org/wiki/Fair,_then_Partly_Piggy",
+    "reason": "Fair, then Partly Piggy (Hare Tokidoki Buta): a Japanese picture-book series by Shiro Yadama (Iwasaki Shoten; some books translated into English by Keith Holman), not a comic -- the source of the anime Tokyo Pig. Both lines are the picture books (EN 3 volumes, ISBN prefix 978-4-265 = Iwasaki Shoten; JA 10)",
+    "checked": "2026-09-24"
   }
 ]
