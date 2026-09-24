@@ -351,6 +351,14 @@ def run_dnb(path, catalogue):
     rule("pre-DNB German line ids missing from the artifact", sum(1 for t in pre if t not in have),
          str([t for t in pre if t not in have][:5]))
 
+    # DNB delivers NFD; everything German that ships must be NFC (review 2026-09-24)
+    import unicodedata
+    non_nfc = sum(1 for (t,) in db.execute("""SELECT name FROM series WHERE language='de' UNION ALL
+                      SELECT publisher FROM series WHERE language='de' AND publisher IS NOT NULL UNION ALL
+                      SELECT a.alias FROM series_alias a JOIN series s USING(gcd_series_id) WHERE s.language='de'""")
+                  if t != unicodedata.normalize("NFC", t))
+    rule("non-NFC strings in German series names, publishers or aliases", non_nfc)
+
     # provenance: CC0, a d-nb.info record url, bibliographic fields only (no cover, no blurb)
     rule("dnb claims not licensed cc0", c("SELECT COUNT(*) FROM claim WHERE source='dnb' AND licence<>'cc0'"))
     rule("dnb claims without a https://d-nb.info/ source_url",

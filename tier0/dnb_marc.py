@@ -20,6 +20,7 @@ publisher text, and covers belong to the VLB agreement), 245$b as a title (on VL
 records it is marketing copy: "sexy anthropomorphe Fabelwesen | Harem | ...").
 """
 import re
+import unicodedata
 import xml.etree.ElementTree as ET
 
 MARC = "{http://www.loc.gov/MARC21/slim}"
@@ -27,8 +28,16 @@ MARC = "{http://www.loc.gov/MARC21/slim}"
 NONSORT = re.compile(r"[\x98\x9c\u0098\u009c]")
 
 
+def nfc(s):
+    return unicodedata.normalize("NFC", s or "")
+
+
 def records(text):
-    """SRU response text -> list of records {leader, cf: {tag: text}, df: [(tag, i1, i2, [(code, value)])]}."""
+    """SRU response text -> list of records {leader, cf: {tag: text}, df: [(tag, i1, i2, [(code, value)])]}.
+
+    Every string is NFC-normalised here, once: DNB delivers NFD ('ä' as 'a' + U+0308), so an
+    unnormalised 'ungezählte' in a pattern never matched 300$a, and NFD names reached the
+    artifact (review 2026-09-24)."""
     root = ET.fromstring(text)
     out = []
     for rec in root.iter(MARC + "record"):
@@ -38,9 +47,9 @@ def records(text):
             if tag == "leader":
                 r["leader"] = el.text or ""
             elif tag == "controlfield":
-                r["cf"][el.get("tag")] = el.text or ""
+                r["cf"][el.get("tag")] = nfc(el.text)
             elif tag == "datafield":
-                subs = [(s.get("code"), s.text or "") for s in el]
+                subs = [(s.get("code"), nfc(s.text)) for s in el]
                 r["df"].append((el.get("tag"), el.get("ind1") or " ", el.get("ind2") or " ", subs))
         if r["cf"].get("001"):
             out.append(r)
@@ -62,8 +71,8 @@ def first(r, tag, code):
 
 
 def clean(s):
-    """Strip DNB's non-sort markers and collapse whitespace."""
-    return re.sub(r"\s+", " ", NONSORT.sub("", s or "")).strip()
+    """Strip DNB's non-sort markers, collapse whitespace, NFC."""
+    return re.sub(r"\s+", " ", NONSORT.sub("", nfc(s))).strip()
 
 
 def idn(r):

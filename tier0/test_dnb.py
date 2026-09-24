@@ -70,6 +70,13 @@ eq("bare title strips it", M.bare_title(r), "Car Crush")
 r = rec("1", ("245", [("a", "Traum und Realität")]), ("490", [("a", "Action")]))
 eq("490 without $v is an imprint, not a series", (M.series_statements(r), M.volume_number(r)[1]), ([], "none"))
 
+eq("NFD from DNB is NFC after parsing", M.first(M.records(XML.replace("Snowball earth", "Ma\u0308dchen"))[0], "245", "a"),
+   "\x98Die\x9c M\u00e4dchen")
+eq("an NFD 300$a still counts the unnumbered pages",
+   M.pages(M.records(XML.replace("</record></recordData>",
+        '<datafield tag="300"><subfield code="a">128 Seiten, 39 ungeza\u0308hlte Seiten</subfield></datafield>'
+        '</record></recordData>'))[0]), 167)
+
 # ---- pages -----------------------------------------------------------------------------------
 for raw, want in (("158 Seiten", 158), ("180 Seiten, 10 ungezählte Seiten", 190), ("circa 200 Seiten", 200),
                   ("[192] S.", 192), ("192 S.", 192), ("96 ungezählte Seiten", 96), ("1 Band", None),
