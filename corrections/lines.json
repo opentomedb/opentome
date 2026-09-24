@@ -377,5 +377,47 @@
     "source_url": "https://sevenseasentertainment.com/series/mushoku-tensei-roxy-gets-serious/",
     "reason": "read from the Seven Seas series page by the maintainer on 2026-09-24; ISBN-13 check digits validated -- origin_line pins this line to the JP Roxy manga line (rl_e5f7e5f4fab0), not the JP MAIN Mushoku Tensei manga line: that JP line's own line_name claim is the French string cross-parsed from the FR Wikipedia table ('Mushoku Tensei : Les Aventures de Roxy'), which pairs correctly with the FR Roxy line but has no English form for this line's own name to exact-match, so export/to_mangarr.py's origin_line() would otherwise fall back to the JP work's main manga line (see corrections/README.md)",
     "checked": "2026-09-24"
+  },
+  {
+    "line": "rl_265f04c6ca7e",
+    "medium": "manga",
+    "source_url": "https://en.wikipedia.org/wiki/Gothic_Sports",
+    "reason": "Gothic Sports is Anike Hage's German manga-style comic series (Tokyopop Germany; English edition Tokyopop) -- a comic, not a prose novel. Tagged 'novel' upstream because the Wikipedia list is headed 'Graphic novels'. Retag both lines 'manga' (the catalogue's medium for manga-format comics, as for other Tokyopop global manga).",
+    "checked": "2026-09-24"
+  },
+  {
+    "line": "rl_17660a328c6b",
+    "medium": "manga",
+    "source_url": "https://en.wikipedia.org/wiki/Gothic_Sports",
+    "reason": "Gothic Sports is Anike Hage's German manga-style comic series (Tokyopop Germany; English edition Tokyopop) -- a comic, not a prose novel. Tagged 'novel' upstream because the Wikipedia list is headed 'Graphic novels'. Retag both lines 'manga' (the catalogue's medium for manga-format comics, as for other Tokyopop global manga).",
+    "checked": "2026-09-24"
+  },
+  {
+    "line": "rl_36a4ee59a4a3",
+    "medium": "light_novel",
+    "source_url": "https://en.wikipedia.org/wiki/Monogatari_(series)",
+    "reason": "Monogatari (Nisio Isin, Kodansha Box) is a light-novel series; its JA and FR lines are tagged 'light_novel' but the English Vertical lines were tagged 'novel', which puts them in a different (work, medium) group so they get no origin line and never bind. Retag the EN lines 'light_novel' to match the rest of the work.",
+    "checked": "2026-09-24"
+  },
+  {
+    "line": "rl_2592e805713c",
+    "medium": "light_novel",
+    "source_url": "https://en.wikipedia.org/wiki/Monogatari_(series)",
+    "reason": "Monogatari (Nisio Isin, Kodansha Box) is a light-novel series; its JA and FR lines are tagged 'light_novel' but the English Vertical lines were tagged 'novel', which puts them in a different (work, medium) group so they get no origin line and never bind. Retag the EN lines 'light_novel' to match the rest of the work.",
+    "checked": "2026-09-24"
+  },
+  {
+    "line": "rl_78085a2ad45e",
+    "medium": "light_novel",
+    "source_url": "https://en.wikipedia.org/wiki/Monogatari_(series)",
+    "reason": "Monogatari (Nisio Isin, Kodansha Box) is a light-novel series; its JA and FR lines are tagged 'light_novel' but the English Vertical lines were tagged 'novel', which puts them in a different (work, medium) group so they get no origin line and never bind. Retag the EN lines 'light_novel' to match the rest of the work.",
+    "checked": "2026-09-24"
+  },
+  {
+    "line": "rl_0aa4e502f315",
+    "medium": "light_novel",
+    "source_url": "https://en.wikipedia.org/wiki/Monogatari_(series)",
+    "reason": "Monogatari (Nisio Isin, Kodansha Box) is a light-novel series; its JA and FR lines are tagged 'light_novel' but the English Vertical lines were tagged 'novel', which puts them in a different (work, medium) group so they get no origin line and never bind. Retag the EN lines 'light_novel' to match the rest of the work.",
+    "checked": "2026-09-24"
   }
 ]
