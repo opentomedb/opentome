@@ -2,6 +2,42 @@
 
 _Last updated: 2026-09-24_
 
+## 2026-09-24 — branch `anilist-round2`: post-walk tiers, R6+, 26 pins, 4 exclusions
+
+Not merged, not pushed, no CI triggered -- Nick's gate (CI build-only; bar 0 changed / 0 lost).
+
+Done (one commit each, each droppable):
+- `export/resolve_anilist.py` post-walk tiers (`post_walk()`, spec in the module docstring): V1
+  prefix / V2 arc / V3 amp / V4 origin, only for lines still unbound after the whole walk, over
+  pages the walk already fetched (zero new queries). `load_line()` carries `orig_vc`. Offline
+  replay `--base main` on opentome-2026-09-24: 52 new (26 / 19 / 5 / 2), 0 changed, 0 lost. V3 is
+  primary-title only (its one synonym match was the doubtful Shino & Ren -> "...: Future").
+- R6+ (own commit): wider edition allowlist, unclosed trailing parenthetical, bare "volumes"
+  heading; the nested-series guard also catches "series(" now. +3 over the post-walk commit, 0 / 0;
+  19 new stripped terms uncached (live-only).
+- `corrections/anilist.json`: 26 pins (18 high + 8 medium from the analysis), each re-verified on
+  the cached page. Nausicaä (Perfect Collection) -> 30651 not pinned: the id is on no cached page.
+- `corrections/excluded.json`: W.I.T.C.H. (takes the wrong 41582 bind with it), IDW My Little
+  Pony, Mechademia, Fair, then Partly Piggy.
+
+Next:
+- CI build-only; watch the 19 uncached R6+ terms and the live-only post-walk pages. Live CHANGED
+  watch list (bound today through an alias; R6+ now searches an uncached stripped name first):
+  `Days volume list` (86600 via "DAYS" -> "Days", the likeliest to flip), `Golgo 13 (Viz Media
+  English volumes)` (31298 via "Duke Togo" -> "Golgo 13"), `The World of Narue (Manga volumes)`
+  (34844 via "Narue no Sekai" -> "The World of Narue"). Post-walk binds report as prefix / arc /
+  amp / origin in `anilist-resolve-report.tsv`; R6+ binds report as `alias`.
+- Nick: Rick and Morty (w_80704d7f33e4) is NOT excluded -- the work also carries the OEL
+  "Rick and Morty: The Manga" line and an exclusion takes every line of the work.
+- Nick: the four `[]` The Beginning After the End pages in `.cache/anilist/` (manga + novel, name
+  + deslug, all written 2026-09-15) look like a bad fetch; purge + refetch is his call.
+
+Gotchas:
+- V1's only guard against a 3+-volume line binding a differently-titled sequel entry (Shino & Ren
+  -> "Shino & Ren: Future" shape) is uniqueness + the >= 3 gate; the Shino line is 1 volume.
+- `export/test_artifact.py` against the CI artifact fails until a rebuild applies the new pins and
+  exclusions (checked on a patched copy: contract ok).
+
 ## 2026-09-24 — branch `narrow-fold`: Latin-only accent strip + numeric-symbol fold + alias seen seed
 
 Not merged, not pushed, no CI triggered -- Nick's gate (CI build-only, live diff vs the published
