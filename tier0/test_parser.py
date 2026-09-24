@@ -375,6 +375,48 @@ try:
 except ValueError:
     eq("line corr: JP ISBN on an EN line rejected", True, True)
 
+# ---- origin_line pin (Mushoku Tensei "Roxy Gets Serious": two JP lines share
+# (work, medium), so the naive "any JP line" query above is ambiguous -- an
+# entry can name the exact one) ---------------------------------------------
+cdb.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at)"
+            " VALUES('rl_jp2','w_t','manga','JP','ja','x','x')")
+PINNED = dict(LINE, name="Pinned Work", origin_line="rl_jp2")
+corr.apply_line_corrections(cdb, entries=[PINNED], verbose=False)
+prid = corr._id("rl_", "w_t", "manga", "EN", "Pinned Work")
+eq("origin_line pin: composition points at the PINNED line, not rl_jp",
+   cdb.execute("SELECT ref_list, ref_line_id FROM composition c JOIN volume v ON v.id=c.volume_id "
+              "WHERE v.release_line_id=? ORDER BY v.number", (prid,)).fetchall(),
+   [("[1]", "rl_jp2"), ("[2, 3]", "rl_jp2")])
+eq("origin_line pin: claim written",
+   cdb.execute("SELECT value, source FROM claim WHERE entity='release_line' AND entity_id=? AND field='origin_line'",
+              (prid,)).fetchone(),
+   ("rl_jp2", "correction"))
+try:
+    corr.apply_line_corrections(cdb, entries=[dict(LINE, name="Bad Origin A", origin_line="rl_does_not_exist")], verbose=False)
+    eq("origin_line pin: nonexistent line rejected", "no error", "SystemExit")
+except SystemExit:
+    eq("origin_line pin: nonexistent line rejected", True, True)
+cdb.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_other','Other Work','x','x')")
+cdb.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at)"
+            " VALUES('rl_other_work','w_other','manga','JP','ja','x','x')")
+try:
+    corr.apply_line_corrections(cdb, entries=[dict(LINE, name="Bad Origin B", origin_line="rl_other_work")], verbose=False)
+    eq("origin_line pin: line on a different work rejected", "no error", "ValueError")
+except ValueError:
+    eq("origin_line pin: line on a different work rejected", True, True)
+cdb.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at)"
+            " VALUES('rl_jp_novel','w_t','light_novel','JP','ja','x','x')")
+try:
+    corr.apply_line_corrections(cdb, entries=[dict(LINE, name="Bad Origin C", origin_line="rl_jp_novel")], verbose=False)
+    eq("origin_line pin: line with a different medium rejected", "no error", "ValueError")
+except ValueError:
+    eq("origin_line pin: line with a different medium rejected", True, True)
+try:
+    corr.apply_line_corrections(cdb, entries=[dict(LINE, name="Bad Origin D", origin_line=prid)], verbose=False)
+    eq("origin_line pin: non-origin-market (EN) line rejected", "no error", "ValueError")
+except ValueError:
+    eq("origin_line pin: non-origin-market (EN) line rejected", True, True)
+
 # ---- medium override (2026-09-23 follow-up: the Denma orig_series_id defect) --
 # Denma's shape: three already-cataloged lines (JP/EN/KR), all tagged plain
 # 'manga' upstream (no medium hint), so pick_origin's step 2 (earliest date)
