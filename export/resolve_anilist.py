@@ -30,7 +30,15 @@ hinted catalogue line's own name, never an alias or arc title it was matched by:
     serial ("Attack on Titan: Harsh Mistress of the City", 2 volumes, to "Attack on Titan",
     34, through "Shingeki no Kyojin")
   * primary-title equality (romaji / english / native) beats synonym equality; ties go to
-    `popularity`; equality is Mangarr's TitleMatcher: lower-case letters and digits only.
+    `popularity`; equality is Mangarr's TitleMatcher: lower-case letters and digits only,
+    after fold() -- which key() and the outbound for_search() term share. fold() strips a
+    combining accent ONLY from a Latin-script letter ("Fushigi Yûgi" = "Fushigi Yugi"); kana
+    voicing marks, Hangul, CJK and Cyrillic are untouched (2026-09-24: the broad NFKD fold that
+    also turned ゲ into ケ was reverted). PARITY: Mangarr's TitleMatcher.Normalize /
+    TitleNormalizer.ForSearch do not fold yet -- they mirror fold() in a follow-up task; until
+    then the two differ on accented titles only.
+    fold() also turns a numeric symbol (No / Nl) into its NFKC form, the fraction slash into "/":
+    "Ranma ½" is searched as "Ranma 1/2" (AniList's own romaji) and keys as ranma12; Ⅱ -> II, ² -> 2.
     A synonym-only carrier never wins while ANY candidate on the page has primary-title
     equality, even one the rules rejected (R1, the 2026-09-15 live run): a primary rejected
     on volumes says "this is the work but the count disagrees" (Doll: "DOLL" 1 vol vs 6, and
@@ -103,7 +111,7 @@ anilist_id IS NULL are considered, and only resolved ones are written. Clean roo
 is a lookup-key source here (an id, and with --covers a cover URL) -- no title, synonym or
 description ever enters the artifact.
 """
-import argparse, hashlib, json, os, re, sqlite3, sys, time, urllib.error, urllib.request
+import argparse, hashlib, json, os, re, sqlite3, sys, time, unicodedata, urllib.error, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 API = "https://graphql.anilist.co"
@@ -135,14 +143,51 @@ class OfflineMiss(RuntimeError):
 
 # ---------------------------------------------------------------- Mangarr mirrors
 
+def _latin(c):
+    return c.isalpha() and "LATIN" in unicodedata.name(c, "")
+
+
+def strip_latin_marks(s):
+    """Latin-only accent strip (2026-09-24): NFD, a combining mark (Mn) dropped ONLY when its base
+    letter is Latin-script, then NFC -- "Fushigi Y\u00fbgi" -> "Fushigi Yugi", "\u00dcbel Blatt" ->
+    "Ubel Blatt", "\u014coku" -> "Ooku". Kana voicing marks, Hangul, Cyrillic (\u0439), CJK keep theirs;
+    a string with nothing to drop comes back as it was, byte for byte."""
+    out, base, dropped = [], "", False
+    for c in unicodedata.normalize("NFD", s):
+        if unicodedata.category(c) == "Mn":
+            if _latin(base):
+                dropped = True
+                continue
+        else:
+            base = c
+        out.append(c)
+    return unicodedata.normalize("NFC", "".join(out)) if dropped else s
+
+
+def fold_numeric(s):
+    """Numeric-symbol fold (2026-09-24): a character in Unicode category No / Nl becomes its NFKC form,
+    and the fraction slash (U+2044) becomes "/" -- "Ranma \u00bd" -> "Ranma 1/2", AniList's own spelling
+    (key() drops the "/": ranma12), "\u2161" -> "II", "x\u00b2" -> "x2". Nothing else is NFKC'd (no
+    full-width, no ligatures)."""
+    return "".join(unicodedata.normalize("NFKC", c) if unicodedata.category(c) in ("No", "Nl") else c
+                   for c in s).replace("\u2044", "/")
+
+
+def fold(s):
+    """The one normalization key() and for_search() share (Mangarr mirrors it in TitleMatcher.Normalize
+    and TitleNormalizer.ForSearch in a follow-up task)."""
+    return fold_numeric(strip_latin_marks(s or ""))
+
+
 def key(s):
-    """Mangarr's TitleMatcher.Normalize: lower-case, letters and digits only."""
-    return "".join(c for c in (s or "").lower() if c.isalnum())
+    """Mangarr's TitleMatcher.Normalize: lower-case, letters and digits only -- after fold()."""
+    return "".join(c for c in fold(s).lower() if c.isalnum())
 
 
 def for_search(s):
-    """Mangarr's TitleNormalizer.ForSearch: typographic quotes/dashes/NBSP -> ASCII, spaces collapsed."""
-    s = (s or "").replace("\u2018", "'").replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"')
+    """Mangarr's TitleNormalizer.ForSearch: typographic quotes/dashes/NBSP -> ASCII, spaces collapsed,
+    fold()ed -- so deslug()'s ASCII-only slug keeps the letter ("fushigi yugi", not "fushigi y gi")."""
+    s = fold(s).replace("\u2018", "'").replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"')
     s = s.replace("\u2013", "-").replace("\u2014", "-").replace("\u00a0", " ")
     return " ".join(s.split())
 
@@ -250,8 +295,10 @@ def pick(cands, term, volume_count, own_name=True):
 def alias_terms(name, aliases):
     """The alias walk: every alias in stored order, one per normalized form, never the name
     itself, never a Wikipedia list-article name. Not capped -- only fresh searches are
-    (ALIAS_LIMIT, in resolve)."""
-    seen, out = {key(name)}, []
+    (ALIAS_LIMIT, in resolve). `seen` starts with the name's key, its de-slugged key and the key of
+    the exporter's ASCII normalize() form (to_mangarr.normalize: "Fushigi Y\u00fbgi" -> "fushigi y gi"),
+    so a stored, already-normalized copy of the name never burns a fresh search (2026-09-24)."""
+    seen, out = {key(name), key(deslug(name)), key(ascii_normalize(name))}, []
     for a in aliases:
         a = for_search(a)
         k = key(a)
@@ -260,6 +307,12 @@ def alias_terms(name, aliases):
         seen.add(k)
         out.append(a)
     return out
+
+
+def ascii_normalize(s):
+    """to_mangarr.normalize(): lower-case, every run of non-[a-z0-9] one space -- how the exporter
+    stores a name's ASCII alias row."""
+    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
 
 
 def deslug(name):
