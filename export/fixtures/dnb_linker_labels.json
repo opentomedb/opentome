@@ -1,5 +1,5 @@
 {
- "about": "The DNB spike's 80 hand-labelled German lines (2026-09-24, random sample of spo=jpn and sgt=741.5 print records; labels in the spike's measured.json hand_labels_80). expected_work is the OpenTome work the line belongs to, or null when OpenTome has no such work. Used by export/test_artifact.py: the production linker's high/medium links on these lines must be >= 95% correct. DNB record ids only (CC0); no record content.",
+ "about": "The DNB spike's 80 hand-labelled German lines (2026-09-24, random sample of spo=jpn and sgt=741.5 print records; labels in the spike's measured.json hand_labels_80). expected_work is the OpenTome work the line belongs to, or null when OpenTome has no such work. Used by export/test_artifact.py: the production linker's high/medium links on these lines must be >= 95% correct. DNB record ids only (CC0); no record content. must_not_link: lines the 2026-09-24 independent review confirmed WRONG at high/medium; none may link to that work at high/medium again.",
  "lines": [
   {
    "de": "Traum und Realität",
@@ -944,6 +944,62 @@
    "expected_work": "w_9a70cdb7d0bf",
    "spike_tier": "medium",
    "note": "spike link, hand-checked correct"
+  }
+ ],
+ "must_not_link": [
+  {
+   "key": "dnb:1130271110",
+   "de": "Boruto: Naruto next generation",
+   "wrong_work": "w_c16a3b40a469",
+   "note": "not Monster"
+  },
+  {
+   "key": "dnb:965670775",
+   "de": "Zombie hunter",
+   "wrong_work": "w_dc81a020c503",
+   "note": "not Planetes"
+  },
+  {
+   "key": "dnb:986794619",
+   "de": "Uzumaki (Masashi Kishimoto)",
+   "wrong_work": "w_6aabb21dccb4",
+   "note": "not Junji Ito's Uzumaki"
+  },
+  {
+   "key": "dnb:988782006",
+   "de": "I'm no angel (Shigematsu)",
+   "wrong_work": "w_63f3d6429a08",
+   "note": "not Ai Yazawa's I'm No Angel"
+  },
+  {
+   "key": "dnb:97026593X",
+   "de": "Noise (Tsutomu Nihei)",
+   "wrong_work": "w_b95f9bc61541",
+   "note": "not Noise (2017 manga)"
+  },
+  {
+   "key": "dnb:970713487",
+   "de": "Japan (Buronson)",
+   "wrong_work": "w_a29f7158fde9",
+   "note": "not Japan (1994 manga)"
+  },
+  {
+   "key": "dnb:972355634",
+   "de": "Angel (Erica Sakurazawa)",
+   "wrong_work": "w_7f93d4a438e7",
+   "note": "not U-Jin's Angel"
+  },
+  {
+   "key": "dnb:1362780553",
+   "de": "Haruko - Ein Leben für die Tiere",
+   "wrong_work": "w_414174ed68e6",
+   "note": "not Kemono Michi"
+  },
+  {
+   "key": "dnb:1134999143",
+   "de": "Cocktails im Bett",
+   "wrong_work": "w_5ac09294eba5",
+   "note": "not Between the Sheets"
   }
  ]
 }

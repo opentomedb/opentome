@@ -19,7 +19,8 @@ keyed both stripped and unstripped.
 Tiers -- only high and medium are exported (decision 1, docs/dnb-design.md):
 
     high       an official key matches, and exactly one of the matching works shares an author
-    medium     an official key matches exactly one work, no author evidence either way;
+    medium     an official key matches exactly one work and one side has no creator data at
+               all (both sides naming creators, none shared, is a title collision -> low);
                or (prefix) an ORIGINAL title's key of 10+ characters is the START of exactly
                one work's official key and that work shares an author (a truncated romaji).
                German and series titles never take the prefix path: "Detektiv Conan" is the
@@ -68,6 +69,7 @@ def name_key(n):
     token counts when it has 4+ letters ('Okayado'); shorter single tokens say too little."""
     n = (n or "").replace("\x98", "").replace("\x9c", "")
     n = re.sub(r"\(.*?\)", " ", n)
+    n = re.sub(r"(?<=\w)['’ʼ`-](?=\w)", "", n)          # Shin'ichi = Shinichi, Jean-Luc = JeanLuc
     if "," in n:
         last, first_ = n.split(",", 1)
         n = first_ + " " + last
@@ -101,9 +103,11 @@ class Index:
                 except ValueError:
                     vals = [v]
                 for a in vals if isinstance(vals, list) else [vals]:
-                    nk = name_key(str(a))
-                    if nk:
-                        self.authors[wid].add(nk)
+                    # "Jitakukeibihei (Natsume Akatsuki)": the pen name AND the bracketed name
+                    for n in [str(a)] + re.findall(r"\(([^()]*)\)", str(a)):
+                        nk = name_key(n)
+                        if nk:
+                            self.authors[wid].add(nk)
             else:
                 self._add(self.official, v, wid)
         for wid, v in db.execute("""SELECT rl.work_id, c.value FROM claim c JOIN release_line rl
@@ -119,12 +123,58 @@ class Index:
             table[k].add(wid)
 
 
+def _romaji(t):
+    """One romanisation for a name token: ō/ou/oh/oo -> o, uu -> u, Hepburn vs Kunrei
+    (tsu/tu, shi/si, chi/ti, ji/zi, fu/hu), doubled letters single ('Kohske' = 'Kōsuke'
+    within one edit)."""
+    for a, b in (("ou", "o"), ("oh", "o"), ("oo", "o"), ("uu", "u"), ("tsu", "tu"), ("shi", "si"),
+                 ("chi", "ti"), ("ji", "zi"), ("fu", "hu")):
+        t = t.replace(a, b)
+    return re.sub(r"(.)\1", r"\1", t)
+
+
+def _near(a, b):
+    """Equal, or one edit apart when both have 5+ letters."""
+    if a == b:
+        return True
+    if min(len(a), len(b)) < 5 or abs(len(a) - len(b)) > 1:
+        return False
+    d = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        prev, d[0] = d[0], i
+        for j, cb in enumerate(b, 1):
+            prev, d[j] = d[j], min(d[j] + 1, d[j - 1] + 1, prev + (ca != cb))
+    return d[-1] <= 1
+
+
+def same_person(p, q):
+    """Two name keys (token sets) plausibly name the same person: the joined names agree in
+    either order ('Yayoisō' = 'Sō Yayoi'), or some token of 4+ letters agrees within one edit
+    after romanisation folding -- in practice the family name ('Hayashida, Kyū' = 'Q
+    Hayashida', 'Sakuishi, Harorudo' = 'Harold Sakuishi'). Loose on purpose: it only ever
+    confirms or questions a TITLE match, it never links on its own."""
+    P, Q = [_romaji(t) for t in p], [_romaji(t) for t in q]
+    if "".join(sorted(P)) == "".join(sorted(Q)) or "".join(P) in ("".join(Q), "".join(reversed(Q))):
+        return True
+    return any(len(a) >= 4 and len(b) >= 4 and _near(a, b) for a in P for b in Q)
+
+
+def _shared(idx, w, auth):
+    return sum(1 for a in auth if any(same_person(a, b) for b in idx.authors.get(w, ())))
+
+
 def _author_match(idx, works, auth):
     """The works sharing the MOST creators with the line (a spin-off novel credits the
     original author once and its own writers twice: One Piece: Heroines, not One Piece)."""
-    score = {w: len(idx.authors.get(w, set()) & auth) for w in works}
+    score = {w: _shared(idx, w, auth) for w in works}
     best = max(score.values(), default=0)
     return {w for w, n in score.items() if n and n == best}
+
+
+def _authors_disagree(idx, w, auth):
+    """Both sides name creators and none of them is the same person -- a title collision
+    (Uzumaki by Kishimoto is not Ito's Uzumaki), not a missing credit."""
+    return bool(auth) and bool(idx.authors.get(w)) and not _shared(idx, w, auth)
 
 
 def _prefixed(idx, k):
@@ -159,13 +209,20 @@ def link(idx, titles, authors, orig=(), name=None):
                 exact = off & idx.official.get(k, set())
                 if len(exact) == 1:
                     w = next(iter(exact))
-                    return ("high" if w in wa else "medium"), w, sorted(off), "own-title"
+                    if w in wa:
+                        return "high", w, sorted(off), "own-title"
+                    if _authors_disagree(idx, w, auth):
+                        return "low", w, sorted(off), "own-title, authors differ"
+                    return "medium", w, sorted(off), "own-title"
                 if exact:
                     break
         if len(wa) == 1:
             return "high", next(iter(wa)), sorted(off), "title+author"
         if len(off) == 1:
-            return "medium", next(iter(off)), sorted(off), "title"
+            w = next(iter(off))
+            if _authors_disagree(idx, w, auth):
+                return "low", w, sorted(off), "title, authors differ"
+            return "medium", w, sorted(off), "title"
         pool = wa or off
         return "ambiguous", None, sorted(pool), "title+author" if wa else "title"
     # a truncated original title (a long romaji the DNB record cuts short), author required

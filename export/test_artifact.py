@@ -433,6 +433,13 @@ def run_dnb(path, catalogue):
             if work != lab["expected_work"]:
                 misses.append((lab["de"], work, lab["expected_work"]))
         recall_hit += bool(lab["expected_work"]) and tier in ("high", "medium") and work == lab["expected_work"]
+    bad = []
+    fixture = json.load(open(os.path.join(fx, "dnb_linker_labels.json"), encoding="utf8"))
+    for m in fixture.get("must_not_link", []):
+        t, w = verdict.get(m["key"], (None, None))
+        if t in ("high", "medium") and w == m["wrong_work"]:
+            bad.append(m["de"])
+    rule("confirmed-wrong links back at high/medium (fixture must_not_link)", len(bad), str(bad))
     prec = correct / linked if linked else 0.0
     rule("linker precision on the spike's hand-labelled lines below 95%", 0 if prec >= 0.95 else 1,
          "(%d/%d; wrong: %s)" % (correct, linked, misses))

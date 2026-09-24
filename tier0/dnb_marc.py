@@ -340,19 +340,37 @@ def publisher(r):
     return None
 
 
-# creator roles (relator codes, $4). 'trl' (translator) and 'edt' never count.
+# creator roles (relator codes, $4). 'trl' (translator) and 'edt' never count; a field with
+# no $4 (older records) is judged by its $e: Übersetzer / Herausgeber / Bearbeiter are out.
 CREATOR_ROLES = {"aut", "art", "ill", "oth", "ant", "cre", "ctb"}
+NOT_CREATOR_E = re.compile(r"übers|hrsg|herausg|bearb|lektor|redakt|letter", re.I)
+RESP_SKIP = re.compile(r"aus dem|übers|deutsch|bearb|redakt|letter|lektor|hrsg|herausg|nach einer|nach dem", re.I)
+RESP_LABEL = re.compile(r"^(?:text|story|zeichnungen?|illustrationen?|art|artwork|manga|original(?:idee)?|"
+                        r"idee|character design|charakterdesign|von|by)\s*:?\s*", re.I)
 
 
 def creators(r):
-    """Raw names of the record's creators from 100/700, translators excluded."""
+    """Raw names of the record's creators: 100/700 (translators and editors excluded), then
+    the names in the statement of responsibility (245$c) -- older records often credit the
+    author only there ("Harold Sakuishi. [Aus dem Japan. von ...]")."""
     out = []
     for tag in ("100", "700"):
         for s in fields(r, tag):
             roles = {v.strip() for c, v in s if c == "4"}
             if roles and not roles & CREATOR_ROLES:
                 continue
+            if not roles and any(NOT_CREATOR_E.search(v) for c, v in s if c == "e"):
+                continue
             name = next((v for c, v in s if c == "a"), None)
             if name and clean(name) not in out:
                 out.append(clean(name))
+    for c in subs(r, "245", "c"):
+        c = re.split(r"\[", clean(c))[0]
+        for seg in c.split(";"):
+            if RESP_SKIP.search(seg):
+                continue
+            for part in re.split(r",|&|\+|\bund\b|\band\b|/", seg):
+                n = RESP_LABEL.sub("", part.strip(" .:")).strip(" .")
+                if n and len(n.split()) <= 4 and not re.search(r"\d", n) and n not in out:
+                    out.append(n)
     return out

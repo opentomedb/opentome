@@ -144,6 +144,12 @@ kept, drop = B.select(recs)
 groups, boxset = B.twins(kept)
 eq("twins merged by ISBN", len(groups), 3)
 eq("box-set ISBN detected", boxset, {I2})
+col = {r["cf"]["001"]: r for r in (vol("1310000001", "1", I3, parent="1210000000", series="Alpha"),
+                                   vol("1310000002", "1", I3, parent="1220000000", series="Beta"))}
+k2, _ = B.select(col)
+g2, drop2 = B.twins(k2)
+eq("one ISBN on records of two different sets with different titles: not twins, ISBN dropped",
+   (len(g2), I3 in drop2), (2, True))
 g1 = next(g for g in groups if g["num"] == "1")
 eq("deposit copy is the primary", g1["primary"], "1300000002")
 eq("box-set ISBN dropped from its volumes", sorted(g["isbn"] or "-" for g in groups if g["num"] in ("2", "3")), ["-", "-"])
@@ -220,6 +226,20 @@ eq("a German / series title never takes the prefix path",
 eq("several works answer: the line's own title proper decides",
    L.link(idx, ["One Piece", "One Piece: Heroines"], ["Oda, Eiichirō"], name="One Piece: Heroines")[:3],
    ("medium", "w_opher", ["w_op", "w_opher"]))
+for x, y, want in (("Kōsuke", "Kohske", True), ("Hayashida, Kyū", "Q Hayashida", True),
+                   ("Sakuishi, Harorudo", "Harold Sakuishi", True), ("Yayoisō", "Sō Yayoi", True),
+                   ("Shin'ichi Sakamoto", "Shinichi Sakamoto", True), ("Kishimoto, Masashi", "Junji Ito", False)):
+    eq("same person: %s = %s" % (x, y), L.same_person(L.name_key(x), L.name_key(y)), want)
+eq("title matches one work but the authors disagree -> low (a title collision, not a missing credit)",
+   L.link(idx, ["Snowball earth"], ["Kishimoto, Masashi"])[:2], ("low", "w_se"))
+eq("title matches one work, the line names no creator -> medium",
+   L.link(idx, ["Snowball earth"], [])[:2], ("medium", "w_se"))
+eq("a romanisation variant of the author still agrees -> high",
+   L.link(idx, ["Snowball earth"], ["Tsujitsugu, Yuhiro"])[:2], ("high", "w_se"))
+eq("creators: 100 with a translator $e and no $4 is out; 245$c names count",
+   M.creators(rec("1", ("700", [("a", "Konparu, Tomoko"), ("e", "Übers.")]),
+                  ("245", [("a", "Beck"), ("c", "Harold Sakuishi. [Aus dem Japan. von Claudia Peter]")]))),
+   ["Harold Sakuishi"])
 eq("low: alias only", L.link(idx, ["Priestess"], [])[0], "low")
 eq("low: official title is the START of the DNB title (spin-off shape)",
    L.link(idx, ["Goblin Slayer! Year one"], ["Kagyu, Kumo"])[:2], ("low", "w_gs"))

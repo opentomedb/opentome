@@ -116,14 +116,26 @@ def select(recs):
 
 # ---- 3. volumes (ISBN twins) ----------------------------------------------------------
 
+def _tkey(v):
+    return L.fold(M.bare_title(v["r"]), False)
+
+
 def twins(vols):
-    """-> (groups, box-set ISBNs). A group is one physical volume: records joined by a
-    shared ISBN that is not a box-set ISBN."""
+    """-> (groups, dropped ISBNs). A group is one physical volume: records joined by a
+    shared ISBN that is not a box-set ISBN (on records with different volume numbers) and
+    not a collision (on records sharing neither parent nor folded title)."""
     by_isbn = collections.defaultdict(list)
     for v in vols:
         for i in v["isbns"]:
             by_isbn[i].append(v)
     boxset = {i for i, vs in by_isbn.items() if len({v["num"] for v in vs if v["num"]}) > 1}
+    # an ISBN on records of two DIFFERENT sets (both have a 773, not the same one) whose folded
+    # titles differ too is a cataloguing collision, not one book -- it joins nothing and is
+    # dropped from both. A set-less record twinning a set member stays a twin: DNB re-catalogues
+    # One Piece volumes under their chapter title ("Gear") with no 773, same ISBN, same number.
+    boxset |= {i for i, vs in by_isbn.items()
+               if any(v["parent"] and vs[0]["parent"] and v["parent"] != vs[0]["parent"]
+                      and _tkey(v) != _tkey(vs[0]) for v in vs[1:])}
     up = {v["idn"]: v["idn"] for v in vols}
 
     def find(x):
@@ -262,11 +274,24 @@ def shape_line(key, gs, parents):
     media = collections.Counter(g["medium"] for g in out)
     recs = ([p] if p is not None else []) + [v["r"] for g in out for v in g["members"]]
     titles, orig = [], []
+    # a volume's original title (240) names the SERIES in a normal set ("Kawaii Koi wa
+    # Kikazaranai 1", "... 2") but the PART in an anthology set (Toriyama short stories: one
+    # volume 240 'Kajika', the next 'Cowa!'): a volume's original title counts only when at
+    # least half the line's volumes carry the same folded title
+    vol_orig = collections.Counter()
+    for g in out:
+        vol_orig.update({L.fold(t) for v in g["members"] for t in M.original_titles(v["r"])})
     for r in recs:
-        orig += M.original_titles(r)
-        titles += M.original_titles(r)
+        o = M.original_titles(r)
+        if r is not p:
+            o = [t for t in o if 2 * vol_orig[L.fold(t)] >= len(out)]
+        orig += o
+        titles += o
+        # the title proper is a line title only on the parent or on a volume that belongs to
+        # no set and no numbered series; otherwise it can be a PART title ("Ocarina of time"
+        # inside The Legend of Zelda, "From the sea" inside Fire Force)
         a = M.clean(M.first(r, "245", "a"))
-        if a:
+        if a and (r is p or not (M.parent_idns(r) or M.series_statements(r))):
             titles.append(a)
         titles += [s for s, _ in M.series_statements(r)]
     authors = []
