@@ -37,6 +37,8 @@ hinted catalogue line's own name, never an alias or arc title it was matched by:
     also turned ゲ into ケ was reverted). PARITY: Mangarr's TitleMatcher.Normalize /
     TitleNormalizer.ForSearch do not fold yet -- they mirror fold() in a follow-up task; until
     then the two differ on accented titles only.
+    fold() also turns a numeric symbol (No / Nl) into its NFKC form without the fraction slash:
+    "Ranma ½" is searched as "Ranma 12" and key-equals "Ranma 1/2"; Ⅱ -> II, ² -> 2.
     A synonym-only carrier never wins while ANY candidate on the page has primary-title
     equality, even one the rules rejected (R1, the 2026-09-15 live run): a primary rejected
     on volumes says "this is the work but the count disagrees" (Doll: "DOLL" 1 vol vs 6, and
@@ -162,10 +164,18 @@ def strip_latin_marks(s):
     return unicodedata.normalize("NFC", "".join(out)) if dropped else s
 
 
+def fold_numeric(s):
+    """Numeric-symbol fold (2026-09-24): a character in Unicode category No / Nl becomes its NFKC form
+    with the fraction slash (U+2044) dropped -- "Ranma \u00bd" -> "Ranma 12" (key-equal to "Ranma 1/2"),
+    "\u2161" -> "II", "x\u00b2" -> "x2". Nothing else is NFKC'd (no full-width, no ligatures)."""
+    return "".join(unicodedata.normalize("NFKC", c).replace("\u2044", "")
+                   if unicodedata.category(c) in ("No", "Nl") else c for c in s)
+
+
 def fold(s):
     """The one normalization key() and for_search() share (Mangarr mirrors it in TitleMatcher.Normalize
     and TitleNormalizer.ForSearch in a follow-up task)."""
-    return strip_latin_marks(s or "")
+    return fold_numeric(strip_latin_marks(s or ""))
 
 
 def key(s):
