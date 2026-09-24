@@ -1,0 +1,180 @@
+{
+ "about": "The 35 German release lines that existed before DNB was wired in (all from German Wikipedia, opentome-2026-09-24). IDs are a public contract: every one must still be present in every later artifact (export/test_artifact.py).",
+ "lines": [
+  {
+   "tome_id": "rl_02e1c85d4e53",
+   "name": "Minato's Laundromat",
+   "volumes": 5
+  },
+  {
+   "tome_id": "rl_07fdc18bbfa3",
+   "name": "Kindergarten Wars",
+   "volumes": 15
+  },
+  {
+   "tome_id": "rl_1475a3602ee0",
+   "name": "Kill la Kill",
+   "volumes": 3
+  },
+  {
+   "tome_id": "rl_1976e7d272a1",
+   "name": "Call of the Night",
+   "volumes": 20
+  },
+  {
+   "tome_id": "rl_1998ee5ee463",
+   "name": "The Testament of Sister New Devil",
+   "volumes": 9
+  },
+  {
+   "tome_id": "rl_207c060fe86e",
+   "name": "Angels of Death (video game)",
+   "volumes": 12
+  },
+  {
+   "tome_id": "rl_212377b6f604",
+   "name": "Children of the Whales",
+   "volumes": 23
+  },
+  {
+   "tome_id": "rl_265f04c6ca7e",
+   "name": "Gothic Sports (Graphic novels)",
+   "volumes": 5
+  },
+  {
+   "tome_id": "rl_2a4ed388b015",
+   "name": "Wind Breaker",
+   "volumes": 20
+  },
+  {
+   "tome_id": "rl_376886901d59",
+   "name": "Weiß Kreuz (Weiß Side B)",
+   "volumes": 1
+  },
+  {
+   "tome_id": "rl_3774c9294cbc",
+   "name": "Gachiakuta",
+   "volumes": 17
+  },
+  {
+   "tome_id": "rl_3790a3e9b6e3",
+   "name": "Sasaki and Miyano",
+   "volumes": 10
+  },
+  {
+   "tome_id": "rl_3f35f9e2d48a",
+   "name": "Sacrificial Princess and the King of Beasts",
+   "volumes": 15
+  },
+  {
+   "tome_id": "rl_456433a5bfa7",
+   "name": "Darling in the Franxx",
+   "volumes": 8
+  },
+  {
+   "tome_id": "rl_474c31a7e3ae",
+   "name": "Given",
+   "volumes": 8
+  },
+  {
+   "tome_id": "rl_6a6e58825b36",
+   "name": "The Angel Next Door Spoils Me Rotten",
+   "volumes": 1
+  },
+  {
+   "tome_id": "rl_74d20ba3aef4",
+   "name": "Big Order",
+   "volumes": 9
+  },
+  {
+   "tome_id": "rl_917df93a3627",
+   "name": "My Hero Academia: Vigilantes",
+   "volumes": 15
+  },
+  {
+   "tome_id": "rl_955fbbcad722",
+   "name": "My Dress-Up Darling",
+   "volumes": 15
+  },
+  {
+   "tome_id": "rl_a05bbdfced49",
+   "name": "Mob Psycho 100",
+   "volumes": 16
+  },
+  {
+   "tome_id": "rl_a6fdb4d1904a",
+   "name": "Solo Leveling",
+   "volumes": 14
+  },
+  {
+   "tome_id": "rl_aa29b8926f97",
+   "name": "Super Lovers",
+   "volumes": 18
+  },
+  {
+   "tome_id": "rl_ace1b3bea596",
+   "name": "Accel World",
+   "volumes": 25
+  },
+  {
+   "tome_id": "rl_b11bb8c39d0a",
+   "name": "My Androgynous Boyfriend",
+   "volumes": 5
+  },
+  {
+   "tome_id": "rl_b44ada751f23",
+   "name": "Citrus",
+   "volumes": 10
+  },
+  {
+   "tome_id": "rl_b847181f590d",
+   "name": "Samurai 8: The Tale of Hachimaru",
+   "volumes": 5
+  },
+  {
+   "tome_id": "rl_bf591752258d",
+   "name": "Yonen Buzz",
+   "volumes": 4
+  },
+  {
+   "tome_id": "rl_c15c57646841",
+   "name": "I'm Standing on a Million Lives",
+   "volumes": 21
+  },
+  {
+   "tome_id": "rl_cb5c2eb6606e",
+   "name": "My Brother's Husband",
+   "volumes": 4
+  },
+  {
+   "tome_id": "rl_ccb75e62400c",
+   "name": "Drifters",
+   "volumes": 7
+  },
+  {
+   "tome_id": "rl_dce4b640a92d",
+   "name": "Platinum End",
+   "volumes": 14
+  },
+  {
+   "tome_id": "rl_e64c7e357e17",
+   "name": "So I'm a Spider, So What?",
+   "volumes": 15
+  },
+  {
+   "tome_id": "rl_e82177c6a08a",
+   "name": "Hiyokoi",
+   "volumes": 14
+  },
+  {
+   "tome_id": "rl_ea27801ffde7",
+   "name": "Bocchi the Rock!",
+   "volumes": 3
+  },
+  {
+   "tome_id": "rl_f63a2a79bbf9",
+   "name": "Rosen Blood",
+   "volumes": 5
+  }
+ ]
+}

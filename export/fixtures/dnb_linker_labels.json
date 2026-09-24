@@ -1,0 +1,949 @@
+{
+ "about": "The DNB spike's 80 hand-labelled German lines (2026-09-24, random sample of spo=jpn and sgt=741.5 print records; labels in the spike's measured.json hand_labels_80). expected_work is the OpenTome work the line belongs to, or null when OpenTome has no such work. Used by export/test_artifact.py: the production linker's high/medium links on these lines must be >= 95% correct. DNB record ids only (CC0); no record content.",
+ "lines": [
+  {
+   "de": "Traum und Realität",
+   "publisher": "TOKYOPOP",
+   "parent_idn": null,
+   "member_idns": [
+    "1312474270"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Overpowered and Underpaid 02",
+   "publisher": "Egmont Manga",
+   "parent_idn": null,
+   "member_idns": [
+    "139539430X",
+    "1395394628"
+   ],
+   "expected_work": "w_57b9b59bcf23",
+   "spike_tier": "none",
+   "note": "exists in OpenTome, spike missed it"
+  },
+  {
+   "de": "Freche Küsse",
+   "publisher": "TOKYOPOP",
+   "parent_idn": null,
+   "member_idns": [
+    "1232584053"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Mit dir allein",
+   "publisher": "Egmont Verl.-Ges.",
+   "parent_idn": null,
+   "member_idns": [
+    "1049460421"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Heart Gear – Band 6",
+   "publisher": "Pegasus Manga",
+   "parent_idn": null,
+   "member_idns": [
+    "1398594792"
+   ],
+   "expected_work": "w_e9bb55afac7f",
+   "spike_tier": "medium",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "If I Could Write My Love Into You",
+   "publisher": "Hayabusa",
+   "parent_idn": null,
+   "member_idns": [
+    "1395619344"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Shaman King",
+   "publisher": "Carlsen",
+   "parent_idn": "989303063",
+   "member_idns": [
+    "986827320",
+    "986849200",
+    "986851124",
+    "988758679",
+    "988759675",
+    "989443353"
+   ],
+   "expected_work": "w_df1db2a8ee7a",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Gun & heaven",
+   "publisher": "Carlsen Manga!",
+   "parent_idn": null,
+   "member_idns": [
+    "1130269167"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Liar Satsuki Can See Death 9",
+   "publisher": "Hayabusa",
+   "parent_idn": null,
+   "member_idns": [
+    "139562285X"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Erdbeeren & Marshmallows",
+   "publisher": "TOKYOPOP",
+   "parent_idn": "1219926213",
+   "member_idns": [
+    "1217494111",
+    "1224758579"
+   ],
+   "expected_work": "w_dfce2a7146f6",
+   "spike_tier": "medium",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "In/Spectre",
+   "publisher": "TOKYOPOP",
+   "parent_idn": "1156297842",
+   "member_idns": [
+    "1138246867",
+    "1156297842"
+   ],
+   "expected_work": "w_a7e452759718",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Hört auf, nicht ich bin hier der Starke, sondern mein Schwert! 1",
+   "publisher": "Tiny Tusk Verlag",
+   "parent_idn": null,
+   "member_idns": [
+    "1416740732"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Ganz oder gar nicht",
+   "publisher": "Tokyopop",
+   "parent_idn": null,
+   "member_idns": [
+    "1112083456"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Sweet but not sweet",
+   "publisher": "HAYABUSA",
+   "parent_idn": null,
+   "member_idns": [
+    "134725661X"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Girl Crush – Band 7",
+   "publisher": "Pegasus Manga",
+   "parent_idn": null,
+   "member_idns": [
+    "1398593389",
+    "1398593834"
+   ],
+   "expected_work": "w_6cf489558c39",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Kaoru und Rin 17",
+   "publisher": "Egmont Manga",
+   "parent_idn": null,
+   "member_idns": [
+    "1395393540",
+    "1395395497"
+   ],
+   "expected_work": "w_0127084e654b",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "My hero academia smash!!",
+   "publisher": "Carlsen Manga!",
+   "parent_idn": "1202460372",
+   "member_idns": [
+    "1183603339",
+    "1200040449",
+    "1200041259"
+   ],
+   "expected_work": "w_3403dbb54e6b",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Gleipnir 08",
+   "publisher": "Egmont Manga",
+   "parent_idn": null,
+   "member_idns": [
+    "1221295705"
+   ],
+   "expected_work": "w_b2f710101c80",
+   "spike_tier": "medium",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Ich kämpfte zehn Jahre zwischen den Dimensionen und kehrte als Legende zurück 19",
+   "publisher": "Egmont Manga",
+   "parent_idn": null,
+   "member_idns": [
+    "1395392676"
+   ],
+   "expected_work": "w_a64845591c8e",
+   "spike_tier": "medium",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "The dangers in my heart",
+   "publisher": "Dokico",
+   "parent_idn": "133917829X",
+   "member_idns": [
+    "1345096631",
+    "134509907X"
+   ],
+   "expected_work": "w_06c7350d2b0d",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Kleine Katze Chi – Das Malbuch",
+   "publisher": "Carlsen Manga",
+   "parent_idn": null,
+   "member_idns": [
+    "1395624615"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Hiyokoi",
+   "publisher": "Tokyopop",
+   "parent_idn": "1074723538",
+   "member_idns": [
+    "1112080953",
+    "1122124740",
+    "1122125437"
+   ],
+   "expected_work": "w_44d4e51c1a2a",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Goblin Slayer! Year one",
+   "publisher": "Altraverse",
+   "parent_idn": "1184939071",
+   "member_idns": [
+    "1219108200",
+    "1236362306"
+   ],
+   "expected_work": "w_dbd35958e592",
+   "spike_tier": "none",
+   "note": "exists in OpenTome, spike missed it"
+  },
+  {
+   "de": "Hokkaido Gals Are Super Adorable! – Band 13",
+   "publisher": "Pegasus Manga",
+   "parent_idn": null,
+   "member_idns": [
+    "1398592587"
+   ],
+   "expected_work": "w_85370ecf19b5",
+   "spike_tier": "medium",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Special A",
+   "publisher": "Carlsen",
+   "parent_idn": "989708977",
+   "member_idns": [
+    "984319581",
+    "986832391",
+    "988541238",
+    "988758555"
+   ],
+   "expected_work": "w_2bb01628cb84",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "I am a hero in Osaka",
+   "publisher": "Carlsen Manga!",
+   "parent_idn": null,
+   "member_idns": [
+    "1133037372"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Meine Kollegin Musubu – Band 6",
+   "publisher": "Pegasus Manga",
+   "parent_idn": null,
+   "member_idns": [
+    "1398594652"
+   ],
+   "expected_work": "w_f646f38fb93b",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Teach me how to kill you",
+   "publisher": "HAYABUSA",
+   "parent_idn": "1239063539",
+   "member_idns": [
+    "1254986715",
+    "1362786640"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Maken-ki",
+   "publisher": "Planet Manga",
+   "parent_idn": "1032830573",
+   "member_idns": [
+    "1044115246",
+    "1050045939"
+   ],
+   "expected_work": "w_60b16d107a08",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Maid-sama",
+   "publisher": "Carlsen",
+   "parent_idn": "992023246",
+   "member_idns": [
+    "1033973610",
+    "1044854367",
+    "1050312384"
+   ],
+   "expected_work": "w_e73ddbe8fdc1",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Hotel Inhumans 6",
+   "publisher": "Carlsen Manga",
+   "parent_idn": null,
+   "member_idns": [
+    "1395619913"
+   ],
+   "expected_work": "w_7bee3ca9bc83",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Icon",
+   "publisher": "Egmont Manga",
+   "parent_idn": null,
+   "member_idns": [
+    "1118635515"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Invisible Joe",
+   "publisher": "Panini Manga",
+   "parent_idn": "1115753819",
+   "member_idns": [
+    "1129204979"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "From the sea",
+   "publisher": "TOKYOPOP",
+   "parent_idn": null,
+   "member_idns": [
+    "1232585203"
+   ],
+   "expected_work": null,
+   "spike_tier": "medium",
+   "note": "Okubo one-shot in the Fire Force series statement -- not Fire Force"
+  },
+  {
+   "de": "Helck 07",
+   "publisher": "Manga JAM Session",
+   "parent_idn": null,
+   "member_idns": [
+    "1396230742",
+    "1396231692"
+   ],
+   "expected_work": "w_12766c181480",
+   "spike_tier": "medium",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Tashiro, warum bist du so?",
+   "publisher": "Egmont Manga",
+   "parent_idn": "1355126150",
+   "member_idns": [
+    "1325716200",
+    "1347053867",
+    "1347054901"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Harukana Receive, Band 02",
+   "publisher": "Dokico",
+   "parent_idn": null,
+   "member_idns": [
+    "1419801007"
+   ],
+   "expected_work": "w_5a32129a8d21",
+   "spike_tier": "medium",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Hungry rabbit & lovesick wolf",
+   "publisher": "VIZ Media Switzerland SA",
+   "parent_idn": null,
+   "member_idns": [
+    "1118639588"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Please save my earth",
+   "publisher": "Carlsen",
+   "parent_idn": "963617850",
+   "member_idns": [
+    "963617877",
+    "963929658",
+    "964390612",
+    "964735687",
+    "965033333",
+    "96545794X"
+   ],
+   "expected_work": "w_cbaa8937a3b4",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Mit dir durchs All – Band 6",
+   "publisher": "Pegasus Manga",
+   "parent_idn": null,
+   "member_idns": [
+    "1398595683"
+   ],
+   "expected_work": "w_fc53e1d0218a",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Thriller bark",
+   "publisher": "Carlsen Manga!",
+   "parent_idn": "1333469705",
+   "member_idns": [
+    "1333469705"
+   ],
+   "expected_work": null,
+   "spike_tier": "high",
+   "note": "One Piece: Episode of Thriller Bark (a spin-off) -- not One Piece itself"
+  },
+  {
+   "de": "One Piece - Heroines 1",
+   "publisher": "Carlsen Manga",
+   "parent_idn": null,
+   "member_idns": [
+    "1395629641"
+   ],
+   "expected_work": "w_22435bafc567",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Happy marriage?!",
+   "publisher": "Tokyopop",
+   "parent_idn": "1106147340",
+   "member_idns": [
+    "111208116X",
+    "1122126026"
+   ],
+   "expected_work": "w_21a647cc0371",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Masamune-kun's Revenge – Band 01 (deutsche Ausgabe)",
+   "publisher": "Dokico",
+   "parent_idn": null,
+   "member_idns": [
+    "1403805334"
+   ],
+   "expected_work": "w_6fb15fa4cc47",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "I [love] Kayoru",
+   "publisher": "TOKYOPOP",
+   "parent_idn": "1155033787",
+   "member_idns": [
+    "1155033787"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Tokyo Aliens 08",
+   "publisher": "Altraverse GmbH",
+   "parent_idn": null,
+   "member_idns": [
+    "1321027508"
+   ],
+   "expected_work": "w_dbac76c7f57e",
+   "spike_tier": "medium",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Hybrid child",
+   "publisher": "Carlsen Manga!",
+   "parent_idn": null,
+   "member_idns": [
+    "1062817028"
+   ],
+   "expected_work": "w_06c0de103e4f",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Sexperimente future",
+   "publisher": "Tokyopop",
+   "parent_idn": null,
+   "member_idns": [
+    "991450434"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Shinobi life",
+   "publisher": "Egmont-Verl.-Ges.",
+   "parent_idn": "1000242722",
+   "member_idns": [
+    "101150099X",
+    "1017262039",
+    "1021743372"
+   ],
+   "expected_work": "w_c5ec9a32958c",
+   "spike_tier": "medium",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Spice & Wolf",
+   "publisher": "Panini Manga",
+   "parent_idn": "1355839580",
+   "member_idns": [
+    "1349265063",
+    "1349265179",
+    "1349265977",
+    "1355839580",
+    "1362769738",
+    "1362773743",
+    "1362787795"
+   ],
+   "expected_work": "w_e71c2bc1eaf1",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "MAD in the Apocalypse 04",
+   "publisher": "Egmont Manga",
+   "parent_idn": null,
+   "member_idns": [
+    "139539377X",
+    "1395394644"
+   ],
+   "expected_work": "w_25ca20ca6fe9",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Inspector Akane Tsunemori",
+   "publisher": "KAZÉ Manga",
+   "parent_idn": "1141095068",
+   "member_idns": [
+    "1129796760",
+    "1129798712",
+    "1141095068"
+   ],
+   "expected_work": "w_4d91e5528198",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Marmalade boy",
+   "publisher": "Tokyopop",
+   "parent_idn": "1032636920",
+   "member_idns": [
+    "1036959481",
+    "1044547871"
+   ],
+   "expected_work": "w_fe603cfb82bc",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Star Wars: the Mandalorian",
+   "publisher": "Panini Manga",
+   "parent_idn": "1302306820",
+   "member_idns": [
+    "1310499330"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Fairy Tail Happy's adventure",
+   "publisher": "Carlsen Manga!",
+   "parent_idn": "1220061042",
+   "member_idns": [
+    "1221973509",
+    "1221975676",
+    "123173275X"
+   ],
+   "expected_work": "w_69c98427ad3f",
+   "spike_tier": "none",
+   "note": "exists in OpenTome, spike missed it"
+  },
+  {
+   "de": "Lili-Men 12",
+   "publisher": "Egmont Manga",
+   "parent_idn": null,
+   "member_idns": [
+    "1395394288"
+   ],
+   "expected_work": "w_57aa71b62b02",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Hinata-kun",
+   "publisher": "Tokyopop",
+   "parent_idn": null,
+   "member_idns": [
+    "1138248401"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Summer wars",
+   "publisher": "Carlsen",
+   "parent_idn": "1017399905",
+   "member_idns": [
+    "1011365642",
+    "101739251X"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "How NOT to Summon a Demon Lord – Band 29",
+   "publisher": "Pegasus Manga",
+   "parent_idn": null,
+   "member_idns": [
+    "1398595284"
+   ],
+   "expected_work": "w_2d37628366a1",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "I am a hero",
+   "publisher": "Carlsen Manga!",
+   "parent_idn": "1023976242",
+   "member_idns": [
+    "1128447800",
+    "1130270467",
+    "1137351861"
+   ],
+   "expected_work": "w_f6a5c1d5f175",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Mädchen am Strand",
+   "publisher": "Tokyopop",
+   "parent_idn": "1047404540",
+   "member_idns": [
+    "1034547763",
+    "104442107X"
+   ],
+   "expected_work": "w_f1ba8aab9619",
+   "spike_tier": "none",
+   "note": "exists in OpenTome, spike missed it"
+  },
+  {
+   "de": "Super lovers",
+   "publisher": "altraverse",
+   "parent_idn": "1163838837",
+   "member_idns": [
+    "1368767222"
+   ],
+   "expected_work": "w_c9a93474665c",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "ReLife",
+   "publisher": "TOKYOPOP",
+   "parent_idn": "1202801315",
+   "member_idns": [
+    "1203043511",
+    "1203044437",
+    "1210066726"
+   ],
+   "expected_work": "w_8d82831bc4ca",
+   "spike_tier": "medium",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Shakugan no shana",
+   "publisher": "Egmont-Verl.-Ges.",
+   "parent_idn": "1045334286",
+   "member_idns": [
+    "102174347X"
+   ],
+   "expected_work": "w_b38e8c94df03",
+   "spike_tier": "medium",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Gothic angel",
+   "publisher": "Egmont Manga",
+   "parent_idn": null,
+   "member_idns": [
+    "1118638522"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Gogo monster",
+   "publisher": "Reprodukt",
+   "parent_idn": null,
+   "member_idns": [
+    "1220920940"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "PxP",
+   "publisher": "Tokyopop",
+   "parent_idn": null,
+   "member_idns": [
+    "988601710"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Tokyo revengers: so young",
+   "publisher": "Carlsen Manga!",
+   "parent_idn": null,
+   "member_idns": [
+    "1325609129"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Overlord official comic à la carte",
+   "publisher": "Carlsen Manga!",
+   "parent_idn": "1206121459",
+   "member_idns": [
+    "1183605803",
+    "120003953X",
+    "1206121459",
+    "1207862258"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Noe67",
+   "publisher": "Egmont Manga",
+   "parent_idn": null,
+   "member_idns": [
+    "1208719866"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Elainas Reise",
+   "publisher": "Altraverse GmbH",
+   "parent_idn": "1225067138",
+   "member_idns": [
+    "1219106410",
+    "1226876544"
+   ],
+   "expected_work": "w_a0e967bb018e",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "To the abandoned sacred beasts",
+   "publisher": "Carlsen Manga!",
+   "parent_idn": "1150800232",
+   "member_idns": [
+    "1285993802",
+    "1307414206"
+   ],
+   "expected_work": "w_f10b1fddb4e8",
+   "spike_tier": "medium",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "The holy grail of Eris",
+   "publisher": "Manga Cult",
+   "parent_idn": "1244317640",
+   "member_idns": [
+    "1285613171",
+    "1307413153"
+   ],
+   "expected_work": "w_82441b5d364a",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Rosen unter Marias Obhut",
+   "publisher": "Tokyopop",
+   "parent_idn": "993383688",
+   "member_idns": [
+    "988400367"
+   ],
+   "expected_work": "w_31029d02285a",
+   "spike_tier": "none",
+   "note": "exists in OpenTome, spike missed it"
+  },
+  {
+   "de": "Spice & Wolf",
+   "publisher": "Planet Manga",
+   "parent_idn": "1011048469",
+   "member_idns": [
+    "1017752222",
+    "102166426X"
+   ],
+   "expected_work": "w_e71c2bc1eaf1",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Rave",
+   "publisher": "Egmont-Verl.-Ges.",
+   "parent_idn": "969950454",
+   "member_idns": [
+    "989651320",
+    "991257774"
+   ],
+   "expected_work": "w_9d93191c8f28",
+   "spike_tier": "none",
+   "note": "exists in OpenTome, spike missed it"
+  },
+  {
+   "de": "The dungeon of black company",
+   "publisher": "Altraverse GmbH",
+   "parent_idn": "1238542867",
+   "member_idns": [
+    "1345421826"
+   ],
+   "expected_work": "w_c039c2ffa57e",
+   "spike_tier": "high",
+   "note": "spike link, hand-checked correct"
+  },
+  {
+   "de": "Kätzchen Komugis Backabenteuer 01",
+   "publisher": "Splitter-Verlag",
+   "parent_idn": null,
+   "member_idns": [
+    "1407326937"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Ich hab dich stets geliebt",
+   "publisher": "Tokyopop",
+   "parent_idn": null,
+   "member_idns": [
+    "1129200086"
+   ],
+   "expected_work": null,
+   "spike_tier": "none",
+   "note": "no OpenTome work (or out of scope)"
+  },
+  {
+   "de": "Girls und Panzer",
+   "publisher": "Egmont Manga",
+   "parent_idn": "1135925496",
+   "member_idns": [
+    "1118635930",
+    "1118636112",
+    "1118636171",
+    "1129800628",
+    "1135925496"
+   ],
+   "expected_work": "w_9a70cdb7d0bf",
+   "spike_tier": "medium",
+   "note": "spike link, hand-checked correct"
+  }
+ ]
+}
