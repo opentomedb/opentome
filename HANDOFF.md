@@ -13,7 +13,8 @@ cleanly on top; reverting the Latin strip alone needs a one-hunk hand merge in f
   `strip_latin_marks()` (NFD, a combining mark dropped only after a Latin-script letter, NFC;
   unchanged strings come back byte for byte -- kana voicing, Hangul, Cyrillic, CJK untouched,
   checked over 59,110 catalogue + cached AniList strings) and `fold_numeric()` (No / Nl ->
-  NFKC per character, U+2044 dropped: "Ranma ½" -> "Ranma 12").
+  NFKC per character, U+2044 -> "/": "Ranma ½" is searched as "Ranma 1/2", AniList's own romaji;
+  key() still gives ranma12).
 - `alias_terms()` seeds `seen` with key(name), key(deslug(name)) and key(ascii_normalize(name))
   (a mirror of to_mangarr.normalize, asserted equal in the tests).
 - Offline replay vs 2146f47 on the ci-mf build (3,054 EN lines): 1 new (Café Terrace), 0 changed,
@@ -41,8 +42,8 @@ Gotchas:
   "...Kakuzetsu Toshi no Joō" is now searched as "...Joo", which is not recorded (nor in
   `.cache/anilist/`). Needs `ANILIST_RECORD=1` (a live request) -- the maintainer's call. With that
   page proxied locally the suite is 181/181, the 44 audited lines unmoved.
-- "Ranma 12" is a different AniList query from "Ranma ½" (AniList's romaji: "Ranma 1/2"); the
-  proxied replay is optimistic there.
+- "Ranma 1/2" (the search term since 0e2e3e4, AniList's romaji) is uncached locally; the proxied
+  replay borrows the "Ranma ½" page for it, so the two Ranma lines are CI's call.
 
 ## 2026-09-24 — branch `display-fallback`: display-only AniList fallback + two stray exclusions
 
