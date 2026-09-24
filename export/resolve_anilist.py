@@ -6,8 +6,10 @@ Mangarr resolves a series' poster / description / aliases from AniList by title,
 2026-09-15 audit (mangarr: docs/superpowers/specs/2026-09-15-manga-metadata-audit.md) found
 three of its 44 manga entries bound to a one-shot or an anthology that merely carried the
 serial's title as a synonym. Mangarr now binds by id and consults the catalogue first, so
-this step gives every English line the id up front, with the SAME rules Mangarr's
-AniListRanker applies (kept in step on purpose -- change both or neither):
+this step gives every English line the id up front, with the rules Mangarr's AniListRanker
+applies (kept in step on purpose) plus FALLBACK tiers that run only where those rules find
+nothing (R4 on; each measured by export/replay_anilist.py to move no existing bind). Mangarr
+does not have the fallback tiers yet -- whether it should is its own decision:
 
   * candidates = AniList `Page(perPage: 10) { media(search:) }`, type MANGA; manga-family
     mediums query `format_not: NOVEL`, novel mediums (light_novel, novel) `format: NOVEL`
@@ -34,6 +36,15 @@ AniListRanker applies (kept in step on purpose -- change both or neither):
     the 4-volume "Onegai, Sore wo Yamenaide" carries "Doll" as a synonym), a same-named
     ONE_SHOT is that serial's pilot -- either way the carrier is a chapter title wearing the
     name, and unresolved is recoverable where a wrong bind is not
+  * fallback tiers, tried in this order only while the tiers above found nothing on the page:
+    - R4 (ceiling, 2026-09-24, Weed): an exact primary / synonym match (R1 still applies)
+      rejected SOLELY by the 4x ceiling binds -- a short English run of the full Japanese
+      serial (Weed: 3 English volumes, 34010 "Ginga Densetsu WEED" 60, synonym "WEED"; the
+      old rule fell through to a franchise relative's alias and bound 38901). Own-name terms
+      only (R3), and never over a candidate that passes the ceiling (Worst: 147044, 4 vols,
+      stays; the right 31741 is a corrections/anilist.json pin, not a rule). Measured on
+      opentome-2026-09-24: Weed plus 10 unbound lines, each an exact title whose AniList
+      volume count matches the line's own origin line (Billy Bat 20, City Hunter 35, ...)
   * no equality on the name -> D3 retry, in Mangarr's order: the de-slugged form of the name
     first (its slug with the dashes back as spaces -- Mangarr's foreign id), then the line's
     aliases -- EVERY alias (series_alias in stored order, one per normalized form, Wikipedia
@@ -66,6 +77,7 @@ ALIAS_LIMIT = 3             # fresh alias SEARCHES per line -- every alias is pa
                             # de-slugged form is a separate, earlier retry); Mangarr's MaxAliasSearches
 NOVEL_MEDIUMS = ("light_novel", "novel")
 LIST_PREFIXES = ("list of ", "liste des ", "plot of ")
+VIAS = ("primary", "synonym", "ceiling", "alias")   # how a line bound: pick()'s tiers on the name page, or a retry term
 FIELDS = "id format volumes chapters popularity status title { romaji english native } synonyms"
 _last = [0.0]
 
@@ -95,16 +107,21 @@ def for_search(s):
 
 
 def pick(cands, term, volume_count, own_name=True):
-    """Mangarr's AniListRanker.Pick. (media | None, 'primary' | 'synonym' | None, rejections).
-    own_name is False for an alias retry (R3: the volume ceiling then always holds)."""
+    """Mangarr's AniListRanker.Pick, plus the fallback tiers in the module docstring.
+    (media | None, via | None, rejections); via is 'primary', 'synonym' or the tier that
+    bound it ('ceiling'). own_name is False for an alias retry (R3: the volume ceiling
+    then always holds, and no fallback tier runs)."""
     k = key(term)
 
     def primary_title(m):
         t = m.get("title") or {}
         return bool(k) and k in (key(t.get("romaji")), key(t.get("english")), key(t.get("native")))
 
+    def synonym_title(m):
+        return bool(k) and any(key(s) == k for s in m.get("synonyms") or [])
+
     primary_on_page = any(primary_title(m) for m in cands)   # R1: counts rejected candidates too
-    primary, synonym, rejected = [], [], []
+    primary, synonym, rejected, oversized = [], [], [], []
     for m in cands:
         if m.get("format") == "ONE_SHOT":
             rejected.append("%s:ONE_SHOT" % m["id"])
@@ -119,19 +136,28 @@ def pick(cands, term, volume_count, own_name=True):
                 continue
             if (volume_count > 2 or not own_name) and v > 4 * volume_count:   # R2 / R3
                 rejected.append("%s:volumes %s > 4x %s" % (m["id"], v, volume_count))
+                if own_name and (primary_title(m) or synonym_title(m)):
+                    oversized.append(m)   # R4: rejected SOLELY by the ceiling
                 continue
         if primary_title(m):
             primary.append(m)
-        elif k and any(key(s) == k for s in m.get("synonyms") or []):
+        elif synonym_title(m):
             if primary_on_page:
                 rejected.append("%s:synonym only (a primary-title candidate is on the page)" % m["id"])
             else:
                 synonym.append(m)
     pool = primary or synonym
+    if pool:
+        via = "primary" if primary else "synonym"
+    else:
+        # R4 (Weed): only when nothing passed the ceiling; R1 still holds inside the tier
+        pool = [m for m in oversized if primary_title(m)] or \
+               ([] if primary_on_page else [m for m in oversized if synonym_title(m)])
+        via = "ceiling"
     if not pool:
         return None, None, rejected
     best = max(pool, key=lambda m: m.get("popularity") or 0)   # stable: first in AniList order on a tie
-    return best, ("primary" if primary else "synonym"), rejected
+    return best, via, rejected
 
 
 def alias_terms(name, aliases):
@@ -446,10 +472,10 @@ def main(argv):
     n = write(db, lines, a.dry_run)
     rep = os.path.join(build, "anilist-resolve-report.tsv")
     report(lines, rep)
-    by = {v: sum(1 for ln in lines if ln["via"] == v) for v in ("primary", "synonym", "alias")}
+    by = {v: sum(1 for ln in lines if ln["via"] == v) for v in VIAS}
     resolved = sum(by.values())
-    print("anilist: %d line(s) considered, %d resolved (%d via primary, %d via synonym, %d via alias), %d unresolved%s"
-          % (len(lines), resolved, by["primary"], by["synonym"], by["alias"], len(lines) - resolved,
+    print("anilist: %d line(s) considered, %d resolved (%s), %d unresolved%s"
+          % (len(lines), resolved, ", ".join("%d via %s" % (by[v], v) for v in VIAS), len(lines) - resolved,
              " -- dry run, nothing written" if a.dry_run else "; %d written" % n))
     tot, missing = db.execute("SELECT COUNT(*), SUM(anilist_id IS NULL) FROM series WHERE language='en' AND volume_count>=3").fetchone()
     print("anilist: EN lines with volume_count >= 3: %d, without anilist_id: %d (%.1f %%)"
