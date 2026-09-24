@@ -59,8 +59,19 @@ does not have the fallback tiers yet -- whether it should is its own decision:
       opentome-2026-09-24: Weed plus 10 unbound lines, each an exact title whose AniList
       volume count matches the line's own origin line (Billy Bat 20, City Hunter 35, ...)
   * no equality on the name -> D3 retry, in Mangarr's order: the de-slugged form of the name
-    first (its slug with the dashes back as spaces -- Mangarr's foreign id), then the line's
-    aliases -- EVERY alias (series_alias in stored order, one per normalized form, Wikipedia
+    first (its slug with the dashes back as spaces -- Mangarr's foreign id); then (R6,
+    2026-09-24, OpenTome only) the name without a trailing parenthetical that is an edition /
+    format qualifier -- edition, volume list, release (re-release too), version, tankōbon,
+    shinsōban, VizBig, 2-in-1, parution, printing; never one naming a chapter or a nested
+    "series (" -- ranked against the name page, else one search. The catalogue names sibling
+    editions after Wikipedia's headings ("Inuyasha (VizBig edition)", "Ranma ½ (2014 English
+    release (2-in-1 Edition)"), and AniList has one entry for the work. It is ranked like an
+    ALIAS (R3, no fallback tiers), not like the name: stripping can drop content, and the
+    R3 failure is exactly what it would do -- "Sailor Moon (Shinsōban short stories)", 2
+    volumes, bound the 18-volume serial through the bare "Sailor Moon" under R2 (its own
+    entry is "Sailor Moon Short Stories"). Measured: 9 new, each the id a sibling edition
+    of the same line already carries; the own-name reading added Jiraishin and that wrong
+    Sailor Moon bind. Then the line's aliases -- EVERY alias (series_alias in stored order, one per normalized form, Wikipedia
     list-article names skipped), each ranked against the page the name search already fetched
     at no cost, and a fresh search only for the first ALIAS_LIMIT = 3 that miss that page,
     ranked against its own page (Mangarr's AniListService.FindSeries: aliases are walked, only
@@ -211,9 +222,34 @@ def deslug(name):
     return re.sub(r"[^a-z0-9]+", "-", for_search(name).lower()).strip("-").replace("-", " ")
 
 
+# R6: what a trailing parenthetical may say for the name without it to still be the line's own
+# name -- an edition / format / printing qualifier, never an arc ("chapter") or a nested series
+EDITION_QUALIFIER = re.compile(r"edition|volume list|release|version|tank[o\u014d]bon|shins[o\u014d]ban|"
+                               r"vizbig|2-in-1|parution|printing", re.I)
+
+
+def edition_stripped(name):
+    """R6: the name without a trailing edition-qualifier parenthetical, or None.
+    `Inuyasha (VizBig edition)` -> `Inuyasha`; an unclosed outer parenthetical goes too
+    (`Ranma ½ (2014 English release (2-in-1 Edition)` -> `Ranma ½`)."""
+    s = for_search(name)
+    m = re.search(r"\s*\(([^()]*)\)\s*$", s)
+    if not m:
+        return None
+    base, inner = s[:m.start()], m.group(1)
+    if base.count("(") > base.count(")"):
+        i = base.rfind("(")
+        base, inner = base[:i], base[i + 1:] + "(" + inner + ")"
+    base, low = base.strip(), inner.lower()
+    if not base or "chapter" in low or "series (" in low or not EDITION_QUALIFIER.search(inner):
+        return None
+    return base
+
+
 def retry_terms(ln):
-    """D3 order: the de-slugged form first, then the aliases."""
-    return [deslug(ln["name"])] + alias_terms(ln["name"], ln["aliases"])
+    """D3 order: the de-slugged form first, then the edition-stripped name (R6), then the aliases."""
+    return [deslug(ln["name"])] + [t for t in [edition_stripped(ln["name"])] if t] + \
+        alias_terms(ln["name"], ln["aliases"])
 
 
 # ---------------------------------------------------------------- HTTP + cache
@@ -381,7 +417,7 @@ def _next_alias_search(ln):
 def resolve(lines):
     """Sets pick / via / term / rejected on every line. One batched pass on the names; then,
     for whatever is still unresolved, the de-slugged form (own name: ranked against the name
-    page, else one search); then Mangarr's alias walk (_next_alias_search) in batched rounds --
+    page, else one search); then the edition-stripped name (R6, the same way); then Mangarr's alias walk (_next_alias_search) in batched rounds --
     every alias page-ranked for free, at most ALIAS_LIMIT fresh searches per line, each
     ranked against its own page. Only a page miss costs a request."""
     for novel in (False, True):
@@ -404,6 +440,17 @@ def resolve(lines):
                 ln.update(pick=m, via="alias", term=t)
             else:
                 todo.append((ln, t, True))
+        _search_round(todo, novel)
+        todo = []
+        for ln in group:   # R6: ranked like an alias (R3 -- see the module docstring)
+            t = None if ln["pick"] else edition_stripped(ln["name"])
+            if not t:
+                continue
+            m, via, _ = pick(ln["page"], t, ln["volume_count"], own_name=False)
+            if m:
+                ln.update(pick=m, via="alias", term=t)
+            else:
+                todo.append((ln, t, False))
         _search_round(todo, novel)
         while True:
             todo = []
