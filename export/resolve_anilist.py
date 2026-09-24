@@ -1,6 +1,6 @@
 """Bind OpenTome's English lines to AniList ids (series.anilist_id).
 
-    python3 export/resolve_anilist.py [build/manga-metadata.sqlite] [--dry-run] [--limit N] [--only NAME] [--covers | --covers-only]
+    python3 export/resolve_anilist.py [build/manga-metadata.sqlite] [--dry-run] [--limit N] [--only NAME] [--covers | --covers-only | --display]
 
 Mangarr resolves a series' poster / description / aliases from AniList by title, and the
 2026-09-15 audit (mangarr: docs/superpowers/specs/2026-09-15-manga-metadata-audit.md) found
@@ -90,6 +90,11 @@ hinted catalogue line's own name, never an alias or arc title it was matched by:
     SEARCHES are capped). There is no fuzzy pass: the fallback tiers each demand an exact
     title or an exact volume count, and a line none of them reaches stays NULL for Mangarr's
     own ranked search at add time. A guess here would be pinned by every future add.
+
+DISPLAY ONLY (2026-09-24, `--display`, after the pins): series.display_anilist_id / _via give a
+line the rules leave NULL a cover / synopsis source -- its bound parent line's id ('parent') or
+the manga-family entry of a novel AniList lists only as an adaptation ('medium'). Never a
+binding and never read by Mangarr; see display().
 
 Polite by construction: one request per MIN_INTERVAL, up to BATCH searches per request as
 GraphQL aliases, every search cached on disk per (term, family) under .cache/anilist/ so a
@@ -532,6 +537,85 @@ def report(lines, path):
                                "; ".join(ln["rejected"])]) + "\n")
 
 
+# ---------------------------------------------------------------- display fallback
+
+DISPLAY_VIAS = ("parent", "medium")
+DISPLAY_CUT = re.compile(r" \(|: | - | / ")
+
+
+def parent_name(name):
+    """The name before its first ` (`, `: `, ` - ` or ` / ` (dashes as for_search() writes them):
+    an arc / side-story line's parent (`Re:Zero (Truth of Zero)` -> `Re:Zero`). None without a cut,
+    so a whole-name twin (the LN `Bungo Stray Dogs` beside the bound manga) is never a 'parent'."""
+    s = for_search(name)
+    m = DISPLAY_CUT.search(s)
+    return s[:m.start()] if m and m.start() > 0 else None
+
+
+def equal_title_on_page(page, term):
+    """Any candidate -- rejected or ONE_SHOT included -- whose title or synonym key-equals the
+    term, with or without one leading article (pick()'s exact and R7 equality)."""
+    k, ak = key(term), art_key(term)
+    for m in page:
+        for x in [*(m.get("title") or {}).values(), *(m.get("synonyms") or [])]:
+            if (k and key(x) == k) or (ak and art_key(x) == ak):
+                return True
+    return False
+
+
+def display(db):
+    """series.display_anilist_id / display_anilist_via for EN lines the resolver left NULL --
+    a cover / synopsis for the browser, NEVER a binding: it is never copied into anilist_id,
+    never used for aliases, and Mangarr (which names its columns) never reads it. Recomputed
+    from scratch, so it runs after corrections/anilist.json's pins (stage 8a's third call, before
+    --covers-only): a pinned line has an id and gets none.
+
+      * parent -- the line's name cut at its first ` (` / `: ` / ` - ` / ` / ` key-equals the
+        name of a BOUND EN line of the same work (tome_work_id; any medium -- the catalogue's
+        `Re:Zero (Truth of Zero)` manga is an arc of the bound `Re:Zero` light novel): that
+        line's id. Never across works; never when the bound same-work lines of that name carry
+        different ids (DanMachi's side stories: the manga 85161 and the novel 85162).
+      * medium -- a novel / light_novel line with no parent candidate whose OWN (format: NOVEL)
+        name page carries no title-equal candidate, rejected ones included (R1's reading: an
+        equal NOVEL entry is the work with a disputed count -- Hollow Regalia's case, bound by
+        R7 since), but whose manga-family page for the same name gives pick() a candidate
+        (Otherside Picnic, Bungo Stray Dogs, Bride of the Barrier Master, Pretty Boy Detective
+        Club -- the 2026-09-24 analysis; AniList has the adaptation, not the novel). The
+        novel pages are the resolver's own (cached); the manga-family pages are one polite
+        cached search() per name, bounded to these lines.
+
+    Returns {via: rows written}."""
+    db.execute("UPDATE series SET display_anilist_id=NULL, display_anilist_via=NULL")
+    rows = db.execute("""SELECT gcd_series_id, name, medium, volume_count, anilist_id, tome_work_id
+                         FROM series WHERE language='en'""").fetchall()
+    bound = {}
+    for sid, name, medium, vc, aid, wid in rows:
+        if aid:
+            bound.setdefault((wid, key(name)), set()).add(aid)
+    picks, novel = {}, []
+    for sid, name, medium, vc, aid, wid in rows:
+        if aid:
+            continue
+        p = parent_name(name)
+        ids = bound.get((wid, key(p)), set()) if p else set()
+        if len(ids) == 1:
+            picks[sid] = (next(iter(ids)), "parent")
+        elif not ids and medium in NOVEL_MEDIUMS:
+            novel.append((sid, for_search(name), vc))
+    if novel:
+        terms = [t for _, t, _ in novel]
+        own, manga = search(terms, True), search(terms, False)
+        for sid, t, vc in novel:
+            m = None if equal_title_on_page(own[t], t) else pick(manga[t], t, vc)[0]
+            if m:
+                picks[sid] = (m["id"], "medium")
+    for sid, (aid, via) in picks.items():
+        db.execute("""UPDATE series SET display_anilist_id=?, display_anilist_via=?
+                      WHERE gcd_series_id=? AND anilist_id IS NULL""", (aid, via, sid))
+    db.commit()
+    return {v: sum(1 for _, x in picks.values() if x == v) for v in DISPLAY_VIAS}
+
+
 # ---------------------------------------------------------------- covers
 
 def _cover_query(n):
@@ -541,12 +625,13 @@ def _cover_query(n):
 
 
 def covers(db, path):
-    """{anilist_id: cover url} for every bound EN line that has no ISBN-keyed volume cover of
-    its own -- what the browser's series card falls back to. Merged into `path`; an id
-    already there (or cached) is never re-fetched. Returns (ids in the file, ids fetched)."""
+    """{anilist_id: cover url} for every EN line with an id -- bound, or a display id (the
+    display fallback) -- and no ISBN-keyed volume cover of its own: what the browser's series
+    card falls back to. Merged into `path`; an id already there (or cached) is never
+    re-fetched. Returns (ids in the file, ids fetched)."""
     have = _cache_get(path) or {}
-    ids = [i for (i,) in db.execute("""SELECT DISTINCT s.anilist_id FROM series s WHERE s.language='en'
-              AND s.anilist_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM volumes v
+    ids = [i for (i,) in db.execute("""SELECT DISTINCT COALESCE(s.anilist_id, s.display_anilist_id) AS i
+              FROM series s WHERE s.language='en' AND i IS NOT NULL AND NOT EXISTS (SELECT 1 FROM volumes v
               WHERE v.gcd_series_id=s.gcd_series_id AND v.cover_url IS NOT NULL) ORDER BY 1""")]
     todo = []
     for aid in ids:
@@ -582,10 +667,14 @@ def main(argv):
     ap.add_argument("--limit", type=int, help="only the first N unresolved lines (most volumes first)")
     ap.add_argument("--only", help="only the unresolved line(s) with exactly this name")
     ap.add_argument("--covers", action="store_true",
-                    help="also fill <build>/anilist-covers.json for bound EN lines without a volume cover")
+                    help="also fill <build>/anilist-covers.json for EN lines with an id (bound or display) "
+                         "and no volume cover")
     ap.add_argument("--covers-only", action="store_true",
                     help="resolve nothing, only fill <build>/anilist-covers.json -- stage 8a runs it after "
                          "corrections/anilist.json's pins land, so a pinned id gets a cover too")
+    ap.add_argument("--display", action="store_true",
+                    help="resolve nothing, only recompute series.display_anilist_id / _via (display-only "
+                         "fallback) -- stage 8a runs it after the pins, before --covers-only")
     a = ap.parse_args(argv)
     build = os.path.dirname(os.path.abspath(a.artifact))
     db = sqlite3.connect(a.artifact)
@@ -593,6 +682,12 @@ def main(argv):
         cpath = os.path.join(build, "anilist-covers.json")
         have, fetched = covers(db, cpath)
         print("anilist: covers -> %s (%d ids, %d fetched)" % (cpath, have, fetched))
+        db.close()
+        return
+    if a.display:
+        by = display(db)
+        print("anilist: display fallback (display only, never a binding): %s"
+              % ", ".join("%d via %s" % (by[v], v) for v in DISPLAY_VIAS))
         db.close()
         return
     lines = load_lines(db, a.limit, a.only)

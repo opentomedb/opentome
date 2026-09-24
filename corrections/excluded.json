@@ -4,5 +4,17 @@
     "source_url": "https://en.wikipedia.org/wiki/The_Walking_Dead_(comic_book)",
     "reason": "a US comic (Image Comics) that entered the catalogue through a Wikipedia list-of-volumes page; out of scope for a manga/light-novel/manhwa/manhua catalogue -- not to be confused with 'Arrietty (Comics)' (w_182cd5e8e058), a legitimately Japanese Studio Ghibli film comic, which stays",
     "checked": "2026-09-23"
+  },
+  {
+    "work": "w_a20b1a45a61d",
+    "source_url": "https://fr.wikipedia.org/wiki/Sweet_Tooth",
+    "reason": "Sweet Tooth (Jeff Lemire): a US comic series published by DC's Vertigo imprint (French edition: Urban Comics), not manga/manhwa/manhua or an OEL equivalent; entered through the French Wikipedia article's publication table. Both lines (EN 6 volumes, ISBN prefix 978-1-4012 = DC Comics; FR 3 volumes) are that comic",
+    "checked": "2026-09-24"
+  },
+  {
+    "work": "w_ef64b44baef4",
+    "source_url": "https://fr.wikipedia.org/wiki/Les_Aventures_de_Rabbi_Harvey",
+    "reason": "The Adventures of Rabbi Harvey (Steve Sheinkin): a US comics series published by Jewish Lights Publishing (French edition: Yodea), not manga/manhwa/manhua or an OEL equivalent; entered through the French Wikipedia article. Both lines (EN and FR, 3 volumes each) are that comic",
+    "checked": "2026-09-24"
   }
 ]

@@ -2,6 +2,38 @@
 
 _Last updated: 2026-09-24_
 
+## 2026-09-24 — branch `display-fallback`: display-only AniList fallback + two stray exclusions
+
+Not merged, not pushed, no CI triggered -- Nick's gate.
+
+Done:
+- `series.display_anilist_id` / `display_anilist_via` (`parent` | `medium`): a cover / synopsis
+  id for an EN line the resolver leaves NULL -- never a binding (never copied into `anilist_id`,
+  never an alias source, not read by Mangarr). `export/resolve_anilist.py --display`, stage 8a's
+  third call (resolve, pins, display, covers-only); `anilist-covers.json` now covers display ids.
+  Spec in `display()`'s docstring and `docs/schema-v1.md`; contract in `export/test_artifact.py`.
+  Measured offline on a fresh export: 68 via parent (9 more skipped as ambiguous), 15 via medium.
+- `corrections/excluded.json`: Sweet Tooth (Vertigo) and The Adventures of Rabbi Harvey -- the
+  only two Western comics among the 31 unresolved EN lines with no origin line; the OEL /
+  German / French manga and webtoons in that set stay (Nick's ruling).
+- Offline replay vs 6a7c0f3: 0 new / 0 changed / 0 lost binds. Piecewise offline stages 5b
+  (new exclusions only) - 8d: audit 0 defects, contract ok, measure 49/49.
+
+Next:
+- CI build-only run: the `medium` tier searches the manga-family page for each unbound novel
+  name; 49 of those pages are uncached locally, so the live count may exceed 15.
+- The homelab browser (not in this repo) reads `anilist-covers.json` by id; it shows display
+  covers only if it also looks up `display_anilist_id`.
+- Data follow-ups seen, not fixed: Gothic Sports is medium `novel` (a comic); the Monogatari EN
+  lines are `novel` while the JA line is `light_novel`, which is likely why they have no
+  `orig_series_id` and stay unbound.
+
+Gotchas:
+- Stage 8a is now FOUR calls. `--display` recomputes from scratch, so it must run after the pins.
+- `parent` is same-work, any medium: an arc can take a different-medium parent's cover (the
+  `Re:Zero (Truth of Zero)` manga shows the Re:Zero light novel's), and some arcs have their own
+  AniList entry that the rules cannot reach (Truth of Zero is 87259). Display only, by design.
+
 ## 2026-09-24 — branch `anilist-resolve`: AniList resolver accuracy round
 
 Not merged, not pushed, no CI triggered -- Nick's gate. Everything measured OFFLINE against
@@ -38,7 +70,7 @@ Gotchas:
   live requests; with it, 8a aborts on `OfflineMiss` (Roxy Gets Serious + two Hoshin Engi
   terms were already uncached). Stages 8-8d were verified piecewise offline (the round's
   report, delivered to the maintainer; replay outputs in the private sdd notes).
-- Stage 8a is three calls: resolve, `corrections.py --anilist` (pins), then
+- Stage 8a is three calls (four since `display-fallback`): resolve, `corrections.py --anilist` (pins), then
   `resolve_anilist.py --covers-only`, so pinned ids get their fallback cover too.
 - A diacritic fold in `for_search()` rewrites live search strings: NFKD drops kana voicing
   marks and turns ½ into 1⁄2 -- don't retry it without a live A/B.

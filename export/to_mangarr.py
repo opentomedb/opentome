@@ -237,7 +237,11 @@ CREATE TABLE IF NOT EXISTS series (
     tome_id TEXT,                -- OpenTome release-line id  (public contract)
     tome_work_id TEXT,           -- OpenTome work id
     parent_series_id INTEGER,    -- the series this arc / spin-off line belongs to (collections)
-    author TEXT);                -- the work's author, first name of the tier-0 claim (2026-09-20)
+    author TEXT,                 -- the work's author, first name of the tier-0 claim (2026-09-20)
+    -- DISPLAY ONLY (2026-09-24): an AniList id for a cover/synopsis where anilist_id IS NULL,
+    -- never a binding, never an alias source (export/resolve_anilist.py display())
+    display_anilist_id INTEGER,
+    display_anilist_via TEXT);   -- parent | medium
 CREATE TABLE IF NOT EXISTS volumes (
     id INTEGER PRIMARY KEY, gcd_series_id INTEGER NOT NULL REFERENCES series(gcd_series_id),
     volume_number INTEGER NOT NULL, title TEXT, release_date TEXT,
