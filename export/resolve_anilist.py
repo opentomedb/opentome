@@ -98,6 +98,42 @@ hinted catalogue line's own name, never an alias or arc title it was matched by:
     SEARCHES are capped). There is no fuzzy pass: the fallback tiers each demand an exact
     title or an exact volume count, and a line none of them reaches stays NULL for Mangarr's
     own ranked search at add time. A guess here would be pinned by every future add.
+  * post-walk tiers (round 2, 2026-09-24; post_walk()): only for a line STILL unbound after the whole
+    walk above, and only over the pages the walk already fetched -- the name page, then every page a
+    retry term searched (de-slugged form, R6, aliases), each with the own-name flag it was searched
+    under. Zero new queries, and never ahead of an earlier tier: a line any tier above bound is
+    skipped. Catalogue-side only -- Mangarr does not mirror them; it reads the id this step writes.
+    Tried in order V1 -> V2 -> V3 -> V4, the first hit binds:
+    - V1 prefix (via 'prefix'): the name is the head of AniList's full title ("Even Dogs Go to Other
+      Worlds" is "...: Life in Another World with My Beloved Hound"). Gate: the line has >= 3
+      volumes; a BARE name only (no `(`, no ` (` / `: ` / ` - ` / ` / ` cut); own-name pages only; the
+      term's key >= 6 characters; nothing on the page title-equals the term (exact or R7, rejected
+      and ONE_SHOT candidates included). Exactly ONE non-ONE_SHOT candidate has a title / synonym
+      whose words start with the term's words plus a word boundary -- counted BEFORE the volume rule
+      (Kase-san: "Kase-san and..." (5 vols) and "Kase-san and Yamada" both start so, and filtering
+      the 5 out first would bind Yamada) -- and it passes pick()'s volume rule with `volumes` null
+      or >= the line's (Your Name's "Another Side: Earthbound", 1 vol, never). Shino & Ren (1-vol
+      LN) -> "Shino & Ren: Future" is what the gate keeps out
+    - V2 arc (via 'arc'): the name has a real arc part (arc_parts(): the name after its first cut,
+      parentheses dropped; an R6 edition qualifier is not one), base and arc keys each >= 4, and
+      exactly ONE candidate passing the volume rule has a title / synonym containing BOTH keys with
+      `volumes` equal to the line's count or to its origin line's (Umineko's English 3-volume
+      "Alliance of the Golden Witch" is AniList's 6-volume Episode 4, the JP line's 6). Base-only
+      containment never binds: without the arc the Jiraishin line bound "Jiraishin Diablo" (3 = 3)
+      and Index NT bound Index (22 = the JP line's 22)
+    - V3 amp (via 'amp'): an equality tier like R7 with '&' read as 'and' ("Sword Art Online: Kiss &
+      Fly" = "...: Kiss and Fly"), for a term that has either. PRIMARY titles only -- the one synonym
+      match measured was the doubtful Shino & Ren -> "Shino & Ren: Future" (synonym "Shino and
+      Ren") -- never beside a candidate whose title exactly key-equals the term (rejected ones
+      included), volume rule kept, ties to popularity
+    - V4 origin (via 'origin'): on a RETRY term's page (never the name page), exactly one non-
+      ONE_SHOT candidate key-equals the term, was rejected only by the 4x ceiling (`volumes` > 4x
+      the line's) and has `volumes` equal to the origin line's count -- a short English run of the
+      full Japanese serial, which R4 cannot reach off the name page (Jiraishin, Tokyopop, 3 vols ->
+      30379 "Jiraishin", 19 = the JP line's 19; Crayon Shin-chan CMX 11 -> 32435, 50). Gate: the
+      line has >= 3 volumes (Angel Beats! (Related media), 1 vol, bound Heaven's Door without it)
+    Measured (export/replay_anilist.py --base main on opentome-2026-09-24): 52 new binds -- V1 26,
+    V2 19, V3 5, V4 2 -- 0 changed, 0 lost; no new id is another work's EN line's, no two share one.
 
 DISPLAY ONLY (2026-09-24, `--display`, after the pins): series.display_anilist_id / _via give a
 line the rules leave NULL a cover / synopsis source -- its bound parent line's id ('parent') or
@@ -126,7 +162,8 @@ ALIAS_LIMIT = 3             # fresh alias SEARCHES per line -- every alias is pa
                             # de-slugged form is a separate, earlier retry); Mangarr's MaxAliasSearches
 NOVEL_MEDIUMS = ("light_novel", "novel")
 LIST_PREFIXES = ("list of ", "liste des ", "plot of ")
-VIAS = ("primary", "synonym", "article", "substring", "ceiling", "alias")   # how a line bound: pick()'s tiers on the name page, or a retry term
+VIAS = ("primary", "synonym", "article", "substring", "ceiling", "alias",   # pick()'s tiers on the name page, or a retry term
+        "prefix", "arc", "amp", "origin")                                   # the post-walk tiers (post_walk())
 FIELDS = "id format volumes chapters popularity status title { romaji english native } synonyms"
 _last = [0.0]
 
@@ -468,6 +505,9 @@ def load_line(db, sid):
     ln = dict(zip(("id", "name", "medium", "volume_count", "anilist_id"), r))
     ln["aliases"] = [a for (a,) in db.execute("SELECT alias FROM series_alias WHERE gcd_series_id=? ORDER BY rowid", (sid,))]
     ln["novel"] = ln["medium"] in NOVEL_MEDIUMS
+    o = db.execute("""SELECT o.volume_count FROM series s JOIN series o ON o.gcd_series_id = s.orig_series_id
+                      WHERE s.gcd_series_id=? AND o.gcd_series_id != s.gcd_series_id""", (sid,)).fetchone()
+    ln["orig_vc"] = o[0] if o and o[0] else None   # the origin (JP) line's count, for the post-walk tiers
     return ln
 
 
@@ -490,6 +530,7 @@ def _search_round(todo, novel):
         return
     results = search([t for _, t, _ in todo], novel)
     for ln, t, own in todo:
+        ln["fetched"].append((t, results[t], own))   # post_walk() ranks these pages again, at no cost
         m, via, rej = pick(results[t], t, ln["volume_count"], own_name=own)
         ln["rejected"] += rej
         if m:   # a fallback tier (own-name terms: the de-slugged form) is reported as itself
@@ -520,7 +561,8 @@ def resolve(lines):
     for whatever is still unresolved, the de-slugged form (own name: ranked against the name
     page, else one search); then the edition-stripped name (R6, the same way); then Mangarr's alias walk (_next_alias_search) in batched rounds --
     every alias page-ranked for free, at most ALIAS_LIMIT fresh searches per line, each
-    ranked against its own page. Only a page miss costs a request."""
+    ranked against its own page. Only a page miss costs a request. Last, post_walk() on each family's
+    still-unbound lines, over the pages already fetched (no request)."""
     for novel in (False, True):
         group = [ln for ln in lines if ln["novel"] == novel]
         if not group:
@@ -530,7 +572,7 @@ def resolve(lines):
             term = for_search(ln["name"])
             ln["page"] = list(results[term])
             m, via, rej = pick(ln["page"], term, ln["volume_count"])
-            ln.update(pick=m, via=via, term=term, rejected=rej, searches=0, cursor=0)
+            ln.update(pick=m, via=via, term=term, rejected=rej, searches=0, cursor=0, fetched=[])
         todo = []
         for ln in group:
             if ln["pick"]:
@@ -564,7 +606,116 @@ def resolve(lines):
             if not todo:
                 break
             _search_round(todo, novel)
+        post_walk(group)
     return lines
+
+
+# ---------------------------------------------------------------- post-walk tiers
+
+def _titles(m):
+    t = m.get("title") or {}
+    return [x for x in (t.get("romaji"), t.get("english"), t.get("native"), *(m.get("synonyms") or [])) if x]
+
+
+def _words(s):
+    """Lower-case ASCII words, one space apart -- V1's word-boundary prefix test."""
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", for_search(s).lower()).split())
+
+
+def _amp_key(s):
+    """V3: key() with every '&' read as 'and' ("Kiss & Fly" = "Kiss and Fly")."""
+    return key(re.sub(r"\s*&\s*", " and ", for_search(s or "")))
+
+
+def volumes_pass(m, volume_count, own_name):
+    """pick()'s volume rule for one candidate, unchanged (ONE_SHOT, the smaller side, the 4x
+    ceiling with R2 / R3): True when pick() would not reject it on format or volumes."""
+    if m.get("format") == "ONE_SHOT":
+        return False
+    v = m.get("volumes")
+    if v and volume_count and volume_count > 0:
+        tol = max(3, 0.4 * volume_count) * (2 if m.get("status") == "RELEASING" else 1)
+        if volume_count - v > tol:
+            return False
+        if (volume_count > 2 or not own_name) and v > 4 * volume_count:
+            return False
+    return True
+
+
+def arc_parts(name):
+    """V2: (base, arc) -- base is the name before its first ` (` / `: ` / ` - ` / ` / ` cut, arc the
+    rest with its parentheses dropped (`Re:Zero (Truth of Zero)` -> `Re:Zero`, `Truth of Zero`).
+    An edition-qualified name (R6) has no arc: (the stripped name, None); so has a name without a cut."""
+    s = for_search(name)
+    ed = edition_stripped(name)
+    if ed:
+        return ed, None
+    m = DISPLAY_CUT.search(s)
+    if not m or m.start() == 0:
+        return s, None
+    rest = " ".join(s[m.end():].replace("(", " ").replace(")", " ").split())
+    return s[:m.start()], rest or None
+
+
+def post_walk_pick(ln, pages):
+    """The post-walk tiers for one line the walk left unbound, in order V1 -> V2 -> V3 -> V4, over
+    `pages` = [(term, page, own_name)]: the name page first, then every page the walk fetched, in
+    walk order. (media, via, term) or (None, None, None). See the module docstring."""
+    vc, orig = ln["volume_count"], ln.get("orig_vc")
+    name = ln["name"]
+    # V1 prefix: a bare name that is the head of AniList's full title
+    if vc and vc >= 3 and "(" not in name and parent_name(name) is None:
+        for t, page, own in pages:
+            if not own or len(key(t)) < 6 or equal_title_on_page(page, t):
+                continue
+            w = _words(t) + " "
+            c = [m for m in page if m.get("format") != "ONE_SHOT" and any(_words(x).startswith(w) for x in _titles(m))]
+            if len(c) == 1 and volumes_pass(c[0], vc, own) and (not c[0].get("volumes") or c[0]["volumes"] >= vc):
+                return c[0], "prefix", t
+    # V2 arc: base AND arc inside one title, count = the line's or its (different) origin line's
+    base, arc = arc_parts(name)
+    kb, ka = key(base), key(arc) if arc else ""
+    if len(kb) >= 4 and len(ka) >= 4:
+        counts = {vc, orig} - {None, 0}
+        for t, page, own in pages:
+            c = [m for m in page if volumes_pass(m, vc, own) and m.get("volumes") in counts
+                 and any(kb in key(x) and ka in key(x) for x in _titles(m))]
+            if len(c) == 1:
+                return c[0], "arc", t
+    # V3 amp: '&' = 'and', an equality tier like R7 -- primary titles only, never beside an exact
+    # title (rejected ones included)
+    for t, page, own in pages:
+        if "&" not in t and " and " not in t.lower():
+            continue
+        k, ak = key(t), _amp_key(t)
+        if any(key(x) == k for m in page for x in _titles(m)):
+            continue
+        pool = [m for m in page if volumes_pass(m, vc, own)
+                and ak in [_amp_key(x) for x in (m.get("title") or {}).values() if x]]
+        if pool:
+            return max(pool, key=lambda m: m.get("popularity") or 0), "amp", t
+    # V4 origin: on a retry term, an equal title rejected only by the 4x ceiling whose AniList count
+    # is the origin line's
+    if vc and vc >= 3 and orig and orig != vc:
+        for t, page, own in pages[1:]:
+            k = key(t)
+            c = [m for m in page if m.get("format") != "ONE_SHOT" and m.get("volumes") == orig
+                 and orig > 4 * vc and any(key(x) == k for x in _titles(m))]
+            if len(c) == 1:
+                return c[0], "origin", t
+    return None, None, None
+
+
+def post_walk(group):
+    """Run the post-walk tiers on every line of `group` still unbound after the whole walk: the
+    pages are the ones the walk already fetched (zero new queries), and a bind here never
+    pre-empts an earlier tier -- a line any of them bound is skipped."""
+    for ln in group:
+        if ln["pick"]:
+            continue
+        m, via, t = post_walk_pick(ln, [(for_search(ln["name"]), ln["page"], True)] + ln["fetched"])
+        if m:
+            ln.update(pick=m, via=via, term=t)
 
 
 def write(db, lines, dry_run):
