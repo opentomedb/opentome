@@ -294,8 +294,10 @@ def pick(cands, term, volume_count, own_name=True):
 def alias_terms(name, aliases):
     """The alias walk: every alias in stored order, one per normalized form, never the name
     itself, never a Wikipedia list-article name. Not capped -- only fresh searches are
-    (ALIAS_LIMIT, in resolve)."""
-    seen, out = {key(name)}, []
+    (ALIAS_LIMIT, in resolve). `seen` starts with the name's key, its de-slugged key and the key of
+    the exporter's ASCII normalize() form (to_mangarr.normalize: "Fushigi Y\u00fbgi" -> "fushigi y gi"),
+    so a stored, already-normalized copy of the name never burns a fresh search (2026-09-24)."""
+    seen, out = {key(name), key(deslug(name)), key(ascii_normalize(name))}, []
     for a in aliases:
         a = for_search(a)
         k = key(a)
@@ -304,6 +306,12 @@ def alias_terms(name, aliases):
         seen.add(k)
         out.append(a)
     return out
+
+
+def ascii_normalize(s):
+    """to_mangarr.normalize(): lower-case, every run of non-[a-z0-9] one space -- how the exporter
+    stores a name's ASCII alias row."""
+    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
 
 
 def deslug(name):
