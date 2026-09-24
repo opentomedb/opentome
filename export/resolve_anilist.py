@@ -36,8 +36,12 @@ does not have the fallback tiers yet -- whether it should is its own decision:
     the 4-volume "Onegai, Sore wo Yamenaide" carries "Doll" as a synonym), a same-named
     ONE_SHOT is that serial's pilot -- either way the carrier is a chapter title wearing the
     name, and unresolved is recoverable where a wrong bind is not
+  * R7 (article, 2026-09-24, OpenTome only): below exact equality, the same primary-then-
+    synonym equality after dropping one leading "the" / "a" / "an" (a whole word) from both
+    sides, R1 included. The catalogue's "Hollow Regalia" is AniList's "The Hollow Regalia"
+    (133016) on its own novel page. Measured: that one line, nothing else moved
   * fallback tiers, tried only while the tiers above found nothing on the page (R5 needs no
-    equal title on the page and R4 needs one, so the two never compete):
+    equal title on the page -- exact or R7 -- and R4 needs one, so the two never compete):
     - R5 (substring, 2026-09-24): no candidate on the page -- rejected or ONE_SHOT included,
       R1's reading -- key-equals the term, and exactly ONE volume-passing, non-ONE_SHOT
       candidate has a title / synonym key that contains the term's key or sits inside it
@@ -101,7 +105,7 @@ ALIAS_LIMIT = 3             # fresh alias SEARCHES per line -- every alias is pa
                             # de-slugged form is a separate, earlier retry); Mangarr's MaxAliasSearches
 NOVEL_MEDIUMS = ("light_novel", "novel")
 LIST_PREFIXES = ("list of ", "liste des ", "plot of ")
-VIAS = ("primary", "synonym", "substring", "ceiling", "alias")   # how a line bound: pick()'s tiers on the name page, or a retry term
+VIAS = ("primary", "synonym", "article", "substring", "ceiling", "alias")   # how a line bound: pick()'s tiers on the name page, or a retry term
 FIELDS = "id format volumes chapters popularity status title { romaji english native } synonyms"
 _last = [0.0]
 
@@ -130,10 +134,18 @@ def for_search(s):
     return " ".join(s.split())
 
 
+ARTICLE = re.compile(r"^(?:the|a|an)\s+", re.I)
+
+
+def art_key(s):
+    """R7: key() after dropping one leading English article ("The Hollow Regalia" -> hollowregalia)."""
+    return key(ARTICLE.sub("", for_search(s)))
+
+
 def pick(cands, term, volume_count, own_name=True):
     """Mangarr's AniListRanker.Pick, plus the fallback tiers in the module docstring.
     (media | None, via | None, rejections); via is 'primary', 'synonym' or the fallback
-    tier that bound it ('substring', 'ceiling'). own_name is False for an alias retry (R3: the volume ceiling
+    tier that bound it ('article', 'substring', 'ceiling'). own_name is False for an alias retry (R3: the volume ceiling
     then always holds, and no fallback tier runs)."""
     k = key(term)
 
@@ -143,6 +155,15 @@ def pick(cands, term, volume_count, own_name=True):
 
     def synonym_title(m):
         return bool(k) and any(key(s) == k for s in m.get("synonyms") or [])
+
+    ak = art_key(term)
+
+    def article_primary(m):
+        t = m.get("title") or {}
+        return bool(ak) and ak in (art_key(t.get("romaji")), art_key(t.get("english")), art_key(t.get("native")))
+
+    def article_synonym(m):
+        return bool(ak) and any(art_key(s) == ak for s in m.get("synonyms") or [])
 
     def contains(m):
         """R5: a title key contains the term's key or sits inside it, shorter side >= 4."""
@@ -154,8 +175,10 @@ def pick(cands, term, volume_count, own_name=True):
         return False
 
     primary_on_page = any(primary_title(m) for m in cands)   # R1: counts rejected candidates too
-    equality_on_page = primary_on_page or any(synonym_title(m) for m in cands)
+    article_on_page = primary_on_page or any(article_primary(m) for m in cands)   # R1 for R7
+    equality_on_page = article_on_page or any(synonym_title(m) or article_synonym(m) for m in cands)
     primary, synonym, rejected, oversized, substring = [], [], [], [], []
+    art_primary, art_synonym = [], []
     for m in cands:
         if m.get("format") == "ONE_SHOT":
             rejected.append("%s:ONE_SHOT" % m["id"])
@@ -180,11 +203,20 @@ def pick(cands, term, volume_count, own_name=True):
                 rejected.append("%s:synonym only (a primary-title candidate is on the page)" % m["id"])
             else:
                 synonym.append(m)
+        elif article_primary(m):
+            art_primary.append(m)
+        elif article_synonym(m):
+            if article_on_page:
+                rejected.append("%s:synonym only (a primary-title candidate is on the page)" % m["id"])
+            else:
+                art_synonym.append(m)
         elif own_name and v and v == volume_count and contains(m):
             substring.append(m)
     pool = primary or synonym
     if pool:
         via = "primary" if primary else "synonym"
+    elif art_primary or art_synonym:
+        pool, via = art_primary or art_synonym, "article"   # R7: below exact equality
     elif not equality_on_page and len(substring) == 1:
         # R5: no equality anywhere on the page (R1's reading: a rejected equal title is the
         # work with a disputed count, so a substring candidate beside it is a side story)
