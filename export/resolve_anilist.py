@@ -233,12 +233,9 @@ def pick(cands, term, volume_count, own_name=True):
 
 
 def alias_terms(name, aliases):
-    """The alias walk: every alias, one per normalized form, never the name itself, never a
-    Wikipedia list-article name. Not capped -- only fresh searches are (ALIAS_LIMIT, in
-    resolve). Order (R8, 2026-09-24): aliases whose key is a prefix of the name's key or
-    contains it (length >= 4) first -- "Frieren" for "Frieren: Beyond Journey's End" -- then
-    the rest, each group in stored order, so the ALIAS_LIMIT searches go to the aliases that
-    name the line before its franchise relatives and translations."""
+    """The alias walk: every alias in stored order, one per normalized form, never the name
+    itself, never a Wikipedia list-article name. Not capped -- only fresh searches are
+    (ALIAS_LIMIT, in resolve)."""
     seen, out = {key(name)}, []
     for a in aliases:
         a = for_search(a)
@@ -247,9 +244,7 @@ def alias_terms(name, aliases):
             continue
         seen.add(k)
         out.append(a)
-    nk = key(name)
-    near = [a for a in out if len(key(a)) >= 4 and (nk.startswith(key(a)) or nk in key(a))]
-    return near + [a for a in out if a not in near]
+    return out
 
 
 def deslug(name):
