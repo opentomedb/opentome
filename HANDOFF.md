@@ -1,6 +1,59 @@
 # HANDOFF — OpenTome
 
-_Last updated: 2026-09-23_
+_Last updated: 2026-09-24_
+
+## 2026-09-24 — branch `roxy-en`: the English Roxy Gets Serious line, and an `origin_line` correction
+
+Closes the one library measure-gate miss HANDOFF.md has been carrying since 2026-09-04
+(v2.1/v2.2: *Mushoku Tensei: Roxy Gets Serious* has no English line because the English
+Wikipedia article has no section for it). Not merged from here -- Nick's gate.
+
+`corrections/lines.json` gains the English Seven Seas edition (12 volumes, EN manga,
+`w_179929c7bc15`), read off the publisher's series page by the maintainer on 2026-09-24
+with every ISBN-13 check digit validated. Adding it exposed a real defect, not just a
+missing row: Mushoku Tensei's JP manga has TWO lines under the same (work, medium) --
+the main serial and this Roxy spin-off -- and the JP Roxy line's own `line_name` claim
+is not Japanese at all, it's the French string cross-parsed from the FR Wikipedia table
+("Mushoku Tensei : Les Aventures de Roxy", the same string the FR Roxy line carries,
+which is why FR pairs with JP correctly today). `export/to_mangarr.py`'s `origin_line()`
+pairs a licensed line to its origin-market counterpart by an EXACT name-string match,
+so the new EN line (named "Mushoku Tensei: Roxy Gets Serious", per Nick's instruction --
+no reason to invent a mismatched key) cannot match it, and without a fix silently falls
+back to the JP work's MAIN manga line: the new line would have read 12 of 25 volumes
+against a still-running series and exported `stalled` instead of `completed`.
+
+Fix, not a workaround: `corrections/lines.json` whole-edition entries gain an optional
+`origin_line` key naming the exact origin-market line id. `tier2/corrections.py` validates
+it (same work, same medium, market in `JP KR CN TW`, existence -- refusing a stale/wrong
+target the same way the medium/market override shapes already do) and uses it for BOTH
+`composition.ref_line_id` (in place of the same naive "any origin-market line for this
+work+medium" query, which has the identical multi-line ambiguity) and a new `release_line`
+claim (`field='origin_line'`) that `export/to_mangarr.py`'s `origin_line()` now checks
+before falling back to the name-key match / main-line default. See `corrections/README.md`
+for the full writeup. TDD: `tier0/test_parser.py` (apply + all four validation failures),
+`tier2/test_corrections_check.py` (5 new cases against the published-artifact shape),
+`export/test_to_mangarr.py` (an end-to-end fixture: two same-work JP lines, one pinned EN
+line resolving to the spin-off, one unpinned EN line reproducing the defect against the
+main line -- proves the fix without disturbing the unpinned default).
+
+Verified OFFLINE, zero network (`find .cache -type f -newer <marker>` empty): a full
+`ANILIST_OFFLINE=1 bash tier0/rebuild_all.sh` run against the warm cache. Stage 5b: "line
+corrections applied 3 (39 volumes)" (the two pre-existing entries plus this one's 12).
+Stage 7 audit: 0 outstanding defects. Stage 8a aborted as expected on `OfflineMiss` for
+three uncached AniList search terms -- 'Mushoku Tensei: Roxy Gets Serious' (new, expected)
+plus two unrelated pre-existing gaps ('Hoshin Engi' arc terms, nothing to do with this
+change). Stage 8c (`export/test_artifact.py`) against the resulting `manga-metadata.sqlite.new`:
+every rule passes except "EN lines without anilist_id" (2,523/2,523 unresolved -- expected,
+since 8a never ran and wrote no ids at all, not specific to Roxy). Stage 8d (measure gate):
+**49/49 matched, 0 coverage failures** (was 48/49; diffed against the pre-round `measure.log`,
+only the Roxy row changed). Direct query: the new line's `orig_series_id` resolves to
+`rl_e5f7e5f4fab0` (gcd_series_id 64852282, the JP Roxy line) -- not `rl_51690cde3090` (the
+JP main manga line, gcd_series_id 2142409694) -- and its status exports `completed`, not
+`stalled`. `tier2/corrections.py --check` against the new artifact: ok, 3 line / 3 medium /
+1 market / 27 alias / 1 excluded entries resolve.
+
+Next: a maintainer merges `roxy-en`, and the next `publish=true` dispatch (which also runs
+a real, online `resolve_anilist.py`) ships both this line and its AniList id together.
 
 ## 2026-09-23 — cleanup-0923: exclude Walking Dead, curated alias removals, Denma market fix
 
