@@ -37,8 +37,8 @@ hinted catalogue line's own name, never an alias or arc title it was matched by:
     also turned ゲ into ケ was reverted). PARITY: Mangarr's TitleMatcher.Normalize /
     TitleNormalizer.ForSearch do not fold yet -- they mirror fold() in a follow-up task; until
     then the two differ on accented titles only.
-    fold() also turns a numeric symbol (No / Nl) into its NFKC form without the fraction slash:
-    "Ranma ½" is searched as "Ranma 12" and key-equals "Ranma 1/2"; Ⅱ -> II, ² -> 2.
+    fold() also turns a numeric symbol (No / Nl) into its NFKC form, the fraction slash into "/":
+    "Ranma ½" is searched as "Ranma 1/2" (AniList's own romaji) and keys as ranma12; Ⅱ -> II, ² -> 2.
     A synonym-only carrier never wins while ANY candidate on the page has primary-title
     equality, even one the rules rejected (R1, the 2026-09-15 live run): a primary rejected
     on volumes says "this is the work but the count disagrees" (Doll: "DOLL" 1 vol vs 6, and
@@ -165,11 +165,12 @@ def strip_latin_marks(s):
 
 
 def fold_numeric(s):
-    """Numeric-symbol fold (2026-09-24): a character in Unicode category No / Nl becomes its NFKC form
-    with the fraction slash (U+2044) dropped -- "Ranma \u00bd" -> "Ranma 12" (key-equal to "Ranma 1/2"),
-    "\u2161" -> "II", "x\u00b2" -> "x2". Nothing else is NFKC'd (no full-width, no ligatures)."""
-    return "".join(unicodedata.normalize("NFKC", c).replace("\u2044", "")
-                   if unicodedata.category(c) in ("No", "Nl") else c for c in s)
+    """Numeric-symbol fold (2026-09-24): a character in Unicode category No / Nl becomes its NFKC form,
+    and the fraction slash (U+2044) becomes "/" -- "Ranma \u00bd" -> "Ranma 1/2", AniList's own spelling
+    (key() drops the "/": ranma12), "\u2161" -> "II", "x\u00b2" -> "x2". Nothing else is NFKC'd (no
+    full-width, no ligatures)."""
+    return "".join(unicodedata.normalize("NFKC", c) if unicodedata.category(c) in ("No", "Nl") else c
+                   for c in s).replace("\u2044", "/")
 
 
 def fold(s):
