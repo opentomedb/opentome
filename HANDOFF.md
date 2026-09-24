@@ -14,7 +14,7 @@ Done:
   (`line` = `series.tome_id`). Applied by `tier2/corrections.py --anilist` right after
   `resolve_anilist.py` in stage 8a; validated by `--check`; asserted by `test_artifact.py`.
   Seed: Worst (EN, 3 vols) -> 31741.
-- `corrections/aliases.json`: "Ginga Densetsu Riki" removed from Weed.
+- `corrections/aliases.json`: "Ginga Densetsu Riki" and "Ginga Legend Riki" removed from Weed.
 - `pick()` tiers (docstring = spec): R4 ceiling fallback (Weed -> 34010, +10 short English
   runs; stands down beside any equal title that passes the ceiling), R5 substring + exact volumes (own name only; +14, Der Werwolf 98367 -> 114483),
   R6 edition-qualifier paren-strip retry (ranked like an alias; +9), R7 leading-article
@@ -28,8 +28,6 @@ Next:
 - CI build-only run for the live numbers: 30 R6 stripped terms are uncached locally (upper
   bound), and the via tally now also prints article / substring / ceiling.
 - Mangarr's AniListRanker has none of R4-R7; parity is its own decision.
-- Weed still carries "Ginga Legend Riki" (another franchise-relative alias) -- harmless now
-  (R4 binds from the name page first), candidate for a removal entry.
 
 Gotchas:
 - `bash tier0/rebuild_all.sh` cannot run locally: without `ANILIST_OFFLINE=1` step 8a makes

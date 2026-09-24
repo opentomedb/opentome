@@ -222,5 +222,13 @@
     "source_url": "https://anilist.co/manga/38901",
     "reason": "a franchise relative's title, not a name for Weed: \"Ginga Densetsu Riki\" is its own 1-volume work (AniList 38901), separate from Ginga Densetsu Weed (34010, 60 volumes). The alias is what bound the 3-volume EN Weed line to 38901 in opentome-2026-09-24 (anilist resolve analysis, 2026-09-24)",
     "checked": "2026-09-24"
+  },
+  {
+    "line": "rl_5820e1fb499f",
+    "alias": "Ginga Legend Riki",
+    "remove": true,
+    "source_url": "https://anilist.co/manga/38901",
+    "reason": "a franchise relative's title, not a name for Weed: \"Ginga Legend Riki\" is a synonym of Ginga Densetsu Riki, its own 1-volume work (AniList 38901), separate from Ginga Densetsu Weed (34010, 60 volumes); the English form of the \"Ginga Densetsu Riki\" alias removed above (anilist resolve follow-up, 2026-09-24)",
+    "checked": "2026-09-24"
   }
 ]
