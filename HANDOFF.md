@@ -2,6 +2,48 @@
 
 _Last updated: 2026-09-24_
 
+## 2026-09-24 — branch `narrow-fold`: Latin-only accent strip + numeric-symbol fold + alias seen seed
+
+Not merged, not pushed, no CI triggered -- Nick's gate (CI build-only, live diff vs the published
+report; ship bar 0 lost / 0 changed).
+
+Done (three commits, each droppable -- `git revert` of the seed or of the numeric fold applies
+cleanly on top; reverting the Latin strip alone needs a one-hunk hand merge in fold()):
+- `fold()` in `export/resolve_anilist.py`, shared by `key()` and `for_search()`:
+  `strip_latin_marks()` (NFD, a combining mark dropped only after a Latin-script letter, NFC;
+  unchanged strings come back byte for byte -- kana voicing, Hangul, Cyrillic, CJK untouched,
+  checked over 59,110 catalogue + cached AniList strings) and `fold_numeric()` (No / Nl ->
+  NFKC per character, U+2044 dropped: "Ranma ½" -> "Ranma 12").
+- `alias_terms()` seeds `seen` with key(name), key(deslug(name)) and key(ascii_normalize(name))
+  (a mirror of to_mangarr.normalize, asserted equal in the tests).
+- Offline replay vs 2146f47 on the ci-mf build (3,054 EN lines): 1 new (Café Terrace), 0 changed,
+  7 lost -- every one through a changed, uncached search term (MÄR, Übel Blatt, Ōoku, Saintia Shō,
+  BakéGyamon, both Ranma ½ edition lines). A proxied replay (a folded term borrows the accented
+  term's cached page) keeps 6 on the same id; BakéGyamon binds by name on the cached
+  case-variant "Bakegyamon" page. No loss comes from key()/pick() ranking a page differently.
+  The seed alone: 0 / 0 / 0, +26 uncached alias terms.
+
+Next:
+- BLOCKER for CI: `tier0/rebuild_all.sh` step 0 runs `export/test_resolve_anilist.py` under
+  `set -e`, and with the Latin strip that suite aborts on the unrecorded fixture term (Gotchas).
+  Either record that one page (`ANILIST_RECORD=1 python3 export/test_resolve_anilist.py` fetches
+  only the missing term) or drop the Latin strip; the seed alone, and numeric + seed, run green.
+- Then CI build-only; the numbers above are all live-only. If a part loses binds live, revert it.
+- Live CHANGED watch list: 24 lines (22 names) keep their id offline but now cross an uncached
+  folded alias term BEFORE the alias that binds them (Arifureta, Hell Mode x2, Bumpkin x2, Trinity
+  Seven, Rascal, Papillon, ...); plus the 12 published edition lines (Tankōbon / Shinsōban /
+  Aizōban) whose name and deslug terms change. The seed alone and numeric + seed: none.
+- Mangarr: mirror fold() in TitleMatcher.Normalize / TitleNormalizer.ForSearch (separate task).
+  Latin = `c.isalpha()` and "LATIN" in the character's Unicode name (C# needs an explicit table).
+
+Gotchas:
+- `export/test_resolve_anilist.py` aborts offline: the Harsh Mistress fixture's alias
+  "...Kakuzetsu Toshi no Joō" is now searched as "...Joo", which is not recorded (nor in
+  `.cache/anilist/`). Needs `ANILIST_RECORD=1` (a live request) -- the maintainer's call. With that
+  page proxied locally the suite is 181/181, the 44 audited lines unmoved.
+- "Ranma 12" is a different AniList query from "Ranma ½" (AniList's romaji: "Ranma 1/2"); the
+  proxied replay is optimistic there.
+
 ## 2026-09-24 — branch `display-fallback`: display-only AniList fallback + two stray exclusions
 
 Not merged, not pushed, no CI triggered -- Nick's gate.
@@ -73,7 +115,8 @@ Gotchas:
 - Stage 8a is three calls (four since `display-fallback`): resolve, `corrections.py --anilist` (pins), then
   `resolve_anilist.py --covers-only`, so pinned ids get their fallback cover too.
 - A diacritic fold in `for_search()` rewrites live search strings: NFKD drops kana voicing
-  marks and turns ½ into 1⁄2 -- don't retry it without a live A/B.
+  marks and turns ½ into 1⁄2 -- the narrow retry is branch `narrow-fold` (Latin-only strip),
+  judged by a live A/B.
 
 ## 2026-09-24 — branch `roxy-en`: the English Roxy Gets Serious line, and an `origin_line` correction
 
