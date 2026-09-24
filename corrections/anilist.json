@@ -47,5 +47,187 @@
     "source_url": "https://anilist.co/manga/100685",
     "checked": "2026-09-24",
     "reason": "Wolf and Parchment (Spice and Wolf sequel) light novel: AniList 100685 'Wolf & Parchment: New Theory Spice & Wolf', NOVEL, 13 vols (EN line 12, Yen Press). Its own work."
+  },
+  {
+    "line": "rl_a3f65a6e1683",
+    "anilist_id": 81027,
+    "source_url": "https://anilist.co/manga/81027",
+    "checked": "2026-09-24",
+    "reason": "EN manga line (3 volumes, JP line 3): AniList 81027 'Dance in the Vampire Bund: The Memories of Sledge Hammer' (romaji 'Dance in the Vampire Bund: Sledge Hammer no Tsuioku'), MANGA, 3 vols = 3. The catalogue spells 'Sledgehammer' as one word, so no title key-equals the name"
+  },
+  {
+    "line": "rl_832f7f40a389",
+    "anilist_id": 30008,
+    "source_url": "https://anilist.co/manga/30008",
+    "checked": "2026-09-24",
+    "reason": "EN manga line (7 volumes, JP line 7): AniList 30008 'Full Moon wo Sagashite' (english 'Full Moon'), MANGA, 7 vols = 7. The catalogue romanizes the particle as 'o', AniList as 'wo'"
+  },
+  {
+    "line": "rl_a8dd0e546e47",
+    "anilist_id": 30697,
+    "source_url": "https://anilist.co/manga/30697",
+    "checked": "2026-09-24",
+    "reason": "EN manga line (3 volumes, JP line 3): AniList 30697 'Magic Knight Rayearth 2', MANGA, 3 vols = 3. The catalogue writes 'II', AniList '2'"
+  },
+  {
+    "line": "rl_a3cc16d4084f",
+    "anilist_id": 118483,
+    "source_url": "https://anilist.co/manga/118483",
+    "checked": "2026-09-24",
+    "reason": "EN manga line (3 volumes, JP line 3): AniList 118483 'World’s End Harem: Fantasia Academy' (romaji 'Shuumatsu no Harem: Fantasia Gakuen'), MANGA, 3 vols = 3 -- the Fantasia Academy spin-off, not the 18-volume Fantasia (101718)"
+  },
+  {
+    "line": "rl_3f2852a514a8",
+    "anilist_id": 40809,
+    "source_url": "https://anilist.co/manga/40809",
+    "checked": "2026-09-24",
+    "reason": "EN manga line (12 volumes, JP line 12): AniList 40809 'Suzumiya Haruhi-chan no Yuuutsu' (english 'The Melancholy of Suzumiya Haruhi-chan: The Untold Adventures of the SOS Brigade'), MANGA, 12 vols = 12"
+  },
+  {
+    "line": "rl_03f1556d4090",
+    "anilist_id": 31345,
+    "source_url": "https://anilist.co/manga/31345",
+    "checked": "2026-09-24",
+    "reason": "EN manga line (20 volumes, JP line 20): AniList 31345 'Suzumiya Haruhi no Yuuutsu' (english 'The Melancholy of Haruhi Suzumiya'), MANGA, 20 vols = 20 -- Gaku Tsugano's manga adaptation"
+  },
+  {
+    "line": "rl_120bae03d939",
+    "anilist_id": 92954,
+    "source_url": "https://anilist.co/manga/92954",
+    "checked": "2026-09-24",
+    "reason": "EN manga line (22 volumes, JP line 22): AniList 92954 'Yahari Ore no Seishun Love Come wa Machigatteiru. @comic' (english 'My Youth Romantic Comedy Is Wrong, As I Expected @ comic'), MANGA, 22 vols = 22 -- the @comic adaptation the line names; 75447 'Monologue' also has 22 volumes but is the other manga adaptation"
+  },
+  {
+    "line": "rl_4b9e66180017",
+    "anilist_id": 106819,
+    "source_url": "https://anilist.co/manga/106819",
+    "checked": "2026-09-24",
+    "reason": "EN light-novel line (8 volumes, JP line 8): AniList 106819 'Drugstore in Another World: The Slow Life of a Cheat Pharmacist' (romaji 'Cheat Kusushi no Slow Life: Isekai ni Tsukurou Drugstore'), NOVEL, 8 vols = 8. The display fallback showed the manga's 106820"
+  },
+  {
+    "line": "rl_9fdaef2ea194",
+    "anilist_id": 142688,
+    "source_url": "https://anilist.co/manga/142688",
+    "checked": "2026-09-24",
+    "reason": "EN light-novel line (7 volumes): AniList 142688 'Mizu Zokusei no Mahou Tsukai Dai Ichi-bu: Chuuou Shokoku-hen' (english 'The Water Magician'), NOVEL, 7 vols = 7 -- AniList lists the novel's Part 1 (Central Nations) as its own entry; the catalogue's '(novel series)' Wikipedia disambiguator keeps any title from key-matching"
+  },
+  {
+    "line": "rl_52168242715f",
+    "anilist_id": 60859,
+    "source_url": "https://anilist.co/manga/60859",
+    "checked": "2026-09-24",
+    "reason": "EN manga line (11 volumes, JP line 11): AniList 60859 'High School DxD', MANGA, 11 vols = 11. The catalogue names the line after Wikipedia's 'High School DxD manga' heading"
+  },
+  {
+    "line": "rl_16ec1489bf0f",
+    "anilist_id": 55409,
+    "source_url": "https://anilist.co/manga/55409",
+    "checked": "2026-09-24",
+    "reason": "EN light-novel line (19 volumes; JP line 25): AniList 55409 'High School DxD', NOVEL, 25 vols = the JP line's 25. The catalogue names the line after Wikipedia's 'High School DxD light novels' heading"
+  },
+  {
+    "line": "rl_3874bbd808d3",
+    "anilist_id": 146203,
+    "source_url": "https://anilist.co/manga/146203",
+    "checked": "2026-09-24",
+    "reason": "EN manga line (7 volumes; JP line 8): AniList 146203 'Blue Lock: EPISODE Nagi' (english 'BLUE LOCK -EPISODE NAGI-'), MANGA, 8 vols = the JP line's 8. The catalogue names the line after Wikipedia's 'Blue Lock: Episode Nagi volumes' heading"
+  },
+  {
+    "line": "rl_c5efe122e149",
+    "anilist_id": 32908,
+    "source_url": "https://anilist.co/manga/32908",
+    "checked": "2026-09-24",
+    "reason": "EN manga line (5 volumes, JP line 5): AniList 32908 'GUNSMITH CATS BURST', MANGA, 5 vols = 5. The catalogue names the line after Wikipedia's 'Gunsmith Cats Burst volumes' heading"
+  },
+  {
+    "line": "rl_14936094c011",
+    "anilist_id": 85568,
+    "source_url": "https://anilist.co/manga/85568",
+    "checked": "2026-09-24",
+    "reason": "EN light-novel line 'Seraph of the End' (6 volumes; JP line 7): AniList 85568 'Owari no Seraph: Ichinose Guren, 16-sai no Catastrophe' (english 'Seraph of the End: Guren Ichinose: Catastrophe at Sixteen'), NOVEL, 7 vols = the JP line's 7 -- the Seraph of the End light-novel series; 104298 is its sequel ('...Resurrection at Nineteen'). The display fallback showed the Vampire Reign manga's 73661"
+  },
+  {
+    "line": "rl_6c02e262b64c",
+    "anilist_id": 87230,
+    "source_url": "https://anilist.co/manga/87230",
+    "checked": "2026-09-24",
+    "reason": "EN novel line (3 volumes; JP line 6): AniList 87230 'NARUTO Hiden Series' (english 'Naruto Secret Chronicles Book Series'), NOVEL, 6 vols = the JP line's 6"
+  },
+  {
+    "line": "rl_3acae6038155",
+    "anilist_id": 32435,
+    "source_url": "https://anilist.co/manga/32435",
+    "checked": "2026-09-24",
+    "reason": "EN manga line (ComicsOne, 10 volumes; JP line 'Crayon Shin-chan - Japanese original' 50): AniList 32435 'Crayon Shin-chan' (english 'Crayon Shinchan', synonym 'Crayon Shin Chan'), MANGA, 50 vols = the JP line's 50 -- a partial English run of the serial; the rules' 4x ceiling rejects it"
+  },
+  {
+    "line": "rl_f88b7208c492",
+    "anilist_id": 32435,
+    "source_url": "https://anilist.co/manga/32435",
+    "checked": "2026-09-24",
+    "reason": "EN manga line (One Peace Books, 4 volumes; JP line 'Crayon Shin-chan - Japanese original' 50): AniList 32435 'Crayon Shin-chan' (english 'Crayon Shinchan'), MANGA, 50 vols = the JP line's 50 -- a partial English run of the serial; the rules' 4x ceiling rejects it"
+  },
+  {
+    "line": "rl_442752cfc88c",
+    "anilist_id": 30298,
+    "source_url": "https://anilist.co/manga/30298",
+    "checked": "2026-09-24",
+    "reason": "EN manga line 'Doll' (6 volumes, JP line 6): AniList 30298 'DOLL: IC in a Doll', MANGA, 6 vols = 6. The rules leave it NULL on purpose (R1: 'DOLL' 31566, 1 vol, is a primary-title candidate on the page, so the synonym carrier 128084 never binds, and 30298's title never key-equals 'doll')"
+  },
+  {
+    "line": "rl_ef315f2b36f8",
+    "anilist_id": 111810,
+    "source_url": "https://anilist.co/manga/111810",
+    "checked": "2026-09-24",
+    "reason": "EN manga line 'Seven Shakespeares: Non Sanz Droict' (13 volumes): AniList 111810 '7-nin no Shakespeare: Non Sanz Droict' (english 'Seven Shakespeares'), MANGA, RELEASING, volumes null -- the second series, not the 6-volume first (47970, which the display fallback showed)"
+  },
+  {
+    "line": "rl_919a6d4ed24a",
+    "anilist_id": 142204,
+    "source_url": "https://anilist.co/manga/142204",
+    "checked": "2026-09-24",
+    "reason": "EN manga line 'No Game No Life (Eastern Union Arc)' (3 volumes): AniList 142204 'No Game No Life: Dai-2 Shou - Toubu Rengou-hen' (english 'No Game No Life: Chapter 2 Eastern Union Arc'), MANGA, RELEASING, volumes null -- the arc's own manga entry"
+  },
+  {
+    "line": "rl_2821e067b4aa",
+    "anilist_id": 136317,
+    "source_url": "https://anilist.co/manga/136317",
+    "checked": "2026-09-24",
+    "reason": "EN manga line 'Mermaid Melody Pichi Pichi Pitch (Pichi Pichi Pitch: Aqua)' (5 volumes): AniList 136317 'Mermaid Melody Pichi Pichi Pitch: Aqua', MANGA, RELEASING, volumes null -- the sequel's own entry, not the 7-volume original (30423)"
+  },
+  {
+    "line": "rl_fb5d51900e34",
+    "anilist_id": 142242,
+    "source_url": "https://anilist.co/manga/142242",
+    "checked": "2026-09-24",
+    "reason": "EN light-novel line 'Dahlia in Bloom (Lucia and the Loom)' (3 volumes): AniList 142242 'Fukushoku-shi Lucia wa Akiramenai' (english 'Lucia and the Loom: Weaving Her Way to Happiness'), NOVEL, RELEASING, volumes null -- the spin-off's own entry, not Dahlia in Bloom (114871, which the display fallback showed)"
+  },
+  {
+    "line": "rl_a0bf07e6368b",
+    "anilist_id": 142704,
+    "source_url": "https://anilist.co/manga/142704",
+    "checked": "2026-09-24",
+    "reason": "EN manga line 'The Water Magician (novel series) (Part 1)' (7 volumes): AniList 142704 'Mizu Zokusei no Mahou Tsukai@COMIC' (english 'The Water Magician'), MANGA, RELEASING, volumes null -- the manga adaptation"
+  },
+  {
+    "line": "rl_80eee5b79f07",
+    "anilist_id": 98610,
+    "source_url": "https://anilist.co/manga/98610",
+    "checked": "2026-09-24",
+    "reason": "EN light-novel line '86 (novel series)' (14 volumes, JP line 14): AniList 98610 '86: Eighty Six' (english '86―EIGHTY-SIX'), NOVEL, RELEASING, volumes null -- the light novel; the catalogue's '(novel series)' disambiguator keeps the key from matching"
+  },
+  {
+    "line": "rl_cf8a689830e8",
+    "anilist_id": 30094,
+    "source_url": "https://anilist.co/manga/30094",
+    "checked": "2026-09-24",
+    "reason": "EN manga line 'D.N.Angel (New edition)' (4 volumes; JP line 10): AniList 30094 'D・N・ANGEL' (english 'D.N.Angel'), MANGA, 20 vols -- the same serial the sibling '(Original edition)' line already binds (30094); a re-edition, AniList has one entry for the work"
+  },
+  {
+    "line": "rl_205ab1d10fcc",
+    "anilist_id": 30375,
+    "source_url": "https://anilist.co/manga/30375",
+    "checked": "2026-09-24",
+    "reason": "EN manga line 'Initial D (Part 1: Akina's Eight-Six)' (17 volumes): AniList 30375 'Initial D', MANGA, 48 vols -- the whole serial, which the sibling '(Part 2: Project D)' line (31 volumes) already binds; AniList has one entry for the work, 17 + 31 = 48"
   }
 ]
