@@ -21,6 +21,9 @@ audit trail.
 validation, resolved against a PUBLISHED artifact (manga-metadata.sqlite) instead
 of the pipeline database, so a contributor and CI can run it with nothing but
 the repository and one download. It writes nothing.
+
+`--anilist ARTIFACT` is stage 8a's second half: it writes corrections/anilist.json's
+hand-checked AniList ids onto the exported artifact, after export/resolve_anilist.py.
 """
 import argparse, datetime, json, os, re, sqlite3, sys
 from urllib.request import pathname2url
@@ -40,6 +43,12 @@ ALIAS_KEYS = ("line", "alias", "source_url", "checked")
 # film comic, is NOT this). Keyed on the work id tier 0 computes (`w_...`),
 # stable across rebuilds the same way the medium override's line id is.
 EXCLUDED_KEYS = ("work", "source_url", "checked")
+# A hand-checked AniList id for a line (2026-09-24, the Worst wrong bind): the
+# resolver's rules pick a valid in-tolerance match that is the wrong work, and no
+# safe rule can tell -- so a person pins it. Keyed on the line's own id
+# (`series.tome_id`), applied to the ARTIFACT after export/resolve_anilist.py, so
+# it overrides the resolver's pick.
+ANILIST_KEYS = ("line", "anilist_id", "source_url", "checked")
 ARTIFACT_URL = "https://github.com/DrAwesome441/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite"
 
 sys.path.insert(0, os.path.join(ROOT, "schema"))
@@ -139,6 +148,38 @@ def load_exclusions(directory=None):
         _require(e, EXCLUDED_KEYS, "excluded.json", i)
         out.append(e["work"])
     return out
+
+
+def load_anilist_pins(directory=None):
+    """-> [(release_line_id, anilist_id)] after validation (corrections/anilist.json).
+    `anilist_id` must be a positive JSON integer -- not a string, not a bool (a bool is
+    an int in Python, and `true` would pin every line to id 1)."""
+    out = []
+    for i, e in enumerate(_read("anilist.json", directory or DIR)):
+        _require(e, ANILIST_KEYS, "anilist.json", i)
+        aid = e["anilist_id"]
+        if isinstance(aid, bool) or not isinstance(aid, int) or aid <= 0:
+            raise ValueError("anilist.json[%d]: anilist_id %r is not a positive integer" % (i, aid))
+        out.append((str(e["line"]).strip(), aid))
+    return out
+
+
+def apply_anilist_pins(db, entries=None, verbose=True):
+    """Write every corrections/anilist.json pin onto the EXPORTED artifact's
+    series.anilist_id (stage 8a, after export/resolve_anilist.py -- the resolver
+    only fills NULL ids, so this has to run after it to override its pick). A pin
+    whose line is not in the artifact fails the build (STALE CORRECTION) rather
+    than silently pinning nothing."""
+    pins = load_anilist_pins() if entries is None else entries
+    for i, (line, aid) in enumerate(pins):
+        if not db.execute("UPDATE series SET anilist_id=? WHERE tome_id=?", (aid, line)).rowcount:
+            print("\n  STALE CORRECTION -- anilist.json[%d]: line %s is not in the artifact"
+                  % (i, line), flush=True)
+            raise SystemExit(1)
+    db.commit()
+    if verbose:
+        print("  anilist id pins applied            %8s" % format(len(pins), ","))
+    return len(pins)
 
 
 def _precision(value):
@@ -692,6 +733,17 @@ def check(directory=DIR, artifact=None):
             db.execute("SELECT value FROM meta WHERE key='excluded_works'").fetchone()[0]))
     except (TypeError, sqlite3.OperationalError, ValueError):
         excluded_recorded = set()
+    n_anilist = 0
+    for i, e in entries("anilist.json", ANILIST_KEYS):
+        aid = e["anilist_id"]
+        if isinstance(aid, bool) or not isinstance(aid, int) or aid <= 0:
+            problems.append("anilist.json[%d]: anilist_id %r is not a positive integer" % (i, aid))
+            continue
+        line = str(e["line"]).strip()
+        if not exists("SELECT 1 FROM series WHERE tome_id=?", line):
+            stale.append(("anilist.json", i, "line %s" % line))
+        n_anilist += 1
+
     n_excluded = 0
     for i, e in entries("excluded.json", EXCLUDED_KEYS):
         work = str(e["work"]).strip()
@@ -713,8 +765,8 @@ def check(directory=DIR, artifact=None):
     except sqlite3.OperationalError:
         label = None
     print("  corrections check ok: %d volume, %d line, %d medium, %d market, %d alias, "
-          "%d excluded entries resolve against %s%s"
-          % (n_vol, n_line, n_medium, n_market, n_alias, n_excluded, os.path.basename(artifact),
+          "%d anilist, %d excluded entries resolve against %s%s"
+          % (n_vol, n_line, n_medium, n_market, n_alias, n_anilist, n_excluded, os.path.basename(artifact),
              " (%s)" % label[0] if label else ""))
     return 0
 
@@ -735,6 +787,12 @@ def _check_main(argv):
 if __name__ == "__main__":
     if "--check" in sys.argv:            # before any connect: never a database named "--check"
         sys.exit(_check_main(sys.argv[1:]))
+    if sys.argv[1:2] == ["--anilist"]:   # stage 8a: the pins go onto the exported artifact
+        _art = sqlite3.connect(sys.argv[2] if len(sys.argv) > 2
+                               else os.path.join(ROOT, "build", "manga-metadata.sqlite"))
+        apply_anilist_pins(_art)
+        _art.close()
+        sys.exit(0)
     path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "build", "opentome.db")
     _db = sqlite3.connect(path, timeout=60)
     apply_exclusions(_db)                # excluded works first: nothing later should touch their rows
