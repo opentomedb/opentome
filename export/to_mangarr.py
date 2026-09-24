@@ -406,12 +406,22 @@ def export(src_path, out_path, carry_ids_from=None):
     # count: an arc line keeps Wikipedia's continuous numbering (34-36) and a
     # table with gaps still reaches its last volume.
     # ORIGIN, MEDIUM_ORIGIN_HINT and pick_origin() are module-level (above).
-    markets_of, line_key = {}, {}
+    markets_of, line_key, line_market = {}, {}, {}
     for rid, wid, market, medium, *_rest, wtitle, lname in lines:
         markets_of.setdefault((wid, medium), set()).add(market)
         # exact name, not normalize(): "Kageki Shojo!!" must not resolve to its
         # prequel "Kageki Shojo!", nor "Mechanical Marie" to "Mechanical Marie+"
         line_key[(wid, medium, market, (lname or wtitle).strip().lower())] = rid
+        line_market[rid] = market
+    # A corrections/lines.json `origin_line` pin (tier2/corrections.py), keyed on the
+    # licensed line it was written for. Exists for the case the name-key match above
+    # cannot work at all: Mushoku Tensei's JP and FR "Roxy Gets Serious" lines share a
+    # `line_name` claim cross-parsed from the FR Wikipedia table ("Mushoku Tensei : Les
+    # Aventures de Roxy"), which pairs FR with JP correctly but has no English form for
+    # a hand-added EN line to match -- the fallback below would otherwise resolve to
+    # the JP work's MAIN manga line instead of its JP Roxy spin-off.
+    origin_line_override = dict(src.execute("""SELECT entity_id, value FROM claim
+                                               WHERE entity='release_line' AND field='origin_line'"""))
     # Earliest dated volume per line (day/month precision, like last_dated_of below),
     # for pick_origin()'s step 2: whichever candidate market's main line shipped first.
     first_dated_of = dict(src.execute("""SELECT release_line_id, MIN(release_date) FROM volume
@@ -433,12 +443,20 @@ def export(src_path, out_path, carry_ids_from=None):
                                           AND release_date_precision IN ('day','month')
                                         GROUP BY 1"""))
 
-    def origin_line(wid, medium, market, lname, wtitle):
-        """This licensed line's counterpart in the work's original market: the same-named
-        line there, else that market's main line. None for an origin-market line."""
+    def origin_line(rid, wid, medium, market, lname, wtitle):
+        """This licensed line's counterpart in the work's original market: an origin_line
+        correction pin if this line has one, else the same-named line there, else that
+        market's main line. None for an origin-market line."""
         om = origin_of.get((wid, medium))
         if om is None or om == market:
             return None
+        pinned = origin_line_override.get(rid)
+        if pinned:
+            pinned_market = line_market.get(pinned)
+            if pinned_market != om:
+                raise ValueError("origin_line correction on %s points at %s (market %s), "
+                                 "not the origin market %s" % (rid, pinned, pinned_market, om))
+            return pinned
         return (line_key.get((wid, medium, om, (lname or wtitle).strip().lower()))
                 or main_of.get((wid, om, medium)))
 
@@ -536,7 +554,7 @@ def export(src_path, out_path, carry_ids_from=None):
         reach = set(ints_written)
         for cj in comp_vol.values():
             reach.update(n for n in json.loads(cj) if isinstance(n, int))
-        orid = origin_line(wid, medium, market, lname, wtitle)
+        orid = origin_line(rid, wid, medium, market, lname, wtitle)
         orig_sid = mapping.get(orid) if orid else None
         if orid and not is_omni:
             # A licensed line with a counterpart: its own dates against the origin's

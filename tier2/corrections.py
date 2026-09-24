@@ -48,6 +48,8 @@ from load import _id, LICENCE, MARKET_LANG        # noqa: E402  (ids must match 
 from isbn import isbn_market, normalise_isbn      # noqa: E402
 from release_lines import MEDIUM_HINTS            # noqa: E402  (canonical medium names)
 
+ORIGIN_LANGS = {MARKET_LANG[m] for m in ORIGIN_MARKETS}
+
 # A medium OVERRIDE entry (2026-09-23 follow-up, the Denma orig_series_id defect):
 # unlike a normal lines.json entry, which ADDS a release line the sources don't
 # carry, this retags the `medium` of a line that already exists -- keyed on the
@@ -269,6 +271,33 @@ def apply_line_corrections(db, entries=None, verbose=True):
                               WHEN 'JP' THEN 0 WHEN 'KR' THEN 1 ELSE 2 END LIMIT 1""",
                            (wid, medium) + ORIGIN_MARKETS).fetchone()
         origin = origin[0] if origin else None
+        # origin_line (optional): the naive query above has no way to choose between
+        # two lines that share (work, medium, market) -- e.g. Mushoku Tensei's JP main
+        # manga and its JP "Roxy Gets Serious" spin-off manga both sit under the same
+        # work/medium, and the export's own name-key matching cannot pair this new
+        # English line with the right one either (see corrections/README.md and
+        # export/to_mangarr.py's origin_line()). When an entry names the exact origin
+        # line, it overrides the naive pick for BOTH the composition mapping below and
+        # (via the claim written after the INSERT) the exporter's orig_series_id.
+        origin_line_id = e.get("origin_line")
+        if origin_line_id:
+            row = c.execute("SELECT work_id, medium, market FROM release_line WHERE id=?",
+                            (origin_line_id,)).fetchone()
+            if not row:
+                print("\n  STALE CORRECTION -- lines.json[%d]: origin_line %s is not in the catalogue"
+                      % (i, origin_line_id), flush=True)
+                raise SystemExit(1)
+            o_wid, o_medium, o_market = row
+            if o_wid != wid:
+                raise ValueError("lines.json[%d]: origin_line %s belongs to work %s, not %s"
+                                 % (i, origin_line_id, o_wid, wid))
+            if o_medium != medium:
+                raise ValueError("lines.json[%d]: origin_line %s is medium %r, not %r"
+                                 % (i, origin_line_id, o_medium, medium))
+            if o_market not in ORIGIN_MARKETS:
+                raise ValueError("lines.json[%d]: origin_line %s market %r is not an origin "
+                                 "market (%s)" % (i, origin_line_id, o_market, ", ".join(ORIGIN_MARKETS)))
+            origin = origin_line_id
         reason = "%s | %s" % (e.get("reason", "hand-checked"), e["source_url"])
         author = e.get("author", "corrections/lines.json")
 
@@ -283,6 +312,11 @@ def apply_line_corrections(db, entries=None, verbose=True):
                      (entity,entity_id,field,value,source,source_url,licence,retrieved_at)
                      VALUES('release_line',?,'line_name',?,'correction',?,?,?)""",
                   (rid, name, e["source_url"], LICENCE["correction"], NOW))
+        if origin_line_id:
+            c.execute("""INSERT OR REPLACE INTO claim
+                         (entity,entity_id,field,value,source,source_url,licence,retrieved_at)
+                         VALUES('release_line',?,'origin_line',?,'correction',?,?,?)""",
+                      (rid, origin_line_id, e["source_url"], LICENCE["correction"], NOW))
 
         for v in e["volumes"]:
             num = str(v.get("number", "")).strip()
@@ -623,6 +657,23 @@ def check(directory=DIR, artifact=None):
         work = str(e["work"]).strip()
         if not exists("SELECT 1 FROM series WHERE tome_work_id=?", work):
             stale.append(("lines.json", i, "work %s" % work))
+        if e.get("origin_line"):
+            oline = str(e["origin_line"]).strip()
+            orow = db.execute("SELECT tome_work_id, medium, language FROM series WHERE tome_id=?",
+                              (oline,)).fetchone()
+            if not orow:
+                stale.append(("lines.json", i, "origin_line %s" % oline))
+            else:
+                o_work, o_medium, o_lang = orow
+                if o_work != work:
+                    problems.append("lines.json[%d]: origin_line %s belongs to work %s, not %s"
+                                    % (i, oline, o_work, work))
+                if o_medium != e.get("medium"):
+                    problems.append("lines.json[%d]: origin_line %s is medium %r, not %r"
+                                    % (i, oline, o_medium, e.get("medium")))
+                if o_lang not in ORIGIN_LANGS:
+                    problems.append("lines.json[%d]: origin_line %s language %r is not an "
+                                    "origin market (%s)" % (i, oline, o_lang, ", ".join(ORIGIN_MARKETS)))
         n_line += 1
     for i, e in entries("aliases.json", ALIAS_KEYS):
         line = str(e["line"]).strip()

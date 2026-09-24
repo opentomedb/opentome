@@ -3,8 +3,8 @@ artifact -- the pull-request check, run without the pipeline database.
 Run: python3 tier2/test_corrections_check.py
 
 Offline and self-contained: a tiny artifact carrying only the columns the check
-reads (series.tome_id / tome_work_id, volumes.tome_id / isbn13, volumes_special.isbn13)
-is built in a temp
+reads (series.tome_id / tome_work_id / medium / language, volumes.tome_id / isbn13,
+volumes_special.isbn13) is built in a temp
 dir, and a corrections directory is written per case. The check must accept an
 empty set, a `v_` id or an ISBN that resolves, a work and a line that resolve; it
 must reject a stale key, a missing required key, an uncorrectable field, a page count
@@ -30,13 +30,19 @@ def make_artifact(path):
     db = sqlite3.connect(path)
     db.executescript("""
         CREATE TABLE series (gcd_series_id INTEGER PRIMARY KEY, name TEXT NOT NULL,
-                             tome_id TEXT, tome_work_id TEXT);
+                             tome_id TEXT, tome_work_id TEXT, medium TEXT, language TEXT);
         CREATE TABLE volumes (id INTEGER PRIMARY KEY, gcd_series_id INTEGER NOT NULL,
                               volume_number INTEGER NOT NULL, tome_id TEXT, isbn13 TEXT);
         CREATE TABLE volumes_special (gcd_series_id INTEGER NOT NULL, volume_label TEXT NOT NULL,
                                       isbn13 TEXT);
         CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
-        INSERT INTO series VALUES (1, 'Example', 'rl_aaaaaaaaaaaa', 'w_aaaaaaaaaaaa');
+        INSERT INTO series VALUES (1, 'Example', 'rl_aaaaaaaaaaaa', 'w_aaaaaaaaaaaa', 'manga', 'ja');
+        -- origin_line pin targets (2026-09-24, Roxy Gets Serious): a second same-work
+        -- same-medium JP-market line, plus deliberately-wrong-shaped ones to fail a pin.
+        INSERT INTO series VALUES (6, 'Example Origin', 'rl_bbbbbbbbbbbb', 'w_aaaaaaaaaaaa', 'manga', 'ja');
+        INSERT INTO series VALUES (7, 'Other Work', 'rl_cccccccccccc', 'w_other0000001', 'manga', 'ja');
+        INSERT INTO series VALUES (8, 'Wrong Medium', 'rl_dddddddddddd', 'w_aaaaaaaaaaaa', 'light_novel', 'ja');
+        INSERT INTO series VALUES (9, 'Not Origin Market', 'rl_eeeeeeeeeeee', 'w_aaaaaaaaaaaa', 'manga', 'en');
         INSERT INTO volumes VALUES (1, 1, 1, 'v_111111111111', '9781234567890');
         INSERT INTO volumes VALUES (2, 1, 2, 'v_222222222222', NULL);
         INSERT INTO volumes VALUES (3, 1, 3, 'v_333333333333', '9781234567005');
@@ -159,6 +165,44 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("lines.json[0]", out)
         self.assertIn("market", out)
+
+    # -- origin_line pin (2026-09-24, Roxy Gets Serious): a whole-edition entry
+    # naming the exact origin-market line for orig_series_id, needed when two
+    # lines share (work, medium, market) and the export's own name-key match
+    # cannot pair them (see corrections/README.md).
+    def test_origin_line_pin_resolves(self):
+        line = dict(LINE, origin_line="rl_bbbbbbbbbbbb")
+        code, out = self.check(self.corrections(lines=[line]))
+        self.assertEqual(code, 0, out)
+
+    def test_origin_line_pin_stale_fails(self):
+        line = dict(LINE, origin_line="rl_999999999999")
+        code, out = self.check(self.corrections(lines=[line]))
+        self.assertEqual(code, 1)
+        self.assertIn("STALE CORRECTION", out)
+        self.assertIn("rl_999999999999", out)
+
+    def test_origin_line_pin_wrong_work_fails(self):
+        line = dict(LINE, origin_line="rl_cccccccccccc")
+        code, out = self.check(self.corrections(lines=[line]))
+        self.assertEqual(code, 1)
+        self.assertIn("lines.json[0]", out)
+        self.assertIn("rl_cccccccccccc", out)
+        self.assertIn("w_other0000001", out)
+
+    def test_origin_line_pin_wrong_medium_fails(self):
+        line = dict(LINE, origin_line="rl_dddddddddddd")
+        code, out = self.check(self.corrections(lines=[line]))
+        self.assertEqual(code, 1)
+        self.assertIn("lines.json[0]", out)
+        self.assertIn("light_novel", out)
+
+    def test_origin_line_pin_non_origin_market_fails(self):
+        line = dict(LINE, origin_line="rl_eeeeeeeeeeee")
+        code, out = self.check(self.corrections(lines=[line]))
+        self.assertEqual(code, 1)
+        self.assertIn("lines.json[0]", out)
+        self.assertIn("origin market", out)
 
     # -- curated alias removal (2026-09-23 cleanup, item 2): "remove": true on
     # an otherwise-normal aliases.json entry. load_aliases() (additions, read by

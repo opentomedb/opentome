@@ -268,5 +268,114 @@
     "source_url": "https://yenpress.com/titles/9798855434453-rascal-does-not-dream-of-a-beach-queen-light-novel",
     "reason": "Yen Press vol. 16 (Aug 2026) missing from the EN line, which stops at 15; Audible lists the audiobook as sequence 16 (B0H6KH9744, 2026-08-18)",
     "checked": "2026-09-21"
+  },
+  {
+    "work": "w_179929c7bc15",
+    "market": "EN",
+    "medium": "manga",
+    "name": "Mushoku Tensei: Roxy Gets Serious",
+    "publisher": "Seven Seas Entertainment",
+    "volumes": [
+      {
+        "number": "1",
+        "isbn13": "978-1-64275-046-1",
+        "release_date": "2019-04-30",
+        "contains": [
+          1
+        ]
+      },
+      {
+        "number": "2",
+        "isbn13": "978-1-64275-693-7",
+        "release_date": "2019-09-10",
+        "contains": [
+          2
+        ]
+      },
+      {
+        "number": "3",
+        "isbn13": "978-1-64505-219-7",
+        "release_date": "2020-03-24",
+        "contains": [
+          3
+        ]
+      },
+      {
+        "number": "4",
+        "isbn13": "978-1-64505-764-2",
+        "release_date": "2020-11-17",
+        "contains": [
+          4
+        ]
+      },
+      {
+        "number": "5",
+        "isbn13": "978-1-64827-081-9",
+        "release_date": "2021-03-23",
+        "contains": [
+          5
+        ]
+      },
+      {
+        "number": "6",
+        "isbn13": "978-1-64827-311-7",
+        "release_date": "2021-09-28",
+        "contains": [
+          6
+        ]
+      },
+      {
+        "number": "7",
+        "isbn13": "978-1-63858-234-2",
+        "release_date": "2022-05-10",
+        "contains": [
+          7
+        ]
+      },
+      {
+        "number": "8",
+        "isbn13": "978-1-63858-782-8",
+        "release_date": "2022-12-20",
+        "contains": [
+          8
+        ]
+      },
+      {
+        "number": "9",
+        "isbn13": "978-1-68579-473-6",
+        "release_date": "2023-05-02",
+        "contains": [
+          9
+        ]
+      },
+      {
+        "number": "10",
+        "isbn13": "979-8-88843-073-6",
+        "release_date": "2023-12-12",
+        "contains": [
+          10
+        ]
+      },
+      {
+        "number": "11",
+        "isbn13": "979-8-88843-624-0",
+        "release_date": "2024-04-30",
+        "contains": [
+          11
+        ]
+      },
+      {
+        "number": "12",
+        "isbn13": "979-8-89160-254-0",
+        "release_date": "2024-09-10",
+        "contains": [
+          12
+        ]
+      }
+    ],
+    "origin_line": "rl_e5f7e5f4fab0",
+    "source_url": "https://sevenseasentertainment.com/series/mushoku-tensei-roxy-gets-serious/",
+    "reason": "read from the Seven Seas series page by the maintainer on 2026-09-24; ISBN-13 check digits validated -- origin_line pins this line to the JP Roxy manga line (rl_e5f7e5f4fab0), not the JP MAIN Mushoku Tensei manga line: that JP line's own line_name claim is the French string cross-parsed from the FR Wikipedia table ('Mushoku Tensei : Les Aventures de Roxy'), which pairs correctly with the FR Roxy line but has no English form for this line's own name to exact-match, so export/to_mangarr.py's origin_line() would otherwise fall back to the JP work's main manga line (see corrections/README.md)",
+    "checked": "2026-09-24"
   }
 ]

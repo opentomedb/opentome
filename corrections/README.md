@@ -150,7 +150,7 @@ publisher's page can.
 ```
 
 Required: `work`, `market`, `medium`, `name`, `volumes`, `source_url`, `checked`.
-Optional: `publisher`, `reason`.
+Optional: `publisher`, `reason`, `origin_line`.
 
 `work` is the OpenTome work id (`series.tome_work_id` in the published artifact,
 on every sibling line). `market` is one of `JP EN FR DE KR IT ES BR CN TW HK`.
@@ -165,6 +165,30 @@ gets in.
 The line receives exactly the id the pipeline would give the same edition, so
 if a source later carries it the two meet instead of duplicating, and the
 consumer's series id never changes.
+
+`origin_line` (optional): pins this new line's `orig_series_id` to an exact,
+already-cataloged release line, for the case the export's own name-key
+matching (`export/to_mangarr.py`'s `origin_line()`) cannot pair the two.
+`export/to_mangarr.py` matches a licensed line to its origin-market
+counterpart by an EXACT string match on the two lines' names — which fails
+when a work has more than one line sharing (work, medium, market): Mushoku
+Tensei's JP manga has both the main serial and a "Roxy Gets Serious"
+spin-off, and the JP spin-off's own `line_name` claim is not Japanese at
+all — it is the French string cross-parsed from the FR Wikipedia table
+("Mushoku Tensei : Les Aventures de Roxy"), the same string the FR spin-off
+line carries (which is why FR pairs with JP correctly today). A new EN line
+named "Mushoku Tensei: Roxy Gets Serious" cannot exact-match that string, so
+without a pin it silently falls back to the JP work's MAIN manga line — the
+new line then reads 12 of 25 volumes against a still-running series and
+exports `stalled` instead of `completed`. Value: an existing release line id
+(`rl_...`), which must belong to the SAME `work` and the SAME `medium`, and
+sit in an origin market (`JP KR CN TW`) — `tier2/corrections.py` validates
+all three and refuses a stale, cross-work, cross-medium or non-origin-market
+target the same way a medium/market override refuses a stale line. It is
+also used for `composition.ref_line_id` (the cross-market volume mapping)
+in place of the same naive "any origin-market line for this work+medium"
+query the whole-edition entry already relies on, which has the identical
+ambiguity when more than one origin-market line exists.
 
 ### `lines.json` — medium override (a narrower entry shape, same file)
 
