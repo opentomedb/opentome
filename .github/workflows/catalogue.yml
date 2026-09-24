@@ -79,6 +79,9 @@ jobs:
             build/anilist-resolve-report.tsv
             build/measure.log
             build/status-transitions.tsv
+            build/dnb-review.tsv
+            build/dnb-report.json
+            build/dnb-netlog.tsv
       # The human gate. The PAT (not GITHUB_TOKEN) is what writes to the
       # mangarr-metadata releases, so this workflow needs no write permission.
       - name: publish
