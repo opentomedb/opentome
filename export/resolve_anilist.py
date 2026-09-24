@@ -83,7 +83,17 @@ hinted catalogue line's own name, never an alias or arc title it was matched by:
     format qualifier -- edition, volume list, release (re-release too), version, tankōbon,
     shinsōban, VizBig, 2-in-1, parution, printing; never one naming a chapter or a nested
     "series (" or a quoted title (`Amazing Agent Luna ("Amazing Agent Jennifer" Volume list)`
-    names another work) -- ranked against the name page, else one search. The catalogue names sibling
+    names another work) -- ranked against the name page, else one search. R6+ (round 2,
+    2026-09-24) widens the allowlist to Wikipedia's collection / list-article headings -- omnibus,
+    perfect collection, publication, list of, manga list, overview, original manga, bunko,
+    aizōban, kanzenban, deluxe, "volumes" (never "@comic volumes": My Youth Romantic Comedy's
+    "(@comic volumes)" line is the @comic spin-off, not an edition) -- strips an unclosed
+    trailing parenthetical (`Saiyuki (Enix Edition`) and a bare trailing "volumes" / "volume
+    list" heading (`Gunsmith Cats Burst volumes`); the chapter / nested-series / quote guards
+    stand (`The Kindaichi Case Files (File series (27 volumes/19 files)` stays). Measured
+    against round 1: 3 new (Dance in the Vampire Bund (Omnibus) -> 37627, Freezing (Part 2:
+    Volumes 15-29) -> 35911, Highschool of the Dead (English omnibus volumes) -> 30669), 0
+    changed, 0 lost; ~20 of the new stripped terms were never searched (a live run settles them). The catalogue names sibling
     editions after Wikipedia's headings ("Inuyasha (VizBig edition)", "Ranma ½ (2014 English
     release (2-in-1 Edition)"), and AniList has one entry for the work. It is ranked like an
     ALIAS (R3, no fallback tiers), not like the name: stripping can drop content, and the
@@ -362,15 +372,23 @@ def deslug(name):
 # R6: what a trailing parenthetical may say for the name without it to still be the line's own
 # name -- an edition / format / printing qualifier, never an arc ("chapter") or a nested series
 EDITION_QUALIFIER = re.compile(r"edition|volume list|release|version|tank[o\u014d]bon|shins[o\u014d]ban|"
-                               r"vizbig|2-in-1|parution|printing", re.I)
+                               r"vizbig|2-in-1|parution|printing|"
+                               # R6+ (round 2): omnibus / collection / list-article headings
+                               r"omnibus|perfect collection|publication|list of|manga list|overview|original manga|"
+                               r"bunko|aiz[o\u014d]ban|kanzenban|deluxe|(?<!@comic )volumes", re.I)
 
 
 def edition_stripped(name):
     """R6: the name without a trailing edition-qualifier parenthetical, or None.
     `Inuyasha (VizBig edition)` -> `Inuyasha`; an unclosed outer parenthetical goes too
-    (`Ranma ½ (2014 English release (2-in-1 Edition)` -> `Ranma ½`)."""
+    (`Ranma ½ (2014 English release (2-in-1 Edition)` -> `Ranma ½`), and (R6+) so does an
+    unclosed trailing one (`Saiyuki (Enix Edition` -> `Saiyuki`) and a bare trailing "volumes" /
+    "volume list" heading on a name without parentheses (`Gunsmith Cats Burst volumes`)."""
     s = for_search(name)
-    m = re.search(r"\s*\(([^()]*)\)\s*$", s)
+    m = re.search(r"\s+(volumes|volume list)$", s, re.I)   # R6+: a bare trailing "volumes" heading
+    if m and "(" not in s:
+        return s[:m.start()].strip().strip('"') or None
+    m = re.search(r"\s*\(([^()]*)\)?\s*$", s)   # R6+: the trailing parenthetical may be unclosed
     if not m:
         return None
     base, inner = s[:m.start()], m.group(1)
@@ -378,7 +396,7 @@ def edition_stripped(name):
         i = base.rfind("(")
         base, inner = base[:i], base[i + 1:] + "(" + inner + ")"
     base, low = base.strip(), inner.lower()
-    if not base or "chapter" in low or "series (" in low or any(q in inner for q in '"\u201c\u201d') \
+    if not base or "chapter" in low or re.search(r"series ?\(", low) or any(q in inner for q in '"\u201c\u201d') \
             or not EDITION_QUALIFIER.search(inner):
         return None
     return base
