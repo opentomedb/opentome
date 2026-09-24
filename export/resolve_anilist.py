@@ -90,7 +90,7 @@ anilist_id IS NULL are considered, and only resolved ones are written. Clean roo
 is a lookup-key source here (an id, and with --covers a cover URL) -- no title, synonym or
 description ever enters the artifact.
 """
-import argparse, hashlib, json, os, re, sqlite3, sys, time, urllib.error, urllib.request
+import argparse, hashlib, json, os, re, sqlite3, sys, time, unicodedata, urllib.error, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 API = "https://graphql.anilist.co"
@@ -122,16 +122,25 @@ class OfflineMiss(RuntimeError):
 
 # ---------------------------------------------------------------- Mangarr mirrors
 
+def fold(s):
+    """NFKD, combining marks dropped: "Fushigi Yûgi" -> "Fushigi Yugi" (2026-09-24, fix #5)."""
+    return "".join(c for c in unicodedata.normalize("NFKD", s or "") if not unicodedata.combining(c))
+
+
 def key(s):
-    """Mangarr's TitleMatcher.Normalize: lower-case, letters and digits only."""
-    return "".join(c for c in (s or "").lower() if c.isalnum())
+    """Mangarr's TitleMatcher.Normalize: lower-case, letters and digits only -- after fold(),
+    so "Yûgi" and "Yugi" are one key. The Mangarr side follows in a separate task; until
+    then the two differ on accented titles only."""
+    return "".join(c for c in fold(s).lower() if c.isalnum())
 
 
 def for_search(s):
-    """Mangarr's TitleNormalizer.ForSearch: typographic quotes/dashes/NBSP -> ASCII, spaces collapsed."""
+    """Mangarr's TitleNormalizer.ForSearch: typographic quotes/dashes/NBSP -> ASCII, spaces
+    collapsed -- and fold()ed, so the term AniList receives has no accent to mis-slug
+    (deslug's ASCII-only regex made "Fushigi Yûgi" the useless "fushigi y gi")."""
     s = (s or "").replace("\u2018", "'").replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"')
     s = s.replace("\u2013", "-").replace("\u2014", "-").replace("\u00a0", " ")
-    return " ".join(s.split())
+    return " ".join(fold(s).split())
 
 
 ARTICLE = re.compile(r"^(?:the|a|an)\s+", re.I)
@@ -236,7 +245,7 @@ def alias_terms(name, aliases):
     """The alias walk: every alias in stored order, one per normalized form, never the name
     itself, never a Wikipedia list-article name. Not capped -- only fresh searches are
     (ALIAS_LIMIT, in resolve)."""
-    seen, out = {key(name)}, []
+    seen, out = {key(name), key(deslug(name))}, []
     for a in aliases:
         a = for_search(a)
         k = key(a)
