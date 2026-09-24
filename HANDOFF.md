@@ -2,6 +2,47 @@
 
 _Last updated: 2026-09-24_
 
+## 2026-09-24 — branch `anilist-resolve`: AniList resolver accuracy round
+
+Not merged, not pushed, no CI triggered -- Nick's gate. Everything measured OFFLINE against
+`.cache/anilist/` with the new `export/replay_anilist.py` (stock `ca0935f` vs working tree over
+all 3,056 EN lines of the `opentome-2026-09-24` release artifact, anilist_id reset, curated alias
+removals applied; a cache miss = no result, counted as uncached).
+
+Done:
+- `corrections/anilist.json` -- new correction type, a hand-checked AniList id per line
+  (`line` = `series.tome_id`). Applied by `tier2/corrections.py --anilist` right after
+  `resolve_anilist.py` in stage 8a; validated by `--check`; asserted by `test_artifact.py`.
+  Seed: Worst (EN, 3 vols) -> 31741.
+- `corrections/aliases.json`: "Ginga Densetsu Riki" and "Ginga Legend Riki" removed from Weed.
+- `pick()` tiers (docstring = spec): R4 ceiling fallback (Weed -> 34010, +10 short English
+  runs; stands down beside any equal title that passes the ceiling), R5 substring + exact volumes (own name only; +14, Der Werwolf 98367 -> 114483 -- 10 of
+  the analysis's 14; the missing 4 (Haruhi-chan, Re:Zero Truth of Zero / Frozen Bond,
+  Restaurant First series) only match through alias terms and are left out by design; the
+  other 4 are one-to-two-volume lines outside the analysis's scope: Bookworm Royal Academy
+  Stories, Fairy Tail: Ice Trail, Slime (Again!) Workaholic, The Obsessed Mage),
+  R6 edition-qualifier paren-strip retry (ranked like an alias; +9), R7 leading-article
+  equality (+1, Hollow Regalia). Net: 35 new binds, 1 changed (Der Werwolf), 0 lost; vs the
+  published artifact also Weed 38901 -> 34010; EN >= 3 vols unresolved 307 -> 280.
+- Diacritic fold (fix #5) and alias-prefix-first order (fix #4): committed and REVERTED under
+  the round's zero-change rule. The replay lost 8 and 5 currently-bound lines through changed
+  or no-longer-searched terms -- all uncached, so unmeasured; a live A/B could reverse this.
+
+Next:
+- CI build-only run for the live numbers: 30 R6 stripped terms are uncached locally (upper
+  bound), and the via tally now also prints article / substring / ceiling.
+- Mangarr's AniListRanker has none of R4-R7; parity is its own decision.
+
+Gotchas:
+- `bash tier0/rebuild_all.sh` cannot run locally: without `ANILIST_OFFLINE=1` step 8a makes
+  live requests; with it, 8a aborts on `OfflineMiss` (Roxy Gets Serious + two Hoshin Engi
+  terms were already uncached). Stages 8-8d were verified piecewise offline (the round's
+  report, delivered to the maintainer; replay outputs in the private sdd notes).
+- Stage 8a is three calls: resolve, `corrections.py --anilist` (pins), then
+  `resolve_anilist.py --covers-only`, so pinned ids get their fallback cover too.
+- A diacritic fold in `for_search()` rewrites live search strings: NFKD drops kana voicing
+  marks and turns ½ into 1⁄2 -- don't retry it without a live A/B.
+
 ## 2026-09-24 — branch `roxy-en`: the English Roxy Gets Serious line, and an `origin_line` correction
 
 Closes the one library measure-gate miss HANDOFF.md has been carrying since 2026-09-04

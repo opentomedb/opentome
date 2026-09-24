@@ -4,9 +4,9 @@ Hand-checked facts that the pipeline gets wrong, as data rather than as code.
 
 This is the alternative to a community editing website. What a correction
 actually needs is a value, a source, and a guarantee that the next rebuild keeps
-it — none of which requires a server. So corrections are four JSON files in
-this directory (`volumes.json`, `aliases.json`, `lines.json`, `excluded.json`),
-and they arrive as **pull requests**.
+it — none of which requires a server. So corrections are five JSON files in
+this directory (`volumes.json`, `aliases.json`, `lines.json`, `excluded.json`,
+`anilist.json`), and they arrive as **pull requests**.
 
 Every correction is applied by `tier2/corrections.py`, which runs as a stage of
 `tier0/rebuild_all.sh`, and every one is asserted by `export/test_artifact.py`,
@@ -316,6 +316,54 @@ recomputes the same id and the correction keeps applying cleanly. Retagging a
 line's market can change which line the origin picker treats as another
 line's counterpart (`export/to_mangarr.py`'s `origin_line`, matched by exact
 name within a market) -- read the result, do not assume it.
+
+### `anilist.json` — a hand-checked AniList id for a line
+
+For a line `export/resolve_anilist.py` binds to the wrong AniList entry, where no
+safe rule can tell the right one from the wrong one. The case: the English
+*Worst* (3 volumes) has two AniList entries titled exactly "Worst" on its search
+page — 31741 (33 volumes) and 147044 (4 volumes). The volume rule rejects the
+33-volume one (more than 4x the line) and binds the 4-volume one, a different
+work. The line's own `orig_series_id` is the Japanese *Worst* line, 33 volumes:
+the right entry is 31741, and a person can see that where the resolver cannot.
+Mangarr takes the series' poster and synopsis from this id and pins it on every
+add, so a wrong one is worth a correction.
+
+```json
+[
+  {
+    "line": "rl_1cc5f2e75d35",
+    "anilist_id": 31741,
+    "source_url": "https://anilist.co/manga/31741",
+    "reason": "orig_series_id is the 33-volume JP 'Worst'; 31741 has volumes: 33, the resolver's 147044 is a different 4-volume work",
+    "checked": "2026-09-24"
+  }
+]
+```
+
+Required: `line`, `anilist_id`, `source_url`, `checked`. Optional: `reason`.
+
+`line` is an OpenTome release-line id (`series.tome_id` in the published
+artifact), the same key `aliases.json` and the `lines.json` overrides use: it is
+stable across rebuilds and names exactly one line, where a series name does not
+(many lines share one). `anilist_id` is a JSON integer (not a string); `source_url`
+is the AniList entry that was checked. Put the evidence in `reason` — which
+catalogue fact the entry matches (volume count of the origin line, author, dates).
+
+Applied in stage 8a, right after `export/resolve_anilist.py`, by
+`python3 tier2/corrections.py --anilist build/manga-metadata.sqlite.new`: a plain
+`UPDATE series SET anilist_id` on the exported artifact, so it overrides whatever
+the resolver picked (the resolver only ever fills NULL ids). A pin whose line is
+not in the artifact stops the build (`STALE CORRECTION`), and
+`export/test_artifact.py` fails if a pinned line carries any other id.
+
+Clean room: the pin is an id, the same lookup key the resolver writes — no AniList
+title, synonym or description enters the artifact through it.
+
+Covers: `build/anilist-covers.json` (the site's fallback cover for a line with no
+ISBN-keyed volume cover) is filled last in stage 8a, by
+`export/resolve_anilist.py --covers-only` after the pins land, so a pinned id gets
+its fallback cover exactly like a resolved one.
 
 ## Checking before you open the pull request
 

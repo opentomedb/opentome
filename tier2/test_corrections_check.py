@@ -277,6 +277,67 @@ class CheckTests(unittest.TestCase):
         code, out = self.check(d)
         self.assertEqual(code, 0, out)
 
+    # -- anilist.json (2026-09-24, the Worst wrong bind): a hand-checked AniList id per line
+    def anilist(self, *pins):
+        d = self.corrections()
+        with open(os.path.join(d, "anilist.json"), "w", encoding="utf8") as f:
+            json.dump(list(pins), f)
+        return d
+
+    PIN = {"line": "rl_aaaaaaaaaaaa", "anilist_id": 31741, "source_url": "https://anilist.co/manga/31741",
+           "checked": "2026-09-24"}
+
+    def test_anilist_pin_resolves(self):
+        code, out = self.check(self.anilist(self.PIN))
+        self.assertEqual(code, 0, out)
+        self.assertIn("1 anilist", out)
+
+    def test_anilist_pin_stale_line_fails(self):
+        code, out = self.check(self.anilist(dict(self.PIN, line="rl_999999999999")))
+        self.assertEqual(code, 1)
+        self.assertIn("STALE CORRECTION -- anilist.json[0]", out)
+        self.assertIn("rl_999999999999", out)
+
+    def test_anilist_pin_missing_key_fails(self):
+        pin = dict(self.PIN)
+        del pin["source_url"]
+        code, out = self.check(self.anilist(pin))
+        self.assertEqual(code, 1)
+        self.assertIn("anilist.json[0]", out)
+        self.assertIn("source_url", out)
+
+    def test_anilist_pin_id_not_an_int_fails(self):
+        for bad in ("31741", True, -5, 1.5):
+            code, out = self.check(self.anilist(dict(self.PIN, anilist_id=bad)))
+            self.assertEqual(code, 1, bad)
+            self.assertIn("not a positive integer", out)
+
+    def test_anilist_pin_duplicate_line_fails(self):
+        code, out = self.check(self.anilist(self.PIN, dict(self.PIN, anilist_id=147044)))
+        self.assertEqual(code, 1)
+        self.assertIn("anilist.json[1]: line rl_aaaaaaaaaaaa is already pinned by anilist.json[0]", out)
+        with self.assertRaises(ValueError):
+            C.load_anilist_pins(self.anilist(self.PIN, dict(self.PIN, anilist_id=147044)))
+
+    def test_anilist_pin_apply_overrides_and_fails_stale(self):
+        art = sqlite3.connect(":memory:")
+        art.execute("CREATE TABLE series (gcd_series_id INTEGER PRIMARY KEY, tome_id TEXT, anilist_id INTEGER)")
+        art.execute("INSERT INTO series VALUES (1, 'rl_aaaaaaaaaaaa', 147044)")   # the resolver's pick
+        art.execute("INSERT INTO series VALUES (2, 'rl_bbbbbbbbbbbb', 5)")
+        with contextlib.redirect_stdout(io.StringIO()):
+            C.apply_anilist_pins(art, entries=[("rl_aaaaaaaaaaaa", 31741)])
+        self.assertEqual(art.execute("SELECT gcd_series_id, anilist_id FROM series ORDER BY 1").fetchall(),
+                         [(1, 31741), (2, 5)])
+        with contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit):
+            C.apply_anilist_pins(art, entries=[("rl_999999999999", 31741)])
+        self.assertIn("STALE CORRECTION -- anilist.json[0]", out.getvalue())
+
+    def test_anilist_pins_load_validates(self):
+        d = self.anilist(self.PIN)
+        self.assertEqual(C.load_anilist_pins(d), [("rl_aaaaaaaaaaaa", 31741)])
+        with self.assertRaises(ValueError):
+            C.load_anilist_pins(self.anilist(dict(self.PIN, anilist_id=True)))
+
     # -- failures: stale keys
     def test_stale_volume_id_fails(self):
         v = dict(VOL, volume="v_999999999999")

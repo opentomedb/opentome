@@ -177,6 +177,12 @@ def run(path):
         missing_removal += bool(hit)
     rule("removed aliases still present in the artifact", missing_removal)
 
+    wrong_pin = 0
+    for line_id, aid in corr.load_anilist_pins():
+        row = db.execute("SELECT anilist_id FROM series WHERE tome_id=?", (line_id,)).fetchone()
+        wrong_pin += (row is None or row[0] != aid)
+    rule("anilist id pins not present in the artifact", wrong_pin)
+
     missing_excluded = 0
     for wid in corr.load_exclusions():
         hit = db.execute("SELECT 1 FROM series WHERE tome_work_id=?", (wid,)).fetchone()

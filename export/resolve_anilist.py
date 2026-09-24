@@ -1,13 +1,15 @@
 """Bind OpenTome's English lines to AniList ids (series.anilist_id).
 
-    python3 export/resolve_anilist.py [build/manga-metadata.sqlite] [--dry-run] [--limit N] [--only NAME] [--covers]
+    python3 export/resolve_anilist.py [build/manga-metadata.sqlite] [--dry-run] [--limit N] [--only NAME] [--covers | --covers-only]
 
 Mangarr resolves a series' poster / description / aliases from AniList by title, and the
 2026-09-15 audit (mangarr: docs/superpowers/specs/2026-09-15-manga-metadata-audit.md) found
 three of its 44 manga entries bound to a one-shot or an anthology that merely carried the
 serial's title as a synonym. Mangarr now binds by id and consults the catalogue first, so
-this step gives every English line the id up front, with the SAME rules Mangarr's
-AniListRanker applies (kept in step on purpose -- change both or neither):
+this step gives every English line the id up front, with the rules Mangarr's AniListRanker
+applies (kept in step on purpose) plus FALLBACK tiers that run only where those rules find
+nothing (R4 on; each measured by export/replay_anilist.py to move no existing bind). Mangarr
+does not have the fallback tiers yet -- whether it should is its own decision:
 
   * candidates = AniList `Page(perPage: 10) { media(search:) }`, type MANGA; manga-family
     mediums query `format_not: NOVEL`, novel mediums (light_novel, novel) `format: NOVEL`
@@ -34,15 +36,59 @@ AniListRanker applies (kept in step on purpose -- change both or neither):
     the 4-volume "Onegai, Sore wo Yamenaide" carries "Doll" as a synonym), a same-named
     ONE_SHOT is that serial's pilot -- either way the carrier is a chapter title wearing the
     name, and unresolved is recoverable where a wrong bind is not
+  * R7 (article, 2026-09-24, OpenTome only): below exact equality, the same primary-then-
+    synonym equality after dropping one leading "the" / "a" / "an" (a whole word) from both
+    sides, R1 included across tiers (never beside an exact primary-title candidate, even a
+    rejected one). The catalogue's "Hollow Regalia" is AniList's "The Hollow Regalia"
+    (133016) on its own novel page. Measured: that one line, nothing else moved
+  * fallback tiers, tried only while the tiers above found nothing on the page (R5 needs no
+    equal title on the page -- exact or R7 -- and R4 needs one, so the two never compete):
+    - R5 (substring, 2026-09-24): no candidate on the page -- rejected or ONE_SHOT included,
+      R1's reading -- key-equals the term, and exactly ONE volume-passing, non-ONE_SHOT
+      candidate has a title / synonym key that contains the term's key or sits inside it
+      (shorter side >= 4) AND `volumes` equal to the line's volume_count. The exact count is
+      what makes it safe: "It's Just Not My Night" (3) is "...: Tale of a Fallen Vampire
+      Queen" (3); AniList lists the Bookworm novel per Part, so the catalogue's longer
+      "Ascendance of a Bookworm (Part 2: Apprentice Shrine Maiden)" (4) is the SHORTER
+      "Ascendance of a Bookworm: Part 2" (4) while Parts 1/3/4/5 (3/5/9/12) share the base
+      name. In that candidate-shorter direction the exact count plus uniqueness is the WHOLE
+      guard -- any shorter franchise name inside the term qualifies on text alone (Re:Zero
+      (A Week at the Mansion) matched 85814 through its synonym "ReZero"). Own-name terms only: allowed on alias terms it bound "Diamond Is Unbreakable"
+      to Battle Angel Alita through the alias "Angelo" and moved an existing bind (replay,
+      2026-09-24). Measured: 14 new, 1 changed (Der Werwolf: the alias-found 98367, null
+      volumes, to 114483 "~Origins~", 11 = the line's 11 and its JP line's 11)
+    - R4 (ceiling, 2026-09-24, Weed): an exact primary / synonym match (R1 still applies)
+      rejected SOLELY by the 4x ceiling binds -- a short English run of the full Japanese
+      serial (Weed: 3 English volumes, 34010 "Ginga Densetsu WEED" 60, synonym "WEED"; the
+      old rule fell through to a franchise relative's alias and bound 38901). Own-name terms
+      only (R3), and never over an equal-titled candidate that passes the ceiling, even a
+      synonym carrier R1 rejected (Worst: 147044, 4 vols,
+      stays; the right 31741 is a corrections/anilist.json pin, not a rule). Nor beside an
+      article-equal (R7) candidate. Measured on opentome-2026-09-24: Weed plus 10 unbound
+      lines, each an exact title; for 9 the AniList volume count equals the line's own origin
+      line (Billy Bat 20, City Hunter 35, ...); Aria the Scarlet Ammo is the right work
+      (47536, the main Hidan no Aria manga) with 16 vs the origin line's 26
   * no equality on the name -> D3 retry, in Mangarr's order: the de-slugged form of the name
-    first (its slug with the dashes back as spaces -- Mangarr's foreign id), then the line's
-    aliases -- EVERY alias (series_alias in stored order, one per normalized form, Wikipedia
+    first (its slug with the dashes back as spaces -- Mangarr's foreign id); then (R6,
+    2026-09-24, OpenTome only) the name without a trailing parenthetical that is an edition /
+    format qualifier -- edition, volume list, release (re-release too), version, tankōbon,
+    shinsōban, VizBig, 2-in-1, parution, printing; never one naming a chapter or a nested
+    "series (" or a quoted title (`Amazing Agent Luna ("Amazing Agent Jennifer" Volume list)`
+    names another work) -- ranked against the name page, else one search. The catalogue names sibling
+    editions after Wikipedia's headings ("Inuyasha (VizBig edition)", "Ranma ½ (2014 English
+    release (2-in-1 Edition)"), and AniList has one entry for the work. It is ranked like an
+    ALIAS (R3, no fallback tiers), not like the name: stripping can drop content, and the
+    R3 failure is exactly what it would do -- "Sailor Moon (Shinsōban short stories)", 2
+    volumes, bound the 18-volume serial through the bare "Sailor Moon" under R2 (its own
+    entry is "Sailor Moon Short Stories"). Measured: 9 new, each the id a sibling edition
+    of the same line already carries; the own-name reading added Jiraishin and that wrong
+    Sailor Moon bind. Then the line's aliases -- EVERY alias (series_alias in stored order, one per normalized form, Wikipedia
     list-article names skipped), each ranked against the page the name search already fetched
     at no cost, and a fresh search only for the first ALIAS_LIMIT = 3 that miss that page,
     ranked against its own page (Mangarr's AniListService.FindSeries: aliases are walked, only
-    SEARCHES are capped). There is NO relaxed / fuzzy pass: an unresolved line stays NULL and
-    Mangarr's own ranked search handles it at add time. A guess here would be pinned by every
-    future add.
+    SEARCHES are capped). There is no fuzzy pass: the fallback tiers each demand an exact
+    title or an exact volume count, and a line none of them reaches stays NULL for Mangarr's
+    own ranked search at add time. A guess here would be pinned by every future add.
 
 Polite by construction: one request per MIN_INTERVAL, up to BATCH searches per request as
 GraphQL aliases, every search cached on disk per (term, family) under .cache/anilist/ so a
@@ -66,6 +112,7 @@ ALIAS_LIMIT = 3             # fresh alias SEARCHES per line -- every alias is pa
                             # de-slugged form is a separate, earlier retry); Mangarr's MaxAliasSearches
 NOVEL_MEDIUMS = ("light_novel", "novel")
 LIST_PREFIXES = ("list of ", "liste des ", "plot of ")
+VIAS = ("primary", "synonym", "article", "substring", "ceiling", "alias")   # how a line bound: pick()'s tiers on the name page, or a retry term
 FIELDS = "id format volumes chapters popularity status title { romaji english native } synonyms"
 _last = [0.0]
 
@@ -94,17 +141,51 @@ def for_search(s):
     return " ".join(s.split())
 
 
+ARTICLE = re.compile(r"^(?:the|a|an)\s+", re.I)
+
+
+def art_key(s):
+    """R7: key() after dropping one leading English article ("The Hollow Regalia" -> hollowregalia)."""
+    return key(ARTICLE.sub("", for_search(s)))
+
+
 def pick(cands, term, volume_count, own_name=True):
-    """Mangarr's AniListRanker.Pick. (media | None, 'primary' | 'synonym' | None, rejections).
-    own_name is False for an alias retry (R3: the volume ceiling then always holds)."""
+    """Mangarr's AniListRanker.Pick, plus the fallback tiers in the module docstring.
+    (media | None, via | None, rejections); via is 'primary', 'synonym' or the fallback
+    tier that bound it ('article', 'substring', 'ceiling'). own_name is False for an alias retry (R3: the volume ceiling
+    then always holds, and no fallback tier runs)."""
     k = key(term)
 
     def primary_title(m):
         t = m.get("title") or {}
         return bool(k) and k in (key(t.get("romaji")), key(t.get("english")), key(t.get("native")))
 
+    def synonym_title(m):
+        return bool(k) and any(key(s) == k for s in m.get("synonyms") or [])
+
+    ak = art_key(term)
+
+    def article_primary(m):
+        t = m.get("title") or {}
+        return bool(ak) and ak in (art_key(t.get("romaji")), art_key(t.get("english")), art_key(t.get("native")))
+
+    def article_synonym(m):
+        return bool(ak) and any(art_key(s) == ak for s in m.get("synonyms") or [])
+
+    def contains(m):
+        """R5: a title key contains the term's key or sits inside it, shorter side >= 4."""
+        t = m.get("title") or {}
+        for x in (t.get("romaji"), t.get("english"), t.get("native"), *(m.get("synonyms") or [])):
+            x = key(x)
+            if min(len(x), len(k)) >= 4 and (k in x or x in k):
+                return True
+        return False
+
     primary_on_page = any(primary_title(m) for m in cands)   # R1: counts rejected candidates too
-    primary, synonym, rejected = [], [], []
+    article_on_page = primary_on_page or any(article_primary(m) for m in cands)   # R1 for R7
+    equality_on_page = article_on_page or any(synonym_title(m) or article_synonym(m) for m in cands)
+    primary, synonym, rejected, oversized, substring = [], [], [], [], []
+    art_primary, art_synonym, carrier = [], [], False
     for m in cands:
         if m.get("format") == "ONE_SHOT":
             rejected.append("%s:ONE_SHOT" % m["id"])
@@ -119,19 +200,45 @@ def pick(cands, term, volume_count, own_name=True):
                 continue
             if (volume_count > 2 or not own_name) and v > 4 * volume_count:   # R2 / R3
                 rejected.append("%s:volumes %s > 4x %s" % (m["id"], v, volume_count))
+                if own_name and (primary_title(m) or synonym_title(m)):
+                    oversized.append(m)   # R4: rejected SOLELY by the ceiling
                 continue
         if primary_title(m):
             primary.append(m)
-        elif k and any(key(s) == k for s in m.get("synonyms") or []):
+        elif synonym_title(m):
             if primary_on_page:
                 rejected.append("%s:synonym only (a primary-title candidate is on the page)" % m["id"])
+                carrier = True   # passed the ceiling: R4 must not outrank it either
             else:
                 synonym.append(m)
+        elif article_primary(m):
+            art_primary.append(m)
+        elif article_synonym(m):
+            if article_on_page:
+                rejected.append("%s:synonym only (a primary-title candidate is on the page)" % m["id"])
+            else:
+                art_synonym.append(m)
+        elif own_name and v and v == volume_count and contains(m):
+            substring.append(m)
     pool = primary or synonym
+    if pool:
+        via = "primary" if primary else "synonym"
+    elif (art_primary or art_synonym) and not primary_on_page:
+        pool, via = art_primary or art_synonym, "article"   # R7: below exact equality, R1 across tiers
+    elif not equality_on_page and len(substring) == 1:
+        # R5: no equality anywhere on the page (R1's reading: a rejected equal title is the
+        # work with a disputed count, so a substring candidate beside it is a side story)
+        pool, via = substring, "substring"
+    elif not carrier and not (art_primary or art_synonym):
+        # R4 (Weed): only when nothing equal passed the ceiling -- an R1-rejected synonym carrier
+        # or an article-equal candidate counts as passing -- and R1 still holds inside the tier
+        pool = [m for m in oversized if primary_title(m)] or \
+               ([] if primary_on_page else [m for m in oversized if synonym_title(m)])
+        via = "ceiling"
     if not pool:
         return None, None, rejected
     best = max(pool, key=lambda m: m.get("popularity") or 0)   # stable: first in AniList order on a tie
-    return best, ("primary" if primary else "synonym"), rejected
+    return best, via, rejected
 
 
 def alias_terms(name, aliases):
@@ -156,9 +263,35 @@ def deslug(name):
     return re.sub(r"[^a-z0-9]+", "-", for_search(name).lower()).strip("-").replace("-", " ")
 
 
+# R6: what a trailing parenthetical may say for the name without it to still be the line's own
+# name -- an edition / format / printing qualifier, never an arc ("chapter") or a nested series
+EDITION_QUALIFIER = re.compile(r"edition|volume list|release|version|tank[o\u014d]bon|shins[o\u014d]ban|"
+                               r"vizbig|2-in-1|parution|printing", re.I)
+
+
+def edition_stripped(name):
+    """R6: the name without a trailing edition-qualifier parenthetical, or None.
+    `Inuyasha (VizBig edition)` -> `Inuyasha`; an unclosed outer parenthetical goes too
+    (`Ranma ½ (2014 English release (2-in-1 Edition)` -> `Ranma ½`)."""
+    s = for_search(name)
+    m = re.search(r"\s*\(([^()]*)\)\s*$", s)
+    if not m:
+        return None
+    base, inner = s[:m.start()], m.group(1)
+    if base.count("(") > base.count(")"):
+        i = base.rfind("(")
+        base, inner = base[:i], base[i + 1:] + "(" + inner + ")"
+    base, low = base.strip(), inner.lower()
+    if not base or "chapter" in low or "series (" in low or any(q in inner for q in '"\u201c\u201d') \
+            or not EDITION_QUALIFIER.search(inner):
+        return None
+    return base
+
+
 def retry_terms(ln):
-    """D3 order: the de-slugged form first, then the aliases."""
-    return [deslug(ln["name"])] + alias_terms(ln["name"], ln["aliases"])
+    """D3 order: the de-slugged form first, then the edition-stripped name (R6), then the aliases."""
+    return [deslug(ln["name"])] + [t for t in [edition_stripped(ln["name"])] if t] + \
+        alias_terms(ln["name"], ln["aliases"])
 
 
 # ---------------------------------------------------------------- HTTP + cache
@@ -300,8 +433,8 @@ def _search_round(todo, novel):
     for ln, t, own in todo:
         m, via, rej = pick(results[t], t, ln["volume_count"], own_name=own)
         ln["rejected"] += rej
-        if m:
-            ln.update(pick=m, via="alias", term=t)
+        if m:   # a fallback tier (own-name terms: the de-slugged form) is reported as itself
+            ln.update(pick=m, via=via if via in ("substring", "ceiling") else "alias", term=t)
 
 
 def _next_alias_search(ln):
@@ -326,7 +459,7 @@ def _next_alias_search(ln):
 def resolve(lines):
     """Sets pick / via / term / rejected on every line. One batched pass on the names; then,
     for whatever is still unresolved, the de-slugged form (own name: ranked against the name
-    page, else one search); then Mangarr's alias walk (_next_alias_search) in batched rounds --
+    page, else one search); then the edition-stripped name (R6, the same way); then Mangarr's alias walk (_next_alias_search) in batched rounds --
     every alias page-ranked for free, at most ALIAS_LIMIT fresh searches per line, each
     ranked against its own page. Only a page miss costs a request."""
     for novel in (False, True):
@@ -349,6 +482,17 @@ def resolve(lines):
                 ln.update(pick=m, via="alias", term=t)
             else:
                 todo.append((ln, t, True))
+        _search_round(todo, novel)
+        todo = []
+        for ln in group:   # R6: ranked like an alias (R3 -- see the module docstring)
+            t = None if ln["pick"] else edition_stripped(ln["name"])
+            if not t:
+                continue
+            m, via, _ = pick(ln["page"], t, ln["volume_count"], own_name=False)
+            if m:
+                ln.update(pick=m, via="alias", term=t)
+            else:
+                todo.append((ln, t, False))
         _search_round(todo, novel)
         while True:
             todo = []
@@ -438,18 +582,27 @@ def main(argv):
     ap.add_argument("--only", help="only the unresolved line(s) with exactly this name")
     ap.add_argument("--covers", action="store_true",
                     help="also fill <build>/anilist-covers.json for bound EN lines without a volume cover")
+    ap.add_argument("--covers-only", action="store_true",
+                    help="resolve nothing, only fill <build>/anilist-covers.json -- stage 8a runs it after "
+                         "corrections/anilist.json's pins land, so a pinned id gets a cover too")
     a = ap.parse_args(argv)
     build = os.path.dirname(os.path.abspath(a.artifact))
     db = sqlite3.connect(a.artifact)
+    if a.covers_only:
+        cpath = os.path.join(build, "anilist-covers.json")
+        have, fetched = covers(db, cpath)
+        print("anilist: covers -> %s (%d ids, %d fetched)" % (cpath, have, fetched))
+        db.close()
+        return
     lines = load_lines(db, a.limit, a.only)
     resolve(lines)
     n = write(db, lines, a.dry_run)
     rep = os.path.join(build, "anilist-resolve-report.tsv")
     report(lines, rep)
-    by = {v: sum(1 for ln in lines if ln["via"] == v) for v in ("primary", "synonym", "alias")}
+    by = {v: sum(1 for ln in lines if ln["via"] == v) for v in VIAS}
     resolved = sum(by.values())
-    print("anilist: %d line(s) considered, %d resolved (%d via primary, %d via synonym, %d via alias), %d unresolved%s"
-          % (len(lines), resolved, by["primary"], by["synonym"], by["alias"], len(lines) - resolved,
+    print("anilist: %d line(s) considered, %d resolved (%s), %d unresolved%s"
+          % (len(lines), resolved, ", ".join("%d via %s" % (by[v], v) for v in VIAS), len(lines) - resolved,
              " -- dry run, nothing written" if a.dry_run else "; %d written" % n))
     tot, missing = db.execute("SELECT COUNT(*), SUM(anilist_id IS NULL) FROM series WHERE language='en' AND volume_count>=3").fetchone()
     print("anilist: EN lines with volume_count >= 3: %d, without anilist_id: %d (%.1f %%)"
