@@ -36,7 +36,20 @@ does not have the fallback tiers yet -- whether it should is its own decision:
     the 4-volume "Onegai, Sore wo Yamenaide" carries "Doll" as a synonym), a same-named
     ONE_SHOT is that serial's pilot -- either way the carrier is a chapter title wearing the
     name, and unresolved is recoverable where a wrong bind is not
-  * fallback tiers, tried in this order only while the tiers above found nothing on the page:
+  * fallback tiers, tried only while the tiers above found nothing on the page (R5 needs no
+    equal title on the page and R4 needs one, so the two never compete):
+    - R5 (substring, 2026-09-24): no candidate on the page -- rejected or ONE_SHOT included,
+      R1's reading -- key-equals the term, and exactly ONE volume-passing, non-ONE_SHOT
+      candidate has a title / synonym key that contains the term's key or sits inside it
+      (shorter side >= 4) AND `volumes` equal to the line's volume_count. The exact count is
+      what makes it safe: "It's Just Not My Night" (3) is "...: Tale of a Fallen Vampire
+      Queen" (3); AniList lists the Bookworm novel per Part, so the catalogue's longer
+      "Ascendance of a Bookworm (Part 2: Apprentice Shrine Maiden)" (4) is the SHORTER
+      "Ascendance of a Bookworm: Part 2" (4) while Parts 1/3/4/5 (3/5/9/12) share the base
+      name. Own-name terms only: allowed on alias terms it bound "Diamond Is Unbreakable"
+      to Battle Angel Alita through the alias "Angelo" and moved an existing bind (replay,
+      2026-09-24). Measured: 14 new, 1 changed (Der Werwolf: the alias-found 98367, null
+      volumes, to 114483 "~Origins~", 11 = the line's 11 and its JP line's 11)
     - R4 (ceiling, 2026-09-24, Weed): an exact primary / synonym match (R1 still applies)
       rejected SOLELY by the 4x ceiling binds -- a short English run of the full Japanese
       serial (Weed: 3 English volumes, 34010 "Ginga Densetsu WEED" 60, synonym "WEED"; the
@@ -51,9 +64,9 @@ does not have the fallback tiers yet -- whether it should is its own decision:
     list-article names skipped), each ranked against the page the name search already fetched
     at no cost, and a fresh search only for the first ALIAS_LIMIT = 3 that miss that page,
     ranked against its own page (Mangarr's AniListService.FindSeries: aliases are walked, only
-    SEARCHES are capped). There is NO relaxed / fuzzy pass: an unresolved line stays NULL and
-    Mangarr's own ranked search handles it at add time. A guess here would be pinned by every
-    future add.
+    SEARCHES are capped). There is no fuzzy pass: the fallback tiers each demand an exact
+    title or an exact volume count, and a line none of them reaches stays NULL for Mangarr's
+    own ranked search at add time. A guess here would be pinned by every future add.
 
 Polite by construction: one request per MIN_INTERVAL, up to BATCH searches per request as
 GraphQL aliases, every search cached on disk per (term, family) under .cache/anilist/ so a
@@ -77,7 +90,7 @@ ALIAS_LIMIT = 3             # fresh alias SEARCHES per line -- every alias is pa
                             # de-slugged form is a separate, earlier retry); Mangarr's MaxAliasSearches
 NOVEL_MEDIUMS = ("light_novel", "novel")
 LIST_PREFIXES = ("list of ", "liste des ", "plot of ")
-VIAS = ("primary", "synonym", "ceiling", "alias")   # how a line bound: pick()'s tiers on the name page, or a retry term
+VIAS = ("primary", "synonym", "substring", "ceiling", "alias")   # how a line bound: pick()'s tiers on the name page, or a retry term
 FIELDS = "id format volumes chapters popularity status title { romaji english native } synonyms"
 _last = [0.0]
 
@@ -108,8 +121,8 @@ def for_search(s):
 
 def pick(cands, term, volume_count, own_name=True):
     """Mangarr's AniListRanker.Pick, plus the fallback tiers in the module docstring.
-    (media | None, via | None, rejections); via is 'primary', 'synonym' or the tier that
-    bound it ('ceiling'). own_name is False for an alias retry (R3: the volume ceiling
+    (media | None, via | None, rejections); via is 'primary', 'synonym' or the fallback
+    tier that bound it ('substring', 'ceiling'). own_name is False for an alias retry (R3: the volume ceiling
     then always holds, and no fallback tier runs)."""
     k = key(term)
 
@@ -120,8 +133,18 @@ def pick(cands, term, volume_count, own_name=True):
     def synonym_title(m):
         return bool(k) and any(key(s) == k for s in m.get("synonyms") or [])
 
+    def contains(m):
+        """R5: a title key contains the term's key or sits inside it, shorter side >= 4."""
+        t = m.get("title") or {}
+        for x in (t.get("romaji"), t.get("english"), t.get("native"), *(m.get("synonyms") or [])):
+            x = key(x)
+            if min(len(x), len(k)) >= 4 and (k in x or x in k):
+                return True
+        return False
+
     primary_on_page = any(primary_title(m) for m in cands)   # R1: counts rejected candidates too
-    primary, synonym, rejected, oversized = [], [], [], []
+    equality_on_page = primary_on_page or any(synonym_title(m) for m in cands)
+    primary, synonym, rejected, oversized, substring = [], [], [], [], []
     for m in cands:
         if m.get("format") == "ONE_SHOT":
             rejected.append("%s:ONE_SHOT" % m["id"])
@@ -146,9 +169,15 @@ def pick(cands, term, volume_count, own_name=True):
                 rejected.append("%s:synonym only (a primary-title candidate is on the page)" % m["id"])
             else:
                 synonym.append(m)
+        elif own_name and v and v == volume_count and contains(m):
+            substring.append(m)
     pool = primary or synonym
     if pool:
         via = "primary" if primary else "synonym"
+    elif not equality_on_page and len(substring) == 1:
+        # R5: no equality anywhere on the page (R1's reading: a rejected equal title is the
+        # work with a disputed count, so a substring candidate beside it is a side story)
+        pool, via = substring, "substring"
     else:
         # R4 (Weed): only when nothing passed the ceiling; R1 still holds inside the tier
         pool = [m for m in oversized if primary_title(m)] or \
