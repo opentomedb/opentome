@@ -333,8 +333,113 @@ def run(path):
     return FAILS
 
 
+DNB_FIELDS = ("isbn13", "release_date", "projected_date", "page_count", "volume_number", "line_name", "publisher")
+
+
+def run_dnb(path, catalogue):
+    """The German (DNB) rules, docs/dnb-design.md "Gates". Most need the pipeline catalogue:
+    the artifact carries no per-claim provenance."""
+    db = sqlite3.connect(path)
+    cat = sqlite3.connect(catalogue)
+    g = lambda q, *a: db.execute(q, a).fetchone()[0]
+    c = lambda q, *a: cat.execute(q, a).fetchone()[0]
+    fx = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
+
+    # ids are a public contract: the German Wikipedia lines that predate DNB stay present
+    pre = [l["tome_id"] for l in json.load(open(os.path.join(fx, "de_lines_pre_dnb.json"), encoding="utf8"))["lines"]]
+    have = {r[0] for r in db.execute("SELECT tome_id FROM series WHERE language='de'")}
+    rule("pre-DNB German line ids missing from the artifact", sum(1 for t in pre if t not in have),
+         str([t for t in pre if t not in have][:5]))
+
+    # provenance: CC0, a d-nb.info record url, bibliographic fields only (no cover, no blurb)
+    rule("dnb claims not licensed cc0", c("SELECT COUNT(*) FROM claim WHERE source='dnb' AND licence<>'cc0'"))
+    rule("dnb claims without a https://d-nb.info/ source_url",
+         c("SELECT COUNT(*) FROM claim WHERE source='dnb' AND COALESCE(source_url,'') NOT LIKE 'https://d-nb.info/%'"))
+    rule("dnb claims outside the bibliographic fields (covers / blurbs are not CC0)",
+         c("SELECT COUNT(*) FROM claim WHERE source='dnb' AND field NOT IN (%s)" % ",".join("?" * len(DNB_FIELDS)),
+           *DNB_FIELDS))
+
+    # dates: published = the 008 year; projected = a 263 month that never outranks a real date
+    rule("dnb release_date claims that are not year precision",
+         c("SELECT COUNT(*) FROM claim WHERE source='dnb' AND field='release_date' AND value NOT GLOB '[12][0-9][0-9][0-9]'"))
+    rule("dnb projected_date claims that are not month precision",
+         c("SELECT COUNT(*) FROM claim WHERE source='dnb' AND field='projected_date' "
+           "AND value NOT GLOB '[12][0-9][0-9][0-9]-[01][0-9]'"))
+    rule("projected volumes that also have a release_date claim (projected outranked a real date)",
+         c("""SELECT COUNT(*) FROM volume v WHERE v.release_date_type='projected' AND EXISTS
+              (SELECT 1 FROM claim x WHERE x.entity='volume' AND x.entity_id=v.id AND x.field='release_date')"""))
+    rule("projected volumes not month precision (catalogue)",
+         c("""SELECT COUNT(*) FROM volume WHERE release_date_type='projected'
+              AND (release_date_precision<>'month' OR LENGTH(release_date)<>7)"""))
+    rule("projected volumes not month precision (artifact)",
+         g("""SELECT COUNT(*) FROM volumes WHERE release_date_type='projected'
+              AND (release_date_precision<>'month' OR LENGTH(release_date_raw)<>7 OR release_date IS NOT NULL)"""))
+    rule("release_date_type set on an undated volume, or missing on a dated one",
+         g("SELECT COUNT(*) FROM volumes WHERE (release_date_type IS NULL) <> (release_date_raw IS NULL)"))
+    year = __import__("datetime").date.today().year
+    rule("a volume from a future-year announcement-only record (held back by design)",
+         c("SELECT COUNT(*) FROM dnb_member WHERE fate='held_future' AND volume_id IS NOT NULL")
+         + c("""SELECT COUNT(*) FROM claim WHERE source='dnb' AND field='projected_date'
+                AND CAST(SUBSTR(value,1,4) AS INTEGER) > ?""", year))
+    # A German Wikipedia table that lists one ISBN on two rows (Gothic Sports 1 and 2) is an
+    # upstream error the audit already reports; what this pins is that DNB never adds one.
+    rule("the same ISBN twice within one German line (not both from the Wikipedia table)",
+         c("""SELECT COUNT(*) FROM (SELECT v.release_line_id, v.isbn13 FROM volume v
+              JOIN release_line rl ON rl.id=v.release_line_id WHERE rl.market='DE' AND v.isbn13 IS NOT NULL
+              GROUP BY 1,2 HAVING COUNT(*)>1 AND SUM(NOT EXISTS (SELECT 1 FROM claim w WHERE w.entity='volume'
+                AND w.entity_id=v.id AND w.field='isbn13' AND w.source='wikipedia' AND w.value=v.isbn13)) > 0)"""))
+
+    # export policy (decision 1): only high/medium links (and ISBN-proven lines) ship
+    rule("exported DNB lines that are not merged / sibling / high-or-medium linked",
+         c("""SELECT COUNT(*) FROM dnb_line WHERE exported=1 AND NOT (role IN ('merged','sibling')
+              OR (role='linked' AND tier IN ('high','medium')))"""))
+    held = {r[0] for r in cat.execute("SELECT rl_id FROM dnb_line WHERE exported=0")}
+    rule("held-back DNB lines (review / unlinked) present in the artifact",
+         sum(1 for t in have if t in held))
+
+    # the linker, measured two ways (no ISBNs used by the linker in either)
+    wrong = cat.execute("""SELECT name, link_work, truth_work FROM dnb_line WHERE truth_work IS NOT NULL
+                           AND tier IN ('high','medium') AND link_work<>truth_work""").fetchall()
+    n_gt, n_gt_linked = cat.execute("""SELECT COUNT(*), SUM(tier IN ('high','medium')) FROM dnb_line
+                                       WHERE truth_work IS NOT NULL""").fetchone()
+    rule("linker wrong on the ground-truth set (DNB lines that share ISBNs with a Wikipedia line)",
+         len(wrong), str(wrong[:5]))
+    print("  info  linker ground truth: %s lines, %s linked high/medium, %d wrong" % (n_gt, n_gt_linked or 0, len(wrong)))
+    labels = json.load(open(os.path.join(fx, "dnb_linker_labels.json"), encoding="utf8"))["lines"]
+    line_of = dict(cat.execute("SELECT idn, line_key FROM dnb_member"))
+    verdict = {k: (t, w) for k, t, w in cat.execute("SELECT key, tier, link_work FROM dnb_line")}
+    linked = correct = found = recall_hit = 0
+    misses = []
+    for lab in labels:
+        keys = [line_of[i] for i in lab["member_idns"] if i in line_of]
+        if lab["parent_idn"] and "dnb:" + lab["parent_idn"] in verdict:
+            keys.append("dnb:" + lab["parent_idn"])
+        if not keys:
+            continue                    # the records are not volumes here (extras, bundles, dropped)
+        found += 1
+        key = max(set(keys), key=keys.count)
+        tier, work = verdict.get(key, (None, None))
+        if tier in ("high", "medium"):
+            linked += 1
+            correct += work == lab["expected_work"]
+            if work != lab["expected_work"]:
+                misses.append((lab["de"], work, lab["expected_work"]))
+        recall_hit += bool(lab["expected_work"]) and tier in ("high", "medium") and work == lab["expected_work"]
+    prec = correct / linked if linked else 0.0
+    rule("linker precision on the spike's hand-labelled lines below 95%", 0 if prec >= 0.95 else 1,
+         "(%d/%d; wrong: %s)" % (correct, linked, misses))
+    print("  info  linker on the labelled set: %d of %d lines found, %d linked, %d correct (%.1f%%), "
+          "recall %d/%d" % (found, len(labels), linked, correct, 100 * prec, recall_hit,
+                            sum(1 for l in labels if l["expected_work"])))
+    for m in misses:
+        print("        labelled wrong: %s -> %s (expected %s)" % m)
+
+
 if __name__ == "__main__":
     fails = run(sys.argv[1])
+    if len(sys.argv) > 2:
+        print("\n  -- German (DNB) rules, catalogue %s --" % sys.argv[2])
+        run_dnb(sys.argv[1], sys.argv[2])
     print()
     if fails:
         print(f"{len(fails)} contract rule(s) FAILED: {fails}")

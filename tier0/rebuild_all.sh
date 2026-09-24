@@ -11,6 +11,11 @@
 #   3c. main articles  status / first / last / publishers / people / genres from the main
 #   3d. relations      sequel / spin-off / adaptation from titles and shared main articles
 #                      article's infobox (one request per work, cached)
+#   3e. dnb            the German market from the Deutsche Nationalbibliothek (CC0): print
+#                      manga / light novels of Japanese origin, ISBN-merged into the German
+#                      Wikipedia lines, linked to works by title + author (high/medium ship,
+#                      low/ambiguous -> build/dnb-review.tsv). ~340 SRU requests at >= 3 s
+#                      on a cold cache (~22 min), zero on a warm one (tier0/build_dnb.py)
 #   4b. covers         ISBN-keyed cover URLs from the cached openBD /
 #                      Open Library responses -- zero requests
 #   4. enrichment      openBD (JP) / Open Library (EN, FR) / BnF (FR)
@@ -26,9 +31,13 @@
 #                      the DISPLAY-ONLY fallback (display_anilist_id -- never a binding) for lines
 #                      still NULL, then build/anilist-covers.json for the final ids (pinned and
 #                      display ids included)
+#   8c. contract       export/test_artifact.py on the new artifact, plus the German (DNB)
+#                      rules that need the catalogue's provenance (cc0, dates, linker fixture)
 #   8d. measure gate   replay Mangarr's series pick over the committed library snapshot
 #                      (export/fixtures/library.json) -- EXITS NON-ZERO on a coverage
-#                      failure (an owned volume the picked line lacks); log in build/measure.log
+#                      failure (an owned volume the picked line lacks); then the German
+#                      floors (lines, volumes, date / page coverage, link rate, same ids on
+#                      reload); log in build/measure.log
 #
 # The catalogue is built into a FRESH database and renamed over the old one at
 # the end. Building on top of the existing file skipped every article already
@@ -67,12 +76,14 @@ echo "== 0. unit tests ==";        python3 tier0/test_parser.py >/dev/null && ec
                                    python3 export/test_measure_fixture.py >/dev/null && echo "   measure ok"
                                    python3 export/test_line_status.py >/dev/null && echo "   line_status ok"
                                    python3 export/test_to_mangarr.py >/dev/null && echo "   to_mangarr ok"
+                                   python3 tier0/test_dnb.py >/dev/null && echo "   dnb ok"
 echo "== 1. work identity ==";     python3 tier0/work_identity.py
 echo "== 2. corpus en+fr ==";      python3 tier0/build_corpus.py "$DB"
 echo "== 3. corpus de ==";         python3 tier0/build_corpus_de.py "$DB"
 echo "== 3b. official titles ==";  python3 tier0/main_titles.py "$DB"
 echo "== 3c. main articles ==";     python3 tier0/main_articles.py "$DB"
 echo "== 3d. relations ==";         python3 tier0/relations.py "$DB"
+echo "== 3e. dnb (German market) =="; python3 tier0/build_dnb.py "$DB" "$ID_CARRY"
 echo "== 4. enrichment ==";        python3 tier1/enrich.py "$DB"
                                    # `both` already runs EN Open Library, FR Open Library
                                    # AND BnF. A second `olfr` line re-queried every French
@@ -102,11 +113,11 @@ if [ -n "$PREV" ] && [ -f "$PREV" ]; then
   python3 export/merge_aliases.py "$ART.new" "$PREV"
 fi
 echo "== 8c. artifact contract tests =="
-python3 export/test_artifact.py "$ART.new"
+python3 export/test_artifact.py "$ART.new" "$FINAL"
 # 8d measures the NEW artifact before it replaces the old one, like 8c: a failed
 # gate leaves the last good artifact in place.
 echo "== 8d. measure gate =="
-python3 export/measure_library.py "$ART.new" export/fixtures/library.json | tee build/measure.log
+python3 export/measure_library.py "$ART.new" export/fixtures/library.json --catalogue="$FINAL" | tee build/measure.log
 mv -f "$ART.new" "$ART"
 echo "   artifact -> $ART"
 

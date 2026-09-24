@@ -166,6 +166,83 @@ def measure(art_path, readarr, old_path=None, verbose=True):
     return rows, fails
 
 
+# German market floors (docs/dnb-design.md "Gates"). The first full DNB build (2026-09-24)
+# measured 1,593 lines / 12,678 volumes, dates 95.8 %, page counts 97.8 %, link rate 34.9 %;
+# the count floors leave ~15-20 % headroom, so a regression that loses a large part of the
+# DNB lines fails the build instead of shipping quietly. The coverage floors are the design's.
+DE_MIN_LINES = 1300
+DE_MIN_VOLUMES = 10500
+DE_MIN_YEAR_COVERAGE = 0.95      # German volumes with a date of any precision
+DE_MIN_PAGE_COVERAGE = 0.90      # German volumes with a page count
+DE_MIN_LINK_RATE = 0.30          # exported DNB lines / all DNB lines
+
+
+def measure_de(art_path, catalogue=None):
+    """-> list of failed German gates. Printed after the library replay (CI greps 'matched')."""
+    A = sqlite3.connect(art_path)
+    g = lambda q: A.execute(q).fetchone()[0]
+    fails = []
+
+    def gate(label, ok, detail):
+        print(("  ok   " if ok else "  FAIL ") + label + ": " + detail)
+        if not ok:
+            fails.append(label)
+    lines = g("SELECT COUNT(*) FROM series WHERE language='de'")
+    vols = g("SELECT COUNT(*) FROM volumes v JOIN series s USING(gcd_series_id) WHERE s.language='de'")
+    dated = g("""SELECT COUNT(*) FROM volumes v JOIN series s USING(gcd_series_id)
+                 WHERE s.language='de' AND v.release_date_raw IS NOT NULL""")
+    paged = g("""SELECT COUNT(*) FROM volumes v JOIN series s USING(gcd_series_id)
+                 WHERE s.language='de' AND v.page_count IS NOT NULL""")
+    print("\nGerman market (DNB):")
+    gate("DE lines", lines >= DE_MIN_LINES, "%s (floor %s)" % (format(lines, ","), format(DE_MIN_LINES, ",")))
+    gate("DE volumes", vols >= DE_MIN_VOLUMES, "%s (floor %s)" % (format(vols, ","), format(DE_MIN_VOLUMES, ",")))
+    gate("DE date coverage", vols and dated / vols >= DE_MIN_YEAR_COVERAGE,
+         "%.1f%% (%s/%s; floor %.0f%%)" % (100 * dated / max(vols, 1), format(dated, ","), format(vols, ","),
+                                          100 * DE_MIN_YEAR_COVERAGE))
+    gate("DE page-count coverage", vols and paged / vols >= DE_MIN_PAGE_COVERAGE,
+         "%.1f%% (%s/%s; floor %.0f%%)" % (100 * paged / max(vols, 1), format(paged, ","), format(vols, ","),
+                                          100 * DE_MIN_PAGE_COVERAGE))
+    try:
+        roles = json.loads(g("SELECT value FROM meta WHERE key='dnb_lines'") or "{}").get("roles", {})
+    except (TypeError, sqlite3.OperationalError):
+        roles = {}
+    total = sum(roles.values())
+    out = sum(roles.get(r, 0) for r in ("merged", "sibling", "linked"))
+    gate("DNB link rate", total > 0 and out / total >= DE_MIN_LINK_RATE,
+         "%.1f%% (%s of %s DNB lines exported; floor %.0f%%) %s" % (
+             100 * out / max(total, 1), format(out, ","), format(total, ","), 100 * DE_MIN_LINK_RATE,
+             json.dumps(roles, sort_keys=True)))
+    if catalogue:
+        gate("DNB reload gives the same ids", *same_ids(catalogue))
+    return fails
+
+
+def same_ids(catalogue):
+    """Rebuild the DNB line keys from the cached records (offline) and compare them with the
+    catalogue's: the same member records must land in the same lines, under the same ids."""
+    os.environ["DNB_OFFLINE"] = "1"
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sys.path.insert(0, os.path.join(root, "tier0"))
+    import build_dnb as B, dnb_enumerate as E
+    recs, parents, _ = E.enumerate_all(verbose=False)
+    allparents = dict(parents)
+    allparents.update({k: r for k, r in recs.items() if B.M.is_parent(r)})
+    kept, _ = B.select(recs)
+    groups, _ = B.twins(kept)
+    now = {m["idn"]: key for key, gs in B.cluster(groups, allparents).items() for g in gs for m in g["members"]}
+    C = sqlite3.connect(catalogue)
+    was = dict(C.execute("SELECT idn, line_key FROM dnb_member"))
+    # a merged line IS its Wikipedia line and carries that id by design
+    ids = dict(C.execute("SELECT key, rl_id FROM dnb_line WHERE role<>'merged'"))
+    moved = sum(1 for i, k in now.items() if was.get(i) != k)
+    rekeyed = sum(1 for k, rid in ids.items() if B._id("rl_", k) != rid)
+    return (moved == 0 and rekeyed == 0 and len(now) == len(was),
+            "%s member records, %d in another line, %d line ids re-keyed" % (format(len(now), ","), moved, rekeyed))
+
+
 if __name__ == "__main__":
-    rows, fails = measure(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
-    sys.exit(1 if fails else 0)
+    args = [a for a in sys.argv[1:] if not a.startswith("--catalogue=")]
+    cat = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--catalogue=")), None)
+    rows, fails = measure(args[0], args[1], args[2] if len(args) > 2 else None)
+    de_fails = measure_de(args[0], cat)
+    sys.exit(1 if fails or de_fails else 0)
