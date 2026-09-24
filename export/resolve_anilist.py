@@ -58,7 +58,8 @@ does not have the fallback tiers yet -- whether it should is its own decision:
       rejected SOLELY by the 4x ceiling binds -- a short English run of the full Japanese
       serial (Weed: 3 English volumes, 34010 "Ginga Densetsu WEED" 60, synonym "WEED"; the
       old rule fell through to a franchise relative's alias and bound 38901). Own-name terms
-      only (R3), and never over a candidate that passes the ceiling (Worst: 147044, 4 vols,
+      only (R3), and never over an equal-titled candidate that passes the ceiling, even a
+      synonym carrier R1 rejected (Worst: 147044, 4 vols,
       stays; the right 31741 is a corrections/anilist.json pin, not a rule). Measured on
       opentome-2026-09-24: Weed plus 10 unbound lines, each an exact title whose AniList
       volume count matches the line's own origin line (Billy Bat 20, City Hunter 35, ...)
@@ -178,7 +179,7 @@ def pick(cands, term, volume_count, own_name=True):
     article_on_page = primary_on_page or any(article_primary(m) for m in cands)   # R1 for R7
     equality_on_page = article_on_page or any(synonym_title(m) or article_synonym(m) for m in cands)
     primary, synonym, rejected, oversized, substring = [], [], [], [], []
-    art_primary, art_synonym = [], []
+    art_primary, art_synonym, carrier = [], [], False
     for m in cands:
         if m.get("format") == "ONE_SHOT":
             rejected.append("%s:ONE_SHOT" % m["id"])
@@ -201,6 +202,7 @@ def pick(cands, term, volume_count, own_name=True):
         elif synonym_title(m):
             if primary_on_page:
                 rejected.append("%s:synonym only (a primary-title candidate is on the page)" % m["id"])
+                carrier = True   # passed the ceiling: R4 must not outrank it either
             else:
                 synonym.append(m)
         elif article_primary(m):
@@ -221,8 +223,9 @@ def pick(cands, term, volume_count, own_name=True):
         # R5: no equality anywhere on the page (R1's reading: a rejected equal title is the
         # work with a disputed count, so a substring candidate beside it is a side story)
         pool, via = substring, "substring"
-    else:
-        # R4 (Weed): only when nothing passed the ceiling; R1 still holds inside the tier
+    elif not carrier:
+        # R4 (Weed): only when nothing equal passed the ceiling -- an R1-rejected synonym carrier
+        # counts as passing -- and R1 still holds inside the tier
         pool = [m for m in oversized if primary_title(m)] or \
                ([] if primary_on_page else [m for m in oversized if synonym_title(m)])
         via = "ceiling"
