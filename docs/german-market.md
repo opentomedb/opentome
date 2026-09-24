@@ -85,3 +85,78 @@ This settles the question the survey opened. German Wikipedia is not a viable so
 the German market, and no amount of parser work changes that: the extractor is correct
 and the articles are empty. **DNB, as a primary source, is the German strategy.** The 381
 volumes here are a supplement worth keeping and nothing more.
+
+## 2026-09-24 — DNB wired in (`tier0/build_dnb.py`, stage 3e)
+
+The design is `docs/dnb-design.md`; this is what the first full run measured.
+
+**Access.** 353 SRU requests for the first full enumeration, 32 more for the no-year
+remainder slices and the parent batches added after it, and 7 count probes: **392 requests
+in all** (`build/dnb-netlog.tsv`), every one HTTP 200, 3.0 s apart; no 429 or 503. A rerun
+is zero requests (the offline rebuild verified it: `DNB_OFFLINE=1`, no new cache file).
+
+**Enumeration.** 25,270 records from `spo=jpn and bbg=A*`, 2,522 from the six manga-imprint
+phrases (`not spo=jpn`), 794 parent sets fetched by `idn` (the rest were already in channel 1).
+Two things the spike could not see, both caught by the completeness check:
+
+- `jhr` is multi-valued: the year slices of channel 1 held 25,933 hits for 25,270 records.
+- Some records have no `jhr` at all: 7 in channel 1, 304 in channel 2. Each channel now also
+  pages a `not jhr>0` remainder, and the distinct records paged must equal the unsliced total.
+
+**Selection** (27,792 records): 1,117 out of scope by origin (041$h kor 554, eng 238, fre
+185, chi 60, ...), 2,456 neither manga nor light novel (Japanese literature, non-fiction),
+216 bundles / box sets / starter packs, 123 artbooks / guides / colouring books, 9 combined
+"1 - 3" records. Two findings changed the field logic:
+
+- Records before ~2004 carry the DNB subject group `08` instead of DDC 741.5 (Akira, Banana
+  Fish, Spriggan); every `08` record among the Japanese-origin ones is a comic.
+- ~975 records of the imprint channel have no 041$h. They are mostly Japanese manga catalogued
+  without it (Komi Can't Communicate, Yotsuba&!) next to a few German originals, and no field
+  separates them. They stay in scope; a German original ships only if it links to an
+  OpenTome work, and then it is that work's German line.
+
+**Volumes and lines.** 21,770 volume records -> 21,331 volumes (439 ISBN twins merged, 95
+box-set ISBNs dropped) -> 4,556 lines. Older records append the statement of responsibility
+to the part number ("2. / [Aus dem Japan. von ...]", "# 7", "Song 2."); parsing those cut
+the unnumbered drops from 1,198 to 57.
+
+**Linking** (title + author, no ISBNs): high 1,246, medium 353, low 210, ambiguous 7, none
+2,740. Exported: **1,557 linked lines + 30 merged into a German Wikipedia line + 1 ISBN
+sibling**; 217 low/ambiguous lines are in `build/dnb-review.tsv`; 2,738 lines link to no
+OpenTome work and are held back (decision 1).
+
+- Ground truth, the DNB lines that share ISBNs with a German Wikipedia line: 32 lines, 30
+  linked at high/medium, **0 wrong**.
+- The spike's 80 hand-labelled lines (`export/fixtures/dnb_linker_labels.json`): 77 found,
+  44 linked, **43 correct (97.7%)**, recall 43/49. The one wrong link is the spike's own:
+  the Okubo one-shot "From the sea", published inside the Fire Force series statement.
+- Spin-offs whose series statement names the parent franchise still link to the parent
+  work ("Bungo Stray Dogs: dead apple"). A cap on that shape was tried and dropped: a
+  German subtitle looks the same ("Hell Mode. Unterforderter Hardcore-Gamer ..."), and it
+  sent three correct lines to review while catching none of the real ones.
+
+**Dates.** A deposited record gives the 008 year (`published`, year precision). An
+announcement-only volume takes its 263 month (`projected`); 142 announcement-only volumes
+dated after this year are held back; 518 current-year announcements without a 263 stay
+undated.
+
+**Known gaps**: legal-deposit holes (Egmont 2015-2019, the TOKYOPOP 2005-2009 combined
+records) mean no completeness claim; one-shots link rarely (generic titles); a Swiss
+publisher's German editions carry 978-2 ISBNs (Kazé / Crunchyroll SA), which the audit's
+"DE lines with no DE-group ISBN" line counts as information.
+
+**In the artifact** (offline rebuild on the warm cache, 2026-09-24):
+
+| Market | Lines | Volumes |
+|---|---:|---:|
+| JP | 6,978 | 67,703 |
+| EN | 3,030 | 26,188 |
+| FR | 1,493 | 16,857 |
+| **DE** | **1,593** | **12,678** |
+
+German went from 35 lines / 391 volumes (0.3% of the catalogue) to 1,593 / 12,678 (10.4%):
+1,574 manga lines and 19 light-novel lines. Dates: 11,178 published years, 670 projected
+months, 292 Wikipedia dates, 538 undated (95.8% dated); page counts on 97.8%. Nothing outside
+the German market changed: series, aliases and volumes of every other language are
+identical to a DNB-free export of the same catalogue, and the 35 German Wikipedia lines keep
+their ids and integer ids.

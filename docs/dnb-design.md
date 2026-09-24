@@ -93,3 +93,35 @@ exportable at high/medium ≈ 1,200–1,400 lines / 11,000–12,000 volumes (fro
 Undocumented rate limit; `spo` gaps and deposit holes; year-only published dates; clustering across mixed record
 shapes; linker false positives (generic titles, spin-offs, alias noise, existing OpenTome duplicates such as
 Narutaru/Shadow Star); LN classification fuzziness.
+
+## As built (2026-09-24, branch `dnb-ingest`)
+
+Code: `tier0/dnb_sru.py` (client), `tier0/dnb_enumerate.py`, `tier0/dnb_marc.py`,
+`tier0/dnb_link.py`, `tier0/build_dnb.py` (stage 3e), tests `tier0/test_dnb.py`; gates in
+`export/test_artifact.py` / `export/measure_library.py`. Measured results:
+`docs/german-market.md`. Where the build departs from, or adds to, the text above:
+
+- **Enumeration.** `jhr` is multi-valued and some records have none (7 + 304): each channel
+  also pages `not jhr>0`, and the check is distinct records == the unsliced total.
+- **Origin.** Records with no 041$h stay in scope unless 245$c says "aus dem Koreanischen"
+  (etc.) or a keyword says manhwa / webtoon / manhua -- nothing else separates the Japanese
+  manga catalogued without 041 from German originals; the linker is the gate.
+- **Manga signal.** The pre-2004 DNB subject group `08` counts as a comic signal alongside
+  DDC 741.5.
+- **Announcements.** leader/17 = '8' marks an announcement record. Announcement-only
+  volumes dated after the current year are not volumes at all (held back, not exported
+  undated -- undated they would sink date coverage and ship placeholders). Current-year
+  announcements without a 263 month stay undated.
+- **264$c months** are not read (9/930 in the spike; not worth the second date semantics).
+- **Linker.** The prefix tier reads original titles only ("Detektiv Conan" is the start of
+  every Conan spin-off's German title); among several matching works, the one whose title IS
+  the line's own title proper wins (own-title); author overlap picks the work sharing the
+  most creators. A spin-off-shape cap was tried and dropped (see german-market.md).
+- **Merge.** Any DNB volume whose ISBN is a German Wikipedia volume's attaches to it (gains
+  dnb claims, fills only empty columns); a line holding the majority of the smaller side's
+  ISBNs merges and keeps the rl_ id. Several Wikipedia lines <-> one DNB line leaves the
+  Wikipedia lines as they are (all 35 ids stay present; none occurred).
+- **Redirects.** Prior-build state is the carried artifact: a German tome_id it has that the
+  build lost is redirected to the line now holding most of its ISBNs, volumes by number, and
+  the export hands the old integer id to the successor.
+- **Resolve.** A bare-year claim never beats a finer claim it disagrees with.

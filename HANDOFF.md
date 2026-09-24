@@ -2,6 +2,53 @@
 
 _Last updated: 2026-09-24_
 
+## 2026-09-24 — branch `dnb-ingest`: the German market from DNB (stage 3e)
+
+Not merged, not pushed, no CI triggered -- Nick's gate.
+
+Done (design: `docs/dnb-design.md`, results: `docs/german-market.md`):
+- `tier0/dnb_sru.py` (>= 3 s cross-process throttle, one Retry-After wait then stop, cache,
+  `build/dnb-netlog.tsv`, `DNB_OFFLINE`, opt-in `DNB_REFRESH_DAYS`), `tier0/dnb_enumerate.py`
+  (spo=jpn print + manga imprints + parents; jhr slices + a `not jhr>0` remainder; distinct
+  totals checked), `tier0/dnb_marc.py`, `tier0/dnb_link.py`, `tier0/build_dnb.py` (stage 3e,
+  after relations), tests `tier0/test_dnb.py` (stage 0).
+- Export: `volumes.release_date_type` (additive), DNB in `meta.attribution` + LICENSE-DATA.md,
+  `meta.dnb_lines`, redirected lines keep their integer id. `tier2/resolve.py`: a bare year
+  never beats a finer date it disagrees with.
+- Gates: DNB rules in `export/test_artifact.py` (needs the catalogue as 2nd arg -- the
+  rebuild passes it) incl. the linker fixture `export/fixtures/dnb_linker_labels.json` and
+  the 35 pre-DNB ids `export/fixtures/de_lines_pre_dnb.json`; German floors in
+  `export/measure_library.py` (`--catalogue=`), printed after the `matched` line.
+- Measured (offline rebuild, warm cache): DE 35 lines / 391 vols -> **1,593 / 12,678**
+  (1,557 linked + 30 merged + 1 sibling + the 5 unmerged Wikipedia lines); linker
+  high 1,246 / medium 353 / low 210 / ambiguous 7 / none 2,740; ground truth 30/32 linked,
+  0 wrong; labelled set 43/44 (97.7%); dates 95.8%, pages 97.8%; review file 217 lines.
+  392 live DNB requests in all, all 200. Non-German side byte-identical to a DNB-free
+  export; replay `--base main` 0 new / 0 changed / 0 lost.
+
+Next:
+- **CI's cache has no DNB responses.** The first CI build makes ~390 SRU requests (~20 min at
+  3 s) inside stage 3e; a second 429/503 stops the build (DnbThrottled). Either let it run, or
+  seed: tar the `.cache/*.xml` DNB files into the opentome-cache seed (they are the entries
+  listed in `build/dnb-netlog.tsv`, key = sha256(url)[:32]).
+- Refreshing: nothing re-fetches by default. `DNB_REFRESH_DAYS=N` refetches current/future-
+  year slices, the no-year remainder and parent batches older than N days -- a scheduled
+  build would need it set (no recurring manual step), Nick's call on N.
+- Nick: `build/dnb-review.tsv` (217 low/ambiguous lines) -- confirmed ones could become
+  corrections; the design has no correction type for "link this DNB line" yet.
+- Follow-ups: KR/CN round (decision 4); light novels are thin (19 lines) -- LN works are
+  linked less often; the 518 current-year announcements without a 263 month are undated.
+
+Gotchas:
+- Floors: date coverage 95.8% vs the 95% floor -- announcement-only volumes are the undated
+  part; a burst of new announcements could trip it.
+- `dnb_member.volume_id` can point at a volume a later stage deleted (5b exclusions).
+- The spike's `From the sea` (Okubo one-shot in the Fire Force series statement) still links
+  to Fire Force; spin-offs named inside a parent's series statement link to the parent.
+- DE lines of Swiss publishers carry 978-2 ISBNs (Kazé / Crunchyroll SA): the audit's
+  "DE lines with no DE-group ISBN" info line counts them; 14 volumes collide with FR lines
+  citing the same ISBN (flagged, info).
+
 ## 2026-09-24 — branch `anilist-round2`: post-walk tiers, R6+, 26 pins, 4 exclusions
 
 Not merged, not pushed, no CI triggered -- Nick's gate (CI build-only; bar 0 changed / 0 lost).
