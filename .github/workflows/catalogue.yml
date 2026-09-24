@@ -64,7 +64,12 @@ jobs:
             || { echo "::warning::no published artifact to carry ids from — cold id assignment"; rm -f build/manga-metadata.sqlite; }
       # Runs every stage including the measure gate (8d, writes build/measure.log)
       # and exits non-zero on any test, audit, contract or coverage failure.
+      # DNB_REFRESH_DAYS=7 (Nick 2026-09-24): the weekly build re-reads DNB's current/last-year
+      # slices (~60-90 polite requests) so German announcements and new volumes arrive with no
+      # manual step; older slices are re-paged only when their totals change.
       - name: rebuild (every gate)
+        env:
+          DNB_REFRESH_DAYS: "7"
         run: bash tier0/rebuild_all.sh
       # Without PUBLISH=1 publish.sh only writes build/version.json and prints the
       # per-build tag; it also runs the two clean-room refusals.
