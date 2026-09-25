@@ -48,6 +48,12 @@ Done (one commit per step; design + numbers: `docs/carried-ids.md`):
 - Minors: derived origin pins warn instead of raising; 7b's presence = the export's (volumes_special
   not present); volumes match a unique ISBN in the successor line first; stage 0 prints a failing
   suite's output.
+- Also: a gate that a duplicate recorded in the carry's `meta.merged_lines` never ships again, and
+  `docs/id-scheme.md` names the one exception to "nothing is removed from id_redirect" (a row whose
+  old id is live again).
+- New caps (retired lines > 10, volumes > 100, moved > 500) are unmeasured against a DNB refresh:
+  DE lines 3e retires count toward the line cap -- watch the first scheduled CI build; raise the
+  threshold if it trips spuriously.
 - Re-measured offline (same setup, 0 new cache files): the same 261 redirects byte for byte, same
   integers, gate green apart from the two AniList rules, measure 49/49 (log identical to main's),
   second build a no-op (moved 0); OPENTOME_CI=1 without a carry fails, with cold start it builds.
