@@ -1,7 +1,7 @@
 """Carried ids: every id the last published artifact holds keeps resolving (docs/id-scheme.md,
 docs/carried-ids.md).
 
-    python3 tier0/carried_ids.py merge    build/opentome.db [carry-artifact]   # stage 3a
+    python3 tier0/carried_ids.py merge    build/opentome.db [carry-artifact]   # stage 4c
     python3 tier0/carried_ids.py redirect build/opentome.db [carry-artifact]   # stage 7b
 
 The carried artifact is rebuild_all.sh's ID_CARRY: the last published manga-metadata.sqlite (CI
@@ -9,7 +9,10 @@ downloads it before the rebuild). Ids hash natural keys (schema/load.py), so a c
 that feeds a key -- a work title, a line name -- issues new ids. The contract says the old ones
 resolve forever through id_redirect. Two stages keep it, for any market, any entity, any cause:
 
-  merge (3a, after the Wikipedia corpus, before anything reads lines)
+  merge (4c, after the enrichment, before clean / corrections / resolve)
+      [after the enrichment because openBD is cached by whole 80-ISBN batches of the sorted JP
+      ISBNs: a merge that drops one ISBN before it shifts every later batch to an uncached URL
+      (measured on the Gouttes merge: 363 of 755) -- a request burst, or, offline, dates lost]
       A work the carried artifact published that this build folded into another work (the
       work-identity pass unions articles by title, so a title fix can join two articles)
       brings its lines along, re-keyed under the surviving work. Where such a re-keyed line
@@ -102,7 +105,7 @@ def _majority(votes, n):
     return [k for k, v in votes.most_common() if v * 2 > n]
 
 
-# ---- 3a. an absorbed work's duplicate lines ----------------------------------------------------
+# ---- 4c. an absorbed work's duplicate lines ----------------------------------------------------
 
 def _isbn_work_votes(db, C, work):
     """Present work -> how many of the carried work's ISBN'd volumes it holds (same market)."""
@@ -201,7 +204,7 @@ def merge_line(c, dup, keep):
 
 
 def merge_absorbed(db, carry):
-    """Stage 3a. -> [(absorbed work, work, merged line, kept line, moved, dropped)]."""
+    """Stage 4c. -> [(absorbed work, work, merged line, kept line, moved, dropped)]."""
     C = read_carry(carry)
     if not C:
         return []

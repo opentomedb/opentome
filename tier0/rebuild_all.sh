@@ -7,11 +7,6 @@
 #   1. work identity   langlinks -> cross-language work classes  (MUST precede build)
 #   2. corpus en+fr    Wikipedia volume-list templates
 #   3. corpus de       wikitables, discovered via langlinks
-#   3a. merged works   a published work this build folded into another (a title fix can
-#                      union two articles) must not leave the survivor two lines for one
-#                      edition: its re-keyed lines that repeat one of the survivor's published
-#                      lines (same market + medium, most ISBNs shared) merge into that line
-#                      (tier0/carried_ids.py merge; the ids are redirected at 7b)
 #   3b. official titles main-article + redirect names (the titles folders use)
 #   3c. main articles  status / first / last / publishers / people / genres from the main
 #   3d. relations      sequel / spin-off / adaptation from titles and shared main articles
@@ -25,6 +20,14 @@
 #   4b. covers         ISBN-keyed cover URLs from the cached openBD /
 #                      Open Library responses -- zero requests
 #   4. enrichment      openBD (JP) / Open Library (EN, FR) / BnF (FR)
+#   4c. merged works   a published work this build folded into another (a title fix can
+#                      union two articles) must not leave the survivor two lines for one
+#                      edition: its re-keyed lines that repeat one of the survivor's published
+#                      lines (same market + medium, most ISBNs shared) merge into that line
+#                      (tier0/carried_ids.py merge; the ids are redirected at 7b). AFTER the
+#                      enrichment: openBD caches whole 80-ISBN batches of the sorted JP ISBNs,
+#                      so a merge that drops one ISBN before it re-keys every later batch
+#                      (measured: 363 of 755 batch URLs) -- a request burst, or dates lost offline
 #   5. clean           date_type, Jan-1 precision, malformed ISBNs
 #   5b. corrections    hand-checked values (corrections/), applied after clean
 #                      so clean cannot undo them and before resolve so the
@@ -91,7 +94,6 @@ echo "== 0. unit tests ==";        python3 tier0/test_parser.py >/dev/null && ec
 echo "== 1. work identity ==";     python3 tier0/work_identity.py
 echo "== 2. corpus en+fr ==";      python3 tier0/build_corpus.py "$DB"
 echo "== 3. corpus de ==";         python3 tier0/build_corpus_de.py "$DB"
-echo "== 3a. merged works ==";     python3 tier0/carried_ids.py merge "$DB" "$ID_CARRY"
 echo "== 3b. official titles ==";  python3 tier0/main_titles.py "$DB"
 echo "== 3c. main articles ==";     python3 tier0/main_articles.py "$DB"
 echo "== 3d. relations ==";         python3 tier0/relations.py "$DB"
@@ -104,6 +106,7 @@ echo "== 4. enrichment ==";        python3 tier1/enrich.py "$DB"
                                    # for 4 records and 0 claims (rebuild2.log).
                                    python3 tier1/enrich_more.py "$DB" both
 echo "== 4b. covers ==";           python3 tier1/covers.py "$DB"
+echo "== 4c. merged works ==";     python3 tier0/carried_ids.py merge "$DB" "$ID_CARRY"
 echo "== 5. clean ==";             python3 tier2/clean.py "$DB"
 echo "== 5b. corrections ==";      python3 tier2/corrections.py "$DB"
 echo "== 6. resolve ==";           python3 tier2/resolve.py "$DB"

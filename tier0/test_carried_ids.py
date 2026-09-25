@@ -215,7 +215,7 @@ eq("a work gone for no known reason: its work, line and volumes are orphans",
                                    _id("v_", rl(WG, "EN", "Gone"), "1"), _id("v_", rl(WG, "EN", "Gone"), "2")]))
 db.close()
 
-# ---- 3a: an absorbed work's duplicate lines merge into the survivor's published line --------------
+# ---- 4c: an absorbed work's duplicate lines merge into the survivor's published line --------------
 def gouttes(name, merged):
     """WA 'Drops of God' (JP + EN, plus a pre-existing same-edition JP pair sharing 3 of 4 ISBNs with
     the main line, 2 of 4 with the French article's); WB the French
