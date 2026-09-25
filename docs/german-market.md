@@ -175,8 +175,9 @@ The review found real defects in the exported German data; all fixed, re-measure
   245$a inside a set / numbered series, anthology volumes' 240) no longer key links; an ISBN
   shared across two different sets with different titles twins nothing. The nine confirmed
   wrong links are gone and pinned in the fixture (`must_not_link`). Cost: 3 correct
-  artist-credited lines now in review (Gate, AJIN, Puella Magi Madoka Magica; Cantarella's
-  second line unclear).
+  artist-credited lines now in review (Gate, AJIN, Puella Magi Madoka Magica, the Attack on
+  Titan: Lost Girls manga; Cantarella's second line unclear). A shared given name alone never
+  counts as the same person.
 - **Bundles and boxes.** Double Pack, Doppelpack, NNer-Pack, Schmuckbox, Einsteiger-Set,
   Dekorama / Acryl-Aufsteller editions, Schuberauflage, Tarot-Buch, Guidebook are out; a box
   ISBN (qualified "in Behältnis", "Kassette", "in Schuber", and again as a bare ISBN-10) is no
@@ -198,10 +199,10 @@ The review found real defects in the exported German data; all fixed, re-measure
 
 | | First build | After the review |
 |---|---:|---:|
-| DE lines / volumes | 1,593 / 12,678 | **1,459 / 12,470** |
-| exported: linked (high / medium) + merged + sibling | 1,209 / 348 + 30 + 1 | **1,227 / 196 + 31 + 1** |
-| linker on all lines: high / medium / low / ambiguous / none | 1,246 / 353 / 210 / 7 / 2,740 | 1,264 / 202 / 202 / 4 / 2,668 |
-| review file | 217 | **206** |
+| DE lines / volumes | 1,593 / 12,678 | **1,458 / 12,468** |
+| exported: linked (high / medium) + merged + sibling | 1,209 / 348 + 30 + 1 | **1,226 / 196 + 31 + 1** |
+| linker on all lines: high / medium / low / ambiguous / none | 1,246 / 353 / 210 / 7 / 2,740 | 1,263 / 202 / 203 / 4 / 2,668 |
+| review file | 217 | **207** |
 | ground truth (linked, wrong) | 30/32, 0 | **31/33, 0** |
 | labelled set | 43/44 (97.7%) | **44/45 (97.8%)**, recall 44/49 |
 | dates | 95.8% of all | **99.8% of deposited**; 301 projected months; 92.8% of all |

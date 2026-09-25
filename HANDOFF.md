@@ -9,8 +9,8 @@ _Last updated: 2026-09-24_
 contract: exported `id_redirect`, `kept`, carried-id gate, integer rule; clustering: publisher
 families + signature merge; volume numbers; CI: `DNB_REFRESH_DAYS=6`, refresh fallback, stable
 parent batches; date floor on deposited volumes; origin regex; Magmell / leading "The").
-Re-measured offline, zero DNB requests: **DE 1,459 lines / 12,470 volumes**, linked 1,227 high
-+ 196 medium, merged 31, sibling 1; review 206; ground truth 31/33, 0 wrong; labelled 44/45;
+Re-measured offline, zero DNB requests: **DE 1,458 lines / 12,468 volumes**, linked 1,226 high
++ 196 medium, merged 31, sibling 1; review 207; ground truth 31/33, 0 wrong; labelled 44/45;
 dates 99.8% of deposited; split editions 13 works / 26 lines (was 49 / 111). Numbers below are
 the first build's.
 
@@ -70,6 +70,14 @@ Gotchas:
 - 13 works still split across lines by a subtitle variant between set records ("Kemono jihen"
   / "Kemono Jihen. Gefährlichen Phänomenen auf der Spur"); a post-link merge would fix it.
 - `.cache/dnb-parents.json` is part of the cache (not a response); it must travel with the seed.
+- `id_map` now keeps `retired` rows for carried line ids a build no longer has (55 today, all
+  outside the German market -- lines that changed since the 20 September artifact); nothing but
+  the exporter reads `id_map`. The carried-id gate has only met the 35 German Wikipedia lines so
+  far; the DNB-line redirect path is unit-tested and meets real data at the second publish.
+- `DNB_REFRESH_DAYS` is 6 on the rebuild step (87c7f0f replaced the step's 7 per the review:
+  a 7-day window on a 7-day cron skips alternate weeks). Revert 87c7f0f for 7.
+- 879 German volumes ship undated (announced, no planned month, or a plan older than 12 months);
+  a consumer that treats undated as "missing" will search for them.
 - DE lines of Swiss publishers carry 978-2 ISBNs (Kazé / Crunchyroll SA): the audit's
   "DE lines with no DE-group ISBN" info line counts them; 14 volumes collide with FR lines
   citing the same ISBN (flagged, info).
