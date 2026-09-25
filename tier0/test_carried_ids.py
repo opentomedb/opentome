@@ -548,6 +548,12 @@ eq("next build: the same line ids as the build before",
    sorted(r[0] for r in sqlite3.connect(art3).execute("SELECT tome_id FROM series")),
    sorted(r[0] for r in A.execute("SELECT tome_id FROM series")))
 eq("next build: the gate passes", ids_ok(art3, art), [])
+# ... and if a later build stopped re-applying the recorded merge, the duplicate would ship
+# again with nothing carried lost -- the gate names it
+path_dup = gouttes("g5", merged=True)
+dup_art = artifact(path_dup, art)        # no 4c, no 7b: the duplicate JP line is back
+eq("gate: a recorded merged duplicate shipping again fails",
+   "duplicate lines merged in an earlier build (carry meta.merged_lines) shipping again" in ids_ok(dup_art, art), True)
 
 # scope: a new line that repeats a published line of a work that absorbed nothing stays a line
 path4 = gouttes("g4", merged=False)

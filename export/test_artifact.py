@@ -458,6 +458,16 @@ def run_ids(path, carry):
     lost_ints = [i for i, t in carried_ints.items() if i not in have_ints and t not in exempt]
     rule("carried series integers neither a series nor an id_redirect.old_series_id", len(lost_ints),
          str(lost_ints[:5]))
+    # A duplicate line 4c merged (the carry's meta.merged_lines) must stay merged: if a later
+    # build stops re-applying the record, the duplicate ships again under its own id and no
+    # carried id is lost -- nothing else would notice.
+    try:
+        merged_dups = [d for d, _ in json.loads(C.execute(
+            "SELECT value FROM meta WHERE key='merged_lines'").fetchone()[0])]
+    except (sqlite3.OperationalError, TypeError, ValueError):
+        merged_dups = []
+    back = [d for d in merged_dups if d in present]
+    rule("duplicate lines merged in an earlier build (carry meta.merged_lines) shipping again", len(back), str(back[:5]))
     moved = [t for t in old if t not in present and t not in exempt]
     print("  info  carried ids: %s works / %s lines / %s volumes / %s already redirected; not present here: %s "
           "(redirected %s, moved %s of %s allowed, retired lines %s / volumes %s, excluded works' ids %s)" % (
