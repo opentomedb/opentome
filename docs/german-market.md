@@ -199,12 +199,18 @@ The review found real defects in the exported German data; all fixed, re-measure
 
 | | First build | After the review |
 |---|---:|---:|
-| DE lines / volumes | 1,593 / 12,678 | **1,458 / 12,468** |
-| exported: linked (high / medium) + merged + sibling | 1,209 / 348 + 30 + 1 | **1,226 / 196 + 31 + 1** |
-| linker on all lines: high / medium / low / ambiguous / none | 1,246 / 353 / 210 / 7 / 2,740 | 1,263 / 202 / 203 / 4 / 2,668 |
+| DE lines / volumes | 1,593 / 12,678 | **1,459 / 12,470** |
+| exported: linked (high / medium) + merged + sibling | 1,209 / 348 + 30 + 1 | **1,229 / 194 + 31 + 1** |
+| linker on all lines: high / medium / low / ambiguous / none | 1,246 / 353 / 210 / 7 / 2,740 | 1,266 / 200 / 203 / 4 / 2,667 |
 | review file | 217 | **207** |
 | ground truth (linked, wrong) | 30/32, 0 | **31/33, 0** |
 | labelled set | 43/44 (97.7%) | **44/45 (97.8%)**, recall 44/49 |
 | dates | 95.8% of all | **99.8% of deposited**; 301 projected months; 92.8% of all |
 | page counts | 97.8% | 97.8% (sums now include unnumbered pages) |
 | split editions | 49 works / 111 lines | **13 / 26** |
+
+Re-review fixes (N1-N6): a result set is cached whole, a degraded refresh keeps the previous
+complete set and never publishes (`meta.dnb_degraded`), a first run stays strict with or without
+a refresh window, >25 retired carried German volumes fail the contract; `kept` never overrides
+"authors differ"; a single cased book keeps its cased ISBN (Death Note All-in-One is back);
+245$c role labels stripped after the last ':'; photo books are extras.

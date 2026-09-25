@@ -9,8 +9,8 @@ _Last updated: 2026-09-24_
 contract: exported `id_redirect`, `kept`, carried-id gate, integer rule; clustering: publisher
 families + signature merge; volume numbers; CI: `DNB_REFRESH_DAYS=6`, refresh fallback, stable
 parent batches; date floor on deposited volumes; origin regex; Magmell / leading "The").
-Re-measured offline, zero DNB requests: **DE 1,458 lines / 12,468 volumes**, linked 1,226 high
-+ 196 medium, merged 31, sibling 1; review 207; ground truth 31/33, 0 wrong; labelled 44/45;
+Re-measured offline, zero DNB requests: **DE 1,459 lines / 12,470 volumes**, linked 1,229 high
++ 194 medium, merged 31, sibling 1; review 207; ground truth 31/33, 0 wrong; labelled 44/45;
 dates 99.8% of deposited; split editions 13 works / 26 lines (was 49 / 111). Numbers below are
 the first build's.
 

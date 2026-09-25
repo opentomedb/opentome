@@ -54,7 +54,7 @@ offline rebuild of 2026-09-24):
 | Japan | 6,978 | 67,703 | Wikipedia, openBD | day / month |
 | English | 3,030 | 26,188 | Wikipedia, Open Library | day |
 | France | 1,493 | 16,857 | Wikipedia, BnF | day |
-| Germany | 1,458 | 12,468 | DNB (CC0), German Wikipedia | mostly year |
+| Germany | 1,459 | 12,470 | DNB (CC0), German Wikipedia | mostly year |
 
 German dates are year precision for published volumes (the national library's record) and
 month precision, typed `projected`, for announced ones; the few German Wikipedia tables
