@@ -1,6 +1,58 @@
 # HANDOFF — OpenTome
 
-_Last updated: 2026-09-24_
+_Last updated: 2026-09-25_
+
+## 2026-09-25 — branch `alias-fix`: work_title des/du, a general carried-id redirect writer
+
+Not merged, not pushed, not published -- Nick's gate (CI build-only first; publish = standing OK
+after a green build-only run).
+
+Done (one commit per step; design + numbers: `docs/carried-ids.md`):
+- `tier0/carried_ids.py redirect` (stage **7b**, after the audit, before the export): every work,
+  line and volume id of the carried artifact the build lost -> `id_redirect`, any market, any
+  cause (ISBN majority, else dated volumes, volumes by number; `retired` to the line / main line
+  when nothing else holds). Excluded works retire without a row; anything else is an orphan.
+  The export now counts work ids as present, so a `work` redirect reaches the artifact.
+- `tier0/carried_ids.py merge` (stage **4c**, after the enrichment): a work the carry published
+  that is now part of another brings re-keyed lines; one that repeats a PUBLISHED line of the
+  survivor (same market + medium, most ISBNs) merges into it -- the published line untouched, its
+  name partners pinned to it (`origin_line`, source `opentome`). Scoped to absorbing works and
+  unpublished lines: the 496 published same-edition pairs in today's catalogue are not touched.
+- `export/test_artifact.py run_ids`: every market, works included; excluded works exempt; DE cap
+  (25) unchanged; new cap: > 100 carried volumes RETIRED (not resolving to a volume) fails.
+- `work_title()`: des/du restore Les/Le; the article fragment is shared with `local_title`.
+- Measured offline against the published `opentome-2026-09-25` (downloaded once, as CI's "restore
+  id carry" does; zero other network): 4 of 9,668 names change; 13 lines / 247 volumes / 1 work
+  leave the artifact, all 261 redirected (line correction 10, line duplicate_merge 3, volume
+  correction 175, volume duplicate_merge 72, work duplicate_merge 1), 0 retired, 0 orphans.
+  Series 13,035 -> 13,032, volumes 123,930 -> 123,858, aliases 90,380 -> 90,379. Every id in both
+  builds: identical columns; only other change: 3 Kindaichi Case Files lines' alias "s Enquêtes de
+  Kindaichi" -> "Les Enquêtes de Kindaichi". Contract: only the two AniList rules (8a not run);
+  measure 49/49, 0 coverage failures, DE floors unchanged. Second build on the new artifact: 0 new
+  / 0 changed; the unfixed corpus through the new stages: identical to main.
+
+Next:
+- Merge, CI build-only, then publish. Mangarr reads `id_redirect` for `release_line` rows; the
+  `work` row is additive (entity `work`, integers NULL).
+- Nick: the French Gouttes de Dieu lines are now named "Drops of God (Les Gouttes de Dieu)" /
+  "... - Mariage" (the work's title is English now; `local_name` stays "Les Gouttes de Dieu").
+  The French article's JP data for the merged volumes is dropped; Drops of God JP vol 25 keeps
+  the English article's ISBN 9784063728491 (vol 23's) where the French article had
+  9784063729153 -- a `corrections/volumes.json` candidate.
+
+Gotchas:
+- **`rebuild_all.sh` stage 0 does not stop on a failing test**: `python3 t.py >/dev/null && echo ok`
+  under `set -e` only skips the echo (bash exempts non-final `&&` members). Seen this round: with
+  the fix reverted, test_parser / test_to_mangarr / test_carried_ids failed and the build ran on.
+  A missing "... ok" line is the only sign. Not fixed here (out of scope) -- a one-line change per
+  test (`|| exit 1`).
+- openBD is cached by whole 80-ISBN batches of the sorted JP ISBNs: anything that changes the JP
+  ISBN set before stage 4 re-keys every later batch (the merge moved from 3a to 4c for that).
+  Offline, a missed batch drops dates silently (`_fetch` returns an error dict); locally 217 of
+  755 batch URLs are uncached already.
+- A merge pins by exact line name; if a work's origin market is not the merged line's market,
+  `to_mangarr.origin_line` raises (loud, not silent).
+
 
 ## preferred-edition-v0 (2026-09-24, NOT published)
 
@@ -10,15 +62,7 @@ meta `markets`, plus `id_redirect` (entity `release_line`) for retired line ids.
 FR/DE/JP data), contract rules in test_artifact.py. Alias ORDER unchanged (diffed against the pre-change export). Next:
 review, merge, build-only CI green, then publish (standing OK) — Mangarr v1 reads these behind guards and works without them.
 
-Deferred (not fixed here): `tier0/build_corpus.py`'s `work_title()` still has the "de eats
-des" bug -- its STRIP regex (`d[eu\'’]\s*`) matches "de" as a prefix of "des", so a title
-like "Liste des tomes des Enquêtes de Kindaichi" strips only the first "des" and the alias
-that ships is "s Enquêtes de Kindaichi" instead of "Les Enquêtes de Kindaichi" (the shape
-`to_mangarr.local_title` already handles correctly for the Preferred Edition columns --
-this is a separate, older function used at ingest time). The fix is held because it re-keys
-13 lines and 247 volumes and merges `w_2e7699a81cd4` into `w_0153b28bb30b`, and no merge
-redirect writer exists yet. It needs a round that owns id-changing merges plus a non-DE
-carried-id gate.
+The `work_title()` "de eats des" item deferred here is done on branch `alias-fix` (below).
 
 ## 2026-09-24 — branch `dnb-ingest`: the German market from DNB (stage 3e)
 
