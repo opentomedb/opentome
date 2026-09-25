@@ -547,8 +547,11 @@ def export(src_path, out_path, carry_ids_from=None):
     # Aventures de Roxy"), which pairs FR with JP correctly but has no English form for
     # a hand-added EN line to match -- the fallback below would otherwise resolve to
     # the JP work's MAIN manga line instead of its JP Roxy spin-off.
-    origin_line_override = dict(src.execute("""SELECT entity_id, value FROM claim
-                                               WHERE entity='release_line' AND field='origin_line'"""))
+    # A hand-checked pin (source 'correction') wins over a derived one (source 'opentome', written
+    # by tier0/carried_ids.py when it merges a line): read the correction last.
+    origin_line_override = {rid: (val, source) for rid, val, source in src.execute(
+        """SELECT entity_id, value, source FROM claim WHERE entity='release_line' AND field='origin_line'
+           ORDER BY source='correction', rowid""")}
     # Earliest dated volume per line (day/month precision, like last_dated_of below),
     # for pick_origin()'s step 2: whichever candidate market's main line shipped first.
     first_dated_of = dict(src.execute("""SELECT release_line_id, MIN(release_date) FROM volume
@@ -577,13 +580,18 @@ def export(src_path, out_path, carry_ids_from=None):
         om = origin_of.get((wid, medium))
         if om is None or om == market:
             return None
-        pinned = origin_line_override.get(rid)
+        pinned, pin_source = origin_line_override.get(rid, (None, None))
         if pinned:
             pinned_market = line_market.get(pinned)
-            if pinned_market != om:
+            if pinned_market == om:
+                return pinned
+            if pin_source != "opentome":
                 raise ValueError("origin_line correction on %s points at %s (market %s), "
                                  "not the origin market %s" % (rid, pinned, pinned_market, om))
-            return pinned
+            # a DERIVED pin (a merge's) that disagrees with the picked origin market is advice,
+            # not a hand-checked fact: warn and fall back to the name / main-line rule
+            print("  WARN derived origin_line on %s points at %s (market %s), not the origin market %s "
+                  "-- ignored" % (rid, pinned, pinned_market, om))
         return (line_key.get((wid, medium, om, (lname or wtitle).strip().lower()))
                 or main_of.get((wid, om, medium)))
 

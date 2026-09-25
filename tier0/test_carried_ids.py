@@ -268,6 +268,30 @@ eq("I4: the paperback is a re-key -- redirected to its renamed line (correction)
 eq("I4: both EN lines are still there", db.execute("SELECT COUNT(*) FROM release_line WHERE market='EN'").fetchone()[0], 2)
 db.close()
 
+# ---- a DERIVED origin pin that disagrees with the origin market warns; a correction's raises ------
+WP = "en:Pinned"
+pin_db = catalogue("pin", [(WP, "Pinned", [("JP", "manga", "Pinned", vols(18, 2)), ("EN", "manga", "Pinned", vols(19, 2)),
+                                           ("FR", "manga", "Pinned (fr)", vols(20, 2))])])
+db = sqlite3.connect(pin_db)
+db.execute("""INSERT INTO claim VALUES('release_line',?,'origin_line',?,'opentome',NULL,'open','x')""",
+           (rl(WP, "FR", "Pinned (fr)"), rl(WP, "EN", "Pinned")))
+db.commit(); db.close()
+pin_art = artifact(pin_db)
+P_ = sqlite3.connect(pin_art)
+eq("derived pin at a non-origin line: ignored (warned), the FR line's origin is the JP main line",
+   P_.execute("SELECT orig_series_id FROM series WHERE tome_id=?", (rl(WP, "FR", "Pinned (fr)"),)).fetchone()[0],
+   P_.execute("SELECT gcd_series_id FROM series WHERE tome_id=?", (rl(WP, "JP", "Pinned"),)).fetchone()[0])
+P_.close()
+db = sqlite3.connect(pin_db)
+db.execute("UPDATE claim SET source='correction' WHERE field='origin_line'")
+db.commit(); db.close()
+try:
+    artifact(pin_db)
+    raised = False
+except ValueError:
+    raised = True
+eq("... the same pin from a correction still raises", raised, True)
+
 # ---- review I2 (repro3): a tie between two works / lines is reported, whatever the hash seed ------
 TIE = """
 import os, sys, sqlite3
