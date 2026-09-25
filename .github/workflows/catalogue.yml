@@ -75,6 +75,8 @@ jobs:
                    echo "::error::no published artifact to carry ids from — refusing a cold id assignment (dispatch with cold_start only for a deliberate cold start)"
                    exit 1
                  fi; }
+          # the release this build replaces: publish.sh refuses unless the artifact carried from it
+          if [ -f build/manga-metadata.sqlite ]; then sha256sum build/manga-metadata.sqlite | cut -d' ' -f1 > build/carry.sha256; fi
       # Runs every stage including the measure gate (8d, writes build/measure.log)
       # and exits non-zero on any test, audit, contract or coverage failure.
       # DNB freshness window (Nick 2026-09-24: a weekly refresh, no manual step): the build
@@ -92,7 +94,7 @@ jobs:
       # Without PUBLISH=1 publish.sh only writes build/version.json and prints the
       # per-build tag; it also runs the two clean-room refusals.
       - name: manifest (dry run)
-        run: bash export/publish.sh
+        run: CARRY_SHA256="$(cat build/carry.sha256 2>/dev/null || true)" bash export/publish.sh
       - uses: actions/upload-artifact@v4
         with:
           name: catalogue-${{ github.run_number }}-${{ github.run_attempt }}
@@ -111,7 +113,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
         env:
           GH_TOKEN: ${{ secrets.MANGARR_METADATA_TOKEN }}
-        run: PUBLISH=1 bash export/publish.sh
+        run: CARRY_SHA256="$(cat build/carry.sha256 2>/dev/null || true)" PUBLISH=1 bash export/publish.sh
       # Tell the Mangarr Discord server (#catalogue) what was published. The webhook URL is
       # the DISCORD_CATALOGUE_WEBHOOK secret; the step is skipped when it is not set.
       - name: announce on Discord

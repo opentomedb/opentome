@@ -687,7 +687,7 @@ P = lambda a, **env: subprocess.run(["bash", os.path.join(pub, "export", "publis
 r = P(cold, PUBLISH="1")
 eq("publish.sh refuses an artifact without carried_from", (r.returncode, "carried_from" in r.stderr), (1, True))
 r = P(cold)
-eq("... its dry run passes and says so", (r.returncode, "NO ID CARRY" in r.stderr), (0, True))
+eq("... its dry run passes and says so", (r.returncode, "ID CARRY:" in r.stderr), (0, True))
 # a stub gh that refuses everything: the test can never reach a real release
 fake = tempfile.mkdtemp(prefix="opentome-fakegh-")
 with open(os.path.join(fake, "gh"), "w") as f:
@@ -696,6 +696,35 @@ os.chmod(os.path.join(fake, "gh"), 0o755)
 r = P(cold, PUBLISH="1", OPENTOME_COLD_START="1", GH_TOKEN="x", PATH=fake + ":/usr/bin:/bin")
 eq("... a deliberate cold start gets past the refusal (and stops at the stub gh)",
    ("refusing: this build did not carry ids" in r.stderr, "FAKE-GH" in r.stderr, r.returncode), (False, True, 1))
+
+# review N3: a cold-start ARTIFACT publishes only with the flag at publish time too; a carried
+# artifact publishes only against the release it carried from (CARRY_SHA256 = its meta.carried_sha256)
+stub = dict(GH_TOKEN="x", PATH=fake + ":/usr/bin:/bin")
+os.environ["OPENTOME_COLD_START"] = "1"
+cold_stamped = os.path.join(TMP, "cold-stamped.sqlite")
+export(nocarry, cold_stamped, None)
+os.environ.pop("OPENTOME_COLD_START")
+eq("N3a: a cold-start build is stamped carried_from=cold-start",
+   sqlite3.connect(cold_stamped).execute("SELECT value FROM meta WHERE key='carried_from'").fetchone(), ("cold-start",))
+r = P(cold_stamped, PUBLISH="1", **stub)
+eq("N3a: ... and refused at publish without OPENTOME_COLD_START=1", (r.returncode, "cold-start build" in r.stderr, "FAKE-GH" in r.stderr),
+   (1, True, False))
+r = P(cold_stamped, PUBLISH="1", OPENTOME_COLD_START="1", **stub)
+eq("N3a: ... published with it (reaches the stub gh)", "FAKE-GH" in r.stderr, True)
+carried_art = art                       # the merged-work artifact, carried from `carry`
+live_sha = __import__("hashlib").sha256(open(carry, "rb").read()).hexdigest()
+eq("N3b: the export records the carry's sha256",
+   sqlite3.connect(carried_art).execute("SELECT value FROM meta WHERE key='carried_sha256'").fetchone(), (live_sha,))
+r = P(carried_art, PUBLISH="1", **stub)
+eq("N3b: a carried build without CARRY_SHA256 is refused", (r.returncode, "CARRY_SHA256 is unset" in r.stderr,
+                                                            "FAKE-GH" in r.stderr), (1, True, False))
+r = P(carried_art, PUBLISH="1", CARRY_SHA256="0" * 64, **stub)
+eq("N3b: a build carried from another (stale) release is refused", (r.returncode, "not from the release it would replace" in r.stderr,
+                                                                    "FAKE-GH" in r.stderr), (1, True, False))
+r = P(carried_art, PUBLISH="1", CARRY_SHA256=live_sha, **stub)
+eq("N3b: carried from the live release: allowed (reaches the stub gh)", "FAKE-GH" in r.stderr, True)
+r = P(carried_art, CARRY_SHA256="0" * 64)
+eq("N3b: the dry run only says so", (r.returncode, "ID CARRY:" in r.stderr), (0, True))
 
 # ---- no carry: nothing to do ---------------------------------------------------------------------
 db = sqlite3.connect(after)

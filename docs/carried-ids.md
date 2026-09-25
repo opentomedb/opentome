@@ -36,8 +36,20 @@ is the one exception: the very first build, or a rebuild after the published art
 gone. Outside CI a missing carry only warns.
 
 The export writes `meta.carried_from` = the carry's `gcd_dump (generated_at)` (`cold-start` under
-the flag). `export/publish.sh` refuses to publish an artifact without it unless
-`OPENTOME_COLD_START=1`; its dry run only says so.
+the flag) and `meta.carried_sha256` = the carry file's sha256. A real publish
+(`PUBLISH=1 export/publish.sh`) refuses:
+- an artifact without `carried_from`, unless `OPENTOME_COLD_START=1`;
+- a `cold-start` artifact, unless `OPENTOME_COLD_START=1` is set at publish time too;
+- a carried artifact unless `CARRY_SHA256` equals its `carried_sha256`, i.e. it was built against
+  the release it would replace. CI passes the sha of the file its "restore id carry" step
+  downloaded (`build/carry.sha256`). **Local rule:** a workstation publish must set
+  `CARRY_SHA256` by hand to the live release's `version.json` `sha256`; publish.sh makes no
+  network read of its own, so without it the publish is refused -- a build carried from a stale
+  `build/manga-metadata.sqlite` can never replace the live artifact.
+The dry run only reports these.
+
+**Rollback.** `ROLLBACK_TO` past a release that published id redirects un-publishes them: ids
+consumers already stored stop resolving. It needs Nick's explicit go-ahead.
 
 ## 4c. An absorbed work's duplicate lines
 

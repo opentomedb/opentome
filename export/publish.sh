@@ -16,6 +16,8 @@
 # ROLLBACK_TO downloads an earlier build's two files and uploads them to the
 # alias the same way -- every install downgrades on its next check, because the
 # updater compares the date label in version.json. Nothing else is touched.
+# A rollback past a release that published id redirects UN-publishes them (ids consumers already
+# stored stop resolving) -- it needs Nick's explicit go-ahead (docs/carried-ids.md).
 #
 # Mangarr's MetadataUpdateService fetches version.json from the release, compares
 # `gcd_dump` against the artifact it already has (IsNewer parses the date out of
@@ -131,19 +133,36 @@ if [ -n "$DEGRADED" ]; then
 fi
 
 # Ids are a public contract: a build that did not carry them from the last published artifact
-# (meta.carried_from absent) re-issued every integer and redirected nothing. Only a deliberate
-# cold start (OPENTOME_COLD_START=1 at build and here) may publish one. Same shape as above: the
-# dry run says so, a real publish refuses.
+# (meta.carried_from absent) re-issued every integer and redirected nothing, and one that carried
+# them from a STALE copy redirects against the wrong release. A real publish needs:
+#   - meta.carried_from, and for a cold-start build ("cold-start") OPENTOME_COLD_START=1 here too;
+#   - otherwise CARRY_SHA256 = the sha256 of the release this one replaces, equal to the
+#     artifact's meta.carried_sha256. CI passes the sha of the file its "restore id carry" step
+#     downloaded (build/carry.sha256). LOCAL RULE: a workstation publish sets it by hand from the
+#     live release's version.json (`sha256`); without it publish.sh refuses, so a build carried
+#     from a stale build/manga-metadata.sqlite can never replace the live one.
+# Same shape as above: the dry run says what is wrong, only a real publish refuses.
 CARRIED="$(q carried_from)"
+CARRIED_SHA="$(q carried_sha256)"
+COLD="${OPENTOME_COLD_START:-0}"
+carry_refusal=""
 if [ -z "$CARRIED" ]; then
+  [ "$COLD" = "1" ] || carry_refusal="meta.carried_from is absent: this build did not carry ids from the published artifact (set OPENTOME_COLD_START=1 only for a deliberate cold start)."
+elif [ "$CARRIED" = "cold-start" ]; then
+  [ "$COLD" = "1" ] || carry_refusal="this is a cold-start build (meta.carried_from=cold-start): publishing it needs OPENTOME_COLD_START=1 at publish time too."
+elif [ -z "${CARRY_SHA256:-}" ]; then
+  carry_refusal="CARRY_SHA256 is unset: give the sha256 of the release this replaces (CI: build/carry.sha256; by hand: the live version.json's sha256)."
+elif [ "$CARRY_SHA256" != "$CARRIED_SHA" ]; then
+  carry_refusal="this build carried ids from ${CARRIED} (sha256 ${CARRIED_SHA:-absent}), not from the release it would replace (sha256 $CARRY_SHA256) -- rebuild against the live release."
+fi
+echo "carried     ${CARRIED:-(none)}${CARRIED_SHA:+  sha256 $CARRIED_SHA}"
+if [ -n "$carry_refusal" ]; then
   echo
-  echo "NO ID CARRY: meta.carried_from is absent" >&2
-  if [ "${PUBLISH:-0}" = "1" ] && [ "${OPENTOME_COLD_START:-0}" != "1" ]; then
-    echo "refusing: this build did not carry ids from the published artifact (set OPENTOME_COLD_START=1 only for a deliberate cold start)." >&2
+  echo "ID CARRY: $carry_refusal" >&2
+  if [ "${PUBLISH:-0}" = "1" ]; then
+    echo "refusing: $carry_refusal" >&2
     exit 1
   fi
-else
-  echo "carried     $CARRIED"
 fi
 
 if [ "${PUBLISH:-0}" != "1" ]; then

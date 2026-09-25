@@ -407,6 +407,7 @@ def export(src_path, out_path, carry_ids_from=None):
     # meta.carried_from: which published artifact this build's ids were carried from.
     # export/publish.sh refuses an artifact without it (unless OPENTOME_COLD_START=1).
     carried_from = "cold-start" if os.environ.get("OPENTOME_COLD_START") == "1" else None
+    carried_sha256 = None
     if carry_ids_from and os.path.exists(carry_ids_from):
         old = sqlite3.connect(carry_ids_from)
         try:
@@ -415,6 +416,9 @@ def export(src_path, out_path, carry_ids_from=None):
             cm = {}
         carried_from = "%s (%s)" % (cm.get("gcd_dump") or os.path.basename(carry_ids_from),
                                     cm.get("generated_at") or "no generated_at")
+        # the carry's exact bytes: publish.sh compares this with the release it would replace
+        with open(carry_ids_from, "rb") as fh:
+            carried_sha256 = hashlib.sha256(fh.read()).hexdigest()
         try:
             for t, i, k in old.execute("SELECT opentome_id,int_id,kind FROM id_map"):
                 mapping[t] = i
@@ -916,6 +920,7 @@ def export(src_path, out_path, carry_ids_from=None):
                                    "says which milestone (projected = a planned month, not a publication)."),
     ] + ([("dnb_degraded", dnb_degraded)] if dnb_degraded else []) \
       + ([("carried_from", carried_from)] if carried_from else []) \
+      + ([("carried_sha256", carried_sha256)] if carried_sha256 else []) \
       + ([("merged_lines", merged_lines)] if merged_lines != "[]" else []):
         # dnb_degraded: DNB failed during this build's refresh -- export/publish.sh refuses it
         out.execute("INSERT OR REPLACE INTO meta VALUES(?,?)", (k, v))
