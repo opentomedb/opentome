@@ -137,6 +137,11 @@ sold_in_box = rec("1", MANGA, ("020", [("a", BOXI), ("q", "Kassette 1"), ("c", "
                   ("020", [("a", OWN), ("c", "kart.")]))
 eq("a volume with its own ISBN that was also sold in a box keeps its own ISBN and is a volume",
    (M.isbns(sold_in_box), M.classify(sold_in_box)), ([OWN], "manga"))
+allinone = rec("1", MANGA, ("020", [("a", "9783842082809"), ("c", "Broschur in Behältnis : EUR 50.00 (DE)")]),
+               ("020", [("a", "3842082800")]), ("245", [("a", "Death note")]),
+               ("250", [("a", "All-in-One Edition, 1. Auflage")]), ("300", [("a", "2394 Seiten"), ("c", "20 cm")]))
+eq("a cased single book (no 773, 'N Seiten', no bundle text): its cased ISBN is its own, a volume",
+   (M.isbns(allinone), M.boxed(allinone), M.classify(allinone)), (["9783842082809"], False, "manga"))
 eq("a set record with 'N Bände' alone is not a box", M.box_parent(rec("1", ("300", [("a", "9 Bände")]), parent=True)), False)
 eq("a set record 'in Behältnis' is a box",
    M.box_parent(rec("1", ("300", [("a", "9 Bände"), ("c", "18 cm, Behältnis 19 x 14 x 13 cm")]), parent=True)), True)

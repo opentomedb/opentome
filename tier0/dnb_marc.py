@@ -103,9 +103,21 @@ def _isbn13(v):
     return i13 if i13 and isbn13_check(i13) else None
 
 
+def cased_book(r):
+    """One book that ships in a case: no set (773), one paginated extent ('2394 Seiten') and no
+    bundle text in its title -- Death Note All-in-One, 'Broschur in Behältnis'. Its cased ISBN
+    is its own, and it is a volume, not a box."""
+    if parent_idns(r) or is_parent(r) or BUNDLE_TEXT.search(_title_text(r)):
+        return False
+    return bool(re.match(r"^\s*(?:ca\.|circa)?\s*\[?\d{2,4}\]?\s*(?:ungezählte\s+)?Seiten\b",
+                         clean(first(r, "300", "a"))))
+
+
 def box_isbns(r):
     """ISBN-13s of 020 fields qualified as a box ('Kassette 1', ', in Schuber', 'Broschur in
-    Behältnis')."""
+    Behältnis') -- none for a cased single book (cased_book)."""
+    if cased_book(r):
+        return set()
     return {i for f in fields(r, "020") if _box_020(f) for c, v in f if c == "a" for i in [_isbn13(v)] if i}
 
 
@@ -313,6 +325,8 @@ def boxed(r):
     19 x 14 x 13 cm', 250 'Schuberauflage'), or every ISBN it has is a box's. A volume that
     also carries its own ISBN is a book that was sold in a box as well -- not boxed. A parent's
     bare '9 Bände' is NOT a signal: every multi-part set record states its extent that way."""
+    if cased_book(r):
+        return False
     if BOXED.search(" ".join(subs(r, "300", "a") + subs(r, "300", "c") + subs(r, "250", "a"))):
         return True
     return bool(box_isbns(r)) and not isbns(r)
