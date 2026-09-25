@@ -78,7 +78,10 @@ linking stays published under its published work (role `kept`) rather than disap
 | One record found to be two works | Keep the original id on the larger part. Issue a new id for the split-off part. Write `reason='split'`. |
 | Wrong entity type | Issue a new id of the correct type; redirect the old with `reason='correction'`. |
 
-**Deletion is not a supported operation.** Nothing is ever removed from `id_redirect`.
+**Deletion is not a supported operation.** Nothing is ever removed from `id_redirect` -- with one
+exception (2026-09-25, `docs/carried-ids.md`): a row whose OLD id is present again (a re-key
+reverted, "s X" -> "Les X" -> "s X") is dropped, because the id now resolves by being present, and
+keeping the row would send a live id elsewhere and close a cycle.
 
 ## Why this is written down
 
