@@ -41,16 +41,16 @@ Done (design: `docs/dnb-design.md`, results: `docs/german-market.md`):
   export; replay `--base main` 0 new / 0 changed / 0 lost.
 
 Next:
-- **Seeding trap:** regenerate the seed tarball from the FULL current `.cache` (`tar --zstd
-  -cf opentome-cache.tar.zst -C .cache .`), never append the DNB files to the old tarball --
-  an appended or partial seed silently drops whatever it lacks, and the next cold CI run
-  re-fetches it (or, for AniList, binds differently).
-- **CI's cache has no DNB responses -- seed it before the next CI build.** Unseeded, the
-  first CI build makes ~390 SRU requests inside stage 3e; `actions/cache` saves only on a
-  successful job, so a throttled (DnbThrottled) or otherwise failed run keeps nothing and
-  repeats the burst every week. Seed: add the DNB `.cache/*.xml` files (the urls in
-  `build/dnb-netlog.tsv`, key = sha256(url)[:32] + '.xml') to the opentome-cache seed tarball
-  and re-run seed-cache.
+- **Seed the CI cache before the next CI build -- and regenerate the seed, never append.**
+  CI's cache has no DNB responses. Unseeded, the first CI build has no complete earlier result
+  sets, so any DNB failure fails it (DnbIncomplete), and `actions/cache` saves only on success.
+  The only procedure: rebuild the tarball from the FULL current local `.cache`, which now holds
+  the DNB responses AND `.cache/dnb-parents.json` (the parent-batch index):
+  `tar --zstd -cf opentome-cache.tar.zst -C .cache .`, upload it as the private
+  opentome-cache repo's `seed` release asset, run the seed-cache workflow. Never append files
+  to the old tarball and never build it from a subset -- a partial seed silently lacks
+  whatever it misses, and the next cold CI run re-fetches it (or, for AniList, binds
+  differently).
 - Refreshing: `DNB_REFRESH_DAYS=6` is now set in `catalogue.yml` (last year, this year and
   later, the no-year remainder, when older than 6 days: ~62 requests a week, plus up to 42
   small recounts when a total moved). Parents are fetched once (stable batches via
@@ -61,7 +61,7 @@ Next:
   earlier set -- a first run, an unseeded cache, a new slice -- fails the build loudly, refresh
   window or not (CI always sets one). The contract also fails when more than 25 carried German
   volumes are retired in one build.
-- Nick: `build/dnb-review.tsv` (217 low/ambiguous lines) -- confirmed ones could become
+- Nick: `build/dnb-review.tsv` (207 low/ambiguous lines) -- confirmed ones could become
   corrections; the design has no correction type for "link this DNB line" yet.
 - Follow-ups: KR/CN round (decision 4); light novels are thin (19 lines) -- LN works are
   linked less often; the 518 current-year announcements without a 263 month are undated.
@@ -74,10 +74,13 @@ Gotchas:
   to Fire Force; spin-offs named inside a parent's series statement link to the parent.
 - 13 works still split across lines by a subtitle variant between set records ("Kemono jihen"
   / "Kemono Jihen. Gefährlichen Phänomenen auf der Spur"); a post-link merge would fix it.
-- `.cache/dnb-parents.json` is part of the cache (not a response); it must travel with the seed.
-- `id_map` now keeps `retired` rows for carried line ids a build no longer has (55 today, all
-  outside the German market -- lines that changed since the 20 September artifact); nothing but
-  the exporter reads `id_map`. The carried-id gate has only met the 35 German Wikipedia lines so
+- `id_map` now keeps `retired` rows for carried line ids a build no longer has: 55 today, all
+  outside the German market (en 27, ja 25, fr 3) -- the lines of works excluded since the
+  20 September artifact (W.I.T.C.H., Mechademia, The Walking Dead, The Adventures of Rabbi
+  Harvey, ...). A correct catalogue-wide fix: each reserves its integer so it is never reissued.
+  They have NO `id_redirect` row, deliberately: an excluded work has no successor line to point
+  at (none shares work + language + name). Nothing but the exporter reads `id_map`. Say this in
+  the merge commit message. The carried-id gate has only met the 35 German Wikipedia lines so
   far; the DNB-line redirect path is unit-tested and meets real data at the second publish.
 - `DNB_REFRESH_DAYS` is 6 on the rebuild step (87c7f0f replaced the step's 7 per the review:
   a 7-day window on a 7-day cron skips alternate weeks). Revert 87c7f0f for 7.
