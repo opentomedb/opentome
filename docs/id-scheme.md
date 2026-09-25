@@ -51,6 +51,11 @@ old_series_id, new_series_id)`, chains collapsed to an id present in that file. 
 re-reads the previous artifact's rows, so a redirect is never lost. A retired volume with no
 successor volume resolves to its line (reason `retired`).
 
+Since 2026-09-25 the pipeline writes those rows for every market and every entity, work
+included (`tier0/carried_ids.py`, `docs/carried-ids.md`): a carried id the build lost goes to the
+work / line / volume now holding its evidence (ISBNs, else dated volumes, volumes by number),
+and the contract test fails on any carried id, in any market, left without a present target.
+
 Integer ids (`series.gcd_series_id`) follow the same rule: a successor line with no integer of
 its own takes the retired line's; a successor that already has one keeps it, the retired
 integer resolves through `id_redirect.old_series_id -> new_series_id`, and it stays reserved in

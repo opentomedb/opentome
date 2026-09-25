@@ -123,7 +123,10 @@ Code: `tier0/dnb_sru.py` (client), `tier0/dnb_enumerate.py`, `tier0/dnb_marc.py`
   Wikipedia lines as they are (all 35 ids stay present; none occurred).
 - **Redirects.** Prior-build state is the carried artifact: a German tome_id it has that the
   build lost is redirected to the line now holding most of its ISBNs, volumes by number, and
-  the export hands the old integer id to the successor.
+  the export hands the old integer id to the successor. Since 2026-09-25 a general writer does
+  the same for every market and entity (`tier0/carried_ids.py`, stage 7b, `docs/carried-ids.md`)
+  and the carried-id gate covers every market; this stage-3e pass stays, and 7b leaves the ids
+  it redirected as they are.
 - **Freshness.** `DNB_REFRESH_DAYS=N` refetches last year's slice (deposit lag), the current
   and future years, the no-year remainder and parent batches older than N days; a refresh run
   re-reads the totals and re-pages only frozen slices whose count changed. Default off.
