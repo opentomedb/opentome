@@ -220,16 +220,14 @@ rep = K.redirects(db, carry, excluded=set())
 eq("merged work: the absorbed work redirects to the survivor (duplicate_merge)",
    db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (_id("w_", WB),)).fetchone(),
    (_id("w_", WA), "duplicate_merge"))
-# review I2: the absorbed JP line's ISBNs sit in two lines now -- the survivor's published JP
-# line and the re-keyed copy. Without 4c that is a tie: reported, never picked by dict order.
+# review I2 + N1: the absorbed JP line's ISBNs sit in two lines now -- the survivor's published
+# JP line and the re-keyed copy. Without 4c that is a tie; exactly one of the two is new in this
+# build, so the copy wins (N1) -- deterministic, never by dict order.
 JP_OLD = rl(WB, "JP", "Les Gouttes de Dieu")
-eq("merged work, no 4c: the tied JP line is reported ambiguous and left an orphan (the gate fails)",
-   (JP_OLD in rep["ambiguous"], JP_OLD in rep["orphans"],
-    db.execute("SELECT new_id FROM id_redirect WHERE old_id=?", (JP_OLD,)).fetchone()), (True, True, None))
+eq("merged work, no 4c: the tie goes to the one NEW candidate (the re-keyed copy), nothing ambiguous",
+   (db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (JP_OLD,)).fetchone(), rep["ambiguous"]),
+   ((rl(WA, "JP", "Drops of God (Les Gouttes de Dieu)"), "correction"), []))
 db.close()
-art_amb = artifact(after, carry)
-eq("merged work, no 4c: the gate fails on it", "carried ids (every market: works, lines, volumes) neither present "
-   "nor redirected" in ids_ok(art_amb, carry), True)
 # with 4c first -- the pipeline's order -- the copy merges into the published line and 7b resolves
 after = catalogue("merge3", [
     (WA, "Drops of God", [("JP", "manga", "Drops of God", jp), ("EN", "manga", "Drops of God", vols(4, 4))]),
@@ -314,6 +312,31 @@ try:
 except ValueError:
     raised = True
 eq("... the same pin from a correction still raises", raised, True)
+
+# ---- review N1 (repro4): a re-key beside a published same-edition twin is a re-key, not a tie ----
+# 456 of the catalogue's 496 same-edition pairs nest ("Jo" holds every ISBN of "Jo (Bunko)"), so a
+# renamed Bunko line ties with "Jo" on every vote; the renamed line is the one new candidate.
+WJ = "en:Jo"
+jo = vols(21, 3)
+jo4 = jo + [("4", "9784099999999", "2010-02-01")]
+cj = artifact(catalogue("jo1", [(WJ, "Jo", [("JP", "manga", "Jo", jo4), ("JP", "manga", "Jo (Bunko)", jo)])]))
+db = sqlite3.connect(catalogue("jo2", [(WJ, "Jo", [("JP", "manga", "Jo", jo4), ("JP", "manga", "Jo (Bunkoban)", jo)])]))
+rep = K.redirects(db, cj, excluded=set())
+eq("N1: renaming the Bunko line redirects it to 'Jo (Bunkoban)' (correction), no orphans, nothing ambiguous",
+   (db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (rl(WJ, "JP", "Jo (Bunko)"),)).fetchone(),
+    rep["orphans"], rep["ambiguous"]), ((rl(WJ, "JP", "Jo (Bunkoban)"), "correction"), [], []))
+eq("N1: its volumes follow by ISBN to the renamed line",
+   db.execute("SELECT new_id FROM id_redirect WHERE old_id=?", (_id("v_", rl(WJ, "JP", "Jo (Bunko)"), "2"),)).fetchone(),
+   (_id("v_", rl(WJ, "JP", "Jo (Bunkoban)"), "2"),))
+db.close()
+# a genuine tie: the lost line's ISBNs sit in two PUBLISHED lines, neither new -> still ambiguous
+cj3 = artifact(catalogue("jo3", [(WJ, "Jo", [("JP", "manga", "Jo", jo4), ("JP", "manga", "Jo (Bunko)", jo),
+                                             ("JP", "manga", "Jo (Aizoban)", jo)])]))
+db = sqlite3.connect(catalogue("jo4", [(WJ, "Jo", [("JP", "manga", "Jo", jo4), ("JP", "manga", "Jo (Bunko)", jo)])]))
+rep = K.redirects(db, cj3, excluded=set())
+eq("N1: two carried candidates tied -> still reported ambiguous (an orphan)",
+   (rl(WJ, "JP", "Jo (Aizoban)") in rep["ambiguous"], rl(WJ, "JP", "Jo (Aizoban)") in rep["orphans"]), (True, True))
+db.close()
 
 # ---- review I2 (repro3): a tie between two works / lines is reported, whatever the hash seed ------
 TIE = """

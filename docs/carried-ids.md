@@ -93,10 +93,13 @@ burst. After the enrichment the batches see the same ISBN set.
    **retired** (fell back to the work's main line) numbers are never used -- the main line's vol 1
    is a different book than an arc's vol 1 -- only a unique ISBN in the market, else `retired`
    to the line. A volume redirected to a line is never labelled `correction`.
-5. **Ties are never broken.** Every "strict majority" above is ordered by (votes, id), never by
-   dict or set order (which follows the hash seed); two candidates tied at the top are
-   **ambiguous**: no row, the id is reported (`AMBIGUOUS ...`, `meta` `carried:redirects`) and
-   is an orphan, so the gate fails and a person decides. 4c likewise does not merge a line that
+5. **Ties.** Every "strict majority" above is ordered by (votes, id), never by dict or set order
+   (which follows the hash seed). A tie at the top goes to the one candidate that is **new** in
+   this build, when exactly one is: a line re-keyed beside a published same-edition twin ties
+   with it on every ISBN (456 of the catalogue's 496 same-edition pairs nest), and the renamed
+   line is the successor. Any other tie is **ambiguous**: no row, the id is reported
+   (`AMBIGUOUS ...`, `meta` `carried:redirects`) and is an orphan, so the gate fails and a
+   person decides. 4c likewise does not merge a line that
    two published lines match equally.
 6. Lines and volumes of a work in `corrections/excluded.json` are retired on purpose and get no
    row — an excluded work has no successor. Anything else without a present target is an
