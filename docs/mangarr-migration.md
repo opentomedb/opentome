@@ -101,7 +101,34 @@ Additive; a consumer reading named columns sees nothing change.
 | `series.local_name` | the line's title in its own language: a DE line (main or not) takes the DNB series title when it has one, else — main line only — the line's official title in its own language (FR/JP/…, cleaned of list-article prefixes: "Liste des … des X" / "Chronologie des … des X" → "Les X", "… du X" → "Le X"; disambiguators stripped); NULL for EN lines, for a non-main line with no DNB name, and — today, for lack of source data rather than by rule — for KR/CN/TW/IT/ES |
 | `series_alias.language`, `series_alias.kind` | the alias's language (NULL for a line's own name and corrections) and kind (`line`, `official`, `alias`, `abbreviation`, `romanized`, `correction`); first insertion wins, the alias ORDER is unchanged |
 | meta `markets` | JSON `{language: line count}` keyed by `series.language` codes (`ja`, `zh-TW`, …, not `country`), sorted keys |
-| `id_redirect` | (pre-existing, `dnb-ingest`) a retired release-line id → the line in this artifact that replaced it (`entity='release_line'`); the edition picker resolves a retired id through it instead of a dedicated table: `SELECT new_tome_id FROM id_redirect WHERE old_tome_id=@t AND entity='release_line'`. A carried id with no successor (an excluded work; 55 today, see HANDOFF.md) has no row at all — a consumer must treat "no row" as gone, not as an error |
+| `id_redirect` | a retired id → the id in this artifact that replaced it; full description in "Resolving retired ids" below |
+
+### Resolving retired ids (`id_redirect`, 2026-09-25)
+
+`id_redirect(old_tome_id, new_tome_id, entity, reason, old_series_id, new_series_id)`. Every id
+the previous published artifact had and this one does not -- in any market -- has a row, written
+by `tier0/carried_ids.py` (`docs/carried-ids.md`); chains are collapsed, so `new_tome_id` is
+always an id present in THIS artifact. Rows are never deleted by a later build, except a row
+whose old id came back (a reverted re-key): then the old id is simply present again.
+
+| `entity` | `old_tome_id` / `new_tome_id` | integers |
+|---|---|---|
+| `release_line` | a line id (`rl_`) → the line that replaced it | `new_series_id` = the successor's `gcd_series_id`; `old_series_id` = the retired line's integer, or NULL when the successor took that same integer over (a re-key: the stored integer still names a series) |
+| `volume` | a volume id (`v_`) → the volume that replaced it, or, with reason `retired`, the LINE (`rl_`) it belonged to (the book is gone; the id resolves to where it was) | `new_series_id` = the series the target is in; `old_series_id` NULL |
+| `work` | a work id (`w_`, `series.tome_work_id`) → the work it was merged into | both NULL |
+
+`reason`: `correction` (a re-key: the same thing under a new id), `duplicate_merge` (merged into
+another published id), `retired` (no successor of its own kind: a line redirected to its work's
+main line, a volume to its line). A line of a work removed by `corrections/excluded.json` has no
+row -- no row means gone, not an error.
+
+**A consumer holding an integer** (`gcd_series_id`) that is no longer in `series` looks it up in
+`id_redirect.old_series_id` and follows `new_series_id`:
+`SELECT new_series_id FROM id_redirect WHERE old_series_id=@i`. A consumer holding a `tome_id`
+looks up `old_tome_id`. The retired integer is reserved in `id_map` (kind `retired`) and never
+reissued. Measured (branch `alias-fix`, the des/du title fix): 261 rows -- 13 lines (3 with an
+`old_series_id`: the merged Gouttes de Dieu JP lines 1817436460, 635069642, 1705204930), 247
+volumes, 1 work.
 
 One work can have the same spelling in more than one of its titles (e.g. an English and a
 French claim that read identically); the alias row they collapse to (first-insert-wins:
