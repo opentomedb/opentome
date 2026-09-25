@@ -301,7 +301,8 @@ LN_TEXT = re.compile(r"light[\s-]?novel|ranobe", re.I)
 EXTRA_TEXT = re.compile(r"artbook|art book|artworks?\b|malbuch|kochbuch|kalender|postkarten|sticker|"
                         r"fanbook|fan book|character ?book|making[- ]of|\bguide\b|zeichnen lernen|"
                         r"zeichenkurs|how to draw|rätselbuch|notizbuch|tagebuch zum|poster|"
-                        r"illustrations?\b|visual ?book|databook|data book|anthology book|tarot[\s-]?buch|guidebook", re.I)
+                        r"illustrations?\b|visual ?book|databook|data book|anthology book|tarot[\s-]?buch|guidebook|"
+                        r"fotostrecke|fotobuch|photo ?book|bildband", re.I)
 BUNDLE_TEXT = re.compile(r"bundle|doppelband|sammelschuber|komplettpack|komplettbox|schuber|"
                          r"\bbox\b|\bboxset\b|box-set|schmuckbox|starter[\s-]?pack|double[\s-]?pack|doppel[\s-]?pack|"
                          r"\d+er[\s-]?pack|einsteiger[\s-]?set|\bset\b.*\d+\s*b[äa]nde|mit dekorama|"
@@ -311,8 +312,10 @@ BOXED = re.compile(r"behältnis|kassette|schuber|\bbox\b", re.I)
 
 
 def _title_text(r):
+    """The title-ish text a bundle / extra is recognised in: 245 $a$n$p, 250, 490, and the
+    variant titles (246: Btooom!'s 'Gravity angel' is '246 Himikos erste Fotostrecke')."""
     return " ".join(clean(x) for x in subs(r, "245", "a") + subs(r, "245", "n") + subs(r, "245", "p")
-                    + subs(r, "250", "a") + subs(r, "490", "a"))
+                    + subs(r, "250", "a") + subs(r, "490", "a") + subs(r, "246", "a"))
 
 
 def _box_020(f):
@@ -450,8 +453,12 @@ def creators(r):
         for seg in c.split(";"):
             if RESP_SKIP.search(seg):
                 continue
-            for part in re.split(r",|&|\+|\bund\b|\band\b|/", seg):
-                n = RESP_LABEL.sub("", part.strip(" .:")).strip(" .")
+            for part in re.split(r",|&|\+|\bund\b|\band\b|/|\.\s+(?=[\w -]+:)", seg):
+                # a role label is anything up to the LAST ':' ("Original-Story: X", "Mitarbeit: Y",
+                # "work: Z"), then "presented by" / "präsentiert von"
+                n = part.rsplit(":", 1)[-1] if ":" in part else part
+                n = re.sub(r"^\s*(?:[\w-]+\s+){0,2}(?:presented by|präsentiert von|by|von|nach)\s+", "", n, flags=re.I)
+                n = RESP_LABEL.sub("", re.sub(r"\s*\([^)]*\)?\s*$", "", n).strip(" .:")).strip(" .")
                 if n and len(n.split()) <= 4 and not re.search(r"\d", n) and n not in out:
                     out.append(n)
     return out

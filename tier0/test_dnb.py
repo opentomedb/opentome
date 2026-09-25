@@ -305,6 +305,12 @@ eq("creators: 100 with a translator $e and no $4 is out; 245$c names count",
                   ("245", [("a", "Beck"), ("c", "Harold Sakuishi. [Aus dem Japan. von Claudia Peter]")]))),
    ["Harold Sakuishi"])
 eq("a leading 'The' does not matter", L.fold("The Snowball Earth", False), L.fold("Snowball earth", False))
+eq("creators: labels after an inner ':' are stripped",
+   M.creators(rec("1", ("245", [("a", "Overlord"), ("c", "Zeichnung: Hugin Miyama. Original-Story: Kugane Maruyama ; "
+                                                        "Mitarbeit: Yuki Morisaki ; presented by Yukito Kishiro")]))),
+   ["Hugin Miyama", "Kugane Maruyama", "Yuki Morisaki", "Yukito Kishiro"])
+eq("a photo book (246 'Fotostrecke') is an extra",
+   M.classify(rec("1", MANGA, ("245", [("a", "Gravity angel")]), ("246", [("a", "Himikos erste Fotostrecke")]))), "extra")
 eq("low: alias only", L.link(idx, ["Priestess"], [])[0], "low")
 eq("low: official title is the START of the DNB title (spin-off shape)",
    L.link(idx, ["Goblin Slayer! Year one"], ["Kagyu, Kumo"])[:2], ("low", "w_gs"))
