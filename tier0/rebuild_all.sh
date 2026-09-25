@@ -95,14 +95,30 @@ if [ -z "$ID_CARRY" ]; then
 fi
 PREV="${PREV_ARTIFACT:-}"
 
-echo "== 0. unit tests ==";        python3 tier0/test_parser.py >/dev/null || { echo "   parser FAILED"; exit 1; }; echo "   parser ok"
-                                   python3 tier2/test_resolve.py >/dev/null || { echo "   resolve FAILED"; exit 1; }; echo "   resolve ok"
-                                   python3 export/test_resolve_anilist.py >/dev/null || { echo "   anilist FAILED"; exit 1; }; echo "   anilist ok"
-                                   python3 export/test_measure_fixture.py >/dev/null || { echo "   measure FAILED"; exit 1; }; echo "   measure ok"
-                                   python3 export/test_line_status.py >/dev/null || { echo "   line_status FAILED"; exit 1; }; echo "   line_status ok"
-                                   python3 export/test_to_mangarr.py >/dev/null || { echo "   to_mangarr FAILED"; exit 1; }; echo "   to_mangarr ok"
-                                   python3 tier0/test_dnb.py >/dev/null || { echo "   dnb FAILED"; exit 1; }; echo "   dnb ok"
-                                   python3 tier0/test_carried_ids.py >/dev/null || { echo "   carried ids FAILED"; exit 1; }; echo "   carried ids ok"
+# A suite's output goes to a temp file and is printed only when it fails -- quiet when green,
+# the whole reason when not (f182bbb made a failure stop the build; this makes it say why).
+suite() {
+  local name="$1" file="$2" log
+  log="$(mktemp)"
+  if python3 "$file" >"$log" 2>&1; then
+    echo "   $name ok"
+  else
+    cat "$log"
+    echo "   $name FAILED ($file)"
+    rm -f "$log"
+    exit 1
+  fi
+  rm -f "$log"
+}
+echo "== 0. unit tests =="
+suite parser      tier0/test_parser.py
+suite resolve     tier2/test_resolve.py
+suite anilist     export/test_resolve_anilist.py
+suite measure     export/test_measure_fixture.py
+suite line_status export/test_line_status.py
+suite to_mangarr  export/test_to_mangarr.py
+suite dnb         tier0/test_dnb.py
+suite "carried ids" tier0/test_carried_ids.py
 echo "== 1. work identity ==";     python3 tier0/work_identity.py
 echo "== 2. corpus en+fr ==";      python3 tier0/build_corpus.py "$DB"
 echo "== 3. corpus de ==";         python3 tier0/build_corpus_de.py "$DB"
