@@ -20,7 +20,7 @@ Done (one commit per step; design + numbers: `docs/carried-ids.md`):
   unpublished lines: the 496 published same-edition pairs in today's catalogue are not touched.
 - `export/test_artifact.py run_ids`: every market, works included, plus every id the carry's own
   `id_redirect` already resolved; excluded works exempt; DE cap (25) unchanged; new cap: > 100
-  carried volumes RETIRED (not resolving to a volume) fails.
+  carried volumes RETIRED (not resolving to a volume) fails (fix round 1: also lines > 10, moved > 500).
 - `work_title()`: des/du restore Les/Le; the article fragment is shared with `local_title`.
 - Measured offline against the published `opentome-2026-09-25` (downloaded once, as CI's "restore
   id carry" does; zero other network): 4 of 9,668 names change; 13 lines / 247 volumes / 1 work
@@ -33,9 +33,31 @@ Done (one commit per step; design + numbers: `docs/carried-ids.md`):
   / 0 changed, and the gate re-checks the 261 redirected ids (0 lost); `volumes_special` identical;
   the unfixed corpus through the new stages: identical to main.
 
+**Fix round 1 (same day, after review "not safe to publish"):**
+- C1: no carry in CI (`OPENTOME_CI=1` / `CI=true`) fails the restore step, `rebuild_all.sh` and
+  4c/7b, unless `OPENTOME_COLD_START=1` (catalogue.yml input `cold_start`); `meta.carried_from`;
+  publish.sh refuses an artifact without it (unless cold start); the gate checks carried integers.
+- C2: a retired line's volumes never match by number (unique ISBN in the market, else `retired` to
+  the line); caps: retired lines > 10, retired volumes > 100, ids moved THIS build > 500.
+- I1: chains stop at the first present id; a carried row whose old id is live again is dropped
+  (reported by 7b, skipped by the export) -- a reverted re-key makes no cycle.
+- I2: majority ties are ambiguous (reported, an orphan, the gate fails), never broken by hash
+  order. I4: 4c merges only a line matching one of the ABSORBED work's published lines; merges are
+  recorded in `meta.merged_lines` so later builds repeat them. I3: docs/mangarr-migration.md
+  documents line / volume / work rows and `old_series_id` lookup.
+- Minors: derived origin pins warn instead of raising; 7b's presence = the export's (volumes_special
+  not present); volumes match a unique ISBN in the successor line first; stage 0 prints a failing
+  suite's output.
+- Re-measured offline (same setup, 0 new cache files): the same 261 redirects byte for byte, same
+  integers, gate green apart from the two AniList rules, measure 49/49 (log identical to main's),
+  second build a no-op (moved 0); OPENTOME_CI=1 without a carry fails, with cold start it builds.
+
 Next:
 - Merge, CI build-only, then publish. Mangarr reads `id_redirect` for `release_line` rows; the
-  `work` row is additive (entity `work`, integers NULL).
+  `work` and `volume` rows are additive; integers resolve through `old_series_id` (the coordinator
+  sends Mangarr the matching follow-up).
+- Open, deliberately left: the 496 published same-work same-edition line pairs (merging them
+  retires consumer-held ids -- a separate decision), and the openBD batch-cache hazard (Gotchas).
 - Nick: the French Gouttes de Dieu lines are now named "Drops of God (Les Gouttes de Dieu)" /
   "... - Mariage" (the work's title is English now; `local_name` stays "Les Gouttes de Dieu").
   The French article's JP data for the merged volumes is dropped; Drops of God JP vol 25 keeps
@@ -43,18 +65,17 @@ Next:
   9784063729153 -- a `corrections/volumes.json` candidate.
 
 Gotchas:
-- **`rebuild_all.sh` stage 0 does not stop on a failing test**: `python3 t.py >/dev/null && echo ok`
-  under `set -e` only skips the echo (bash exempts non-final `&&` members). Seen this round: with
-  the fix reverted, test_parser / test_to_mangarr / test_carried_ids failed and the build ran on.
-  A missing "... ok" line is the only sign. Not fixed here (out of scope) -- a one-line change per
-  test (`|| exit 1`). So the `narrow-fold` "BLOCKER for CI" below rests on a wrong premise: a
-  failing `test_resolve_anilist.py` does not abort the build, it only drops its "anilist ok" line.
+- **Stage 0 now gates the build** (f182bbb): before it, `python3 t.py >/dev/null && echo ok` under
+  `set -e` only skipped the echo when a suite failed (bash exempts non-final `&&` members), so a red
+  suite never stopped a build. Now a failing suite prints its whole output and exits 1 (f520796).
+  This makes the `narrow-fold` "BLOCKER for CI" below real: until that branch's fixture term is
+  recorded, its failing `test_resolve_anilist.py` stops the build at stage 0.
 - openBD is cached by whole 80-ISBN batches of the sorted JP ISBNs: anything that changes the JP
   ISBN set before stage 4 re-keys every later batch (the merge moved from 3a to 4c for that).
   Offline, a missed batch drops dates silently (`_fetch` returns an error dict); locally 217 of
   755 batch URLs are uncached already.
-- A merge pins by exact line name; if a work's origin market is not the merged line's market,
-  `to_mangarr.origin_line` raises (loud, not silent).
+- A merge pins by exact line name (a derived `origin_line`, source `opentome`); if it disagrees
+  with the picked origin market the export warns and falls back (a correction's pin still raises).
 
 
 ## preferred-edition-v0 (2026-09-24, NOT published)
@@ -214,8 +235,10 @@ cleanly on top; reverting the Latin strip alone needs a one-hunk hand merge in f
   The seed alone: 0 / 0 / 0, +26 uncached alias terms.
 
 Next:
-- BLOCKER for CI: `tier0/rebuild_all.sh` step 0 runs `export/test_resolve_anilist.py` under
-  `set -e`, and with the Latin strip that suite aborts on the unrecorded fixture term (Gotchas).
+- BLOCKER for CI: `tier0/rebuild_all.sh` step 0 runs `export/test_resolve_anilist.py`, and with
+  the Latin strip that suite fails on the unrecorded fixture term (Gotchas). (Written when stage 0
+  did not actually gate -- a failing suite under `&&` never tripped `set -e`; since f182bbb on
+  `alias-fix` it does, so this blocks.)
   Either record that one page (`ANILIST_RECORD=1 python3 export/test_resolve_anilist.py` fetches
   only the missing term) or drop the Latin strip; the seed alone, and numeric + seed, run green.
 - Then CI build-only; the numbers above are all live-only. If a part loses binds live, revert it.
