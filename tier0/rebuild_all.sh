@@ -20,12 +20,24 @@
 #   4b. covers         ISBN-keyed cover URLs from the cached openBD /
 #                      Open Library responses -- zero requests
 #   4. enrichment      openBD (JP) / Open Library (EN, FR) / BnF (FR)
+#   4c. merged works   a published work this build folded into another (a title fix can
+#                      union two articles) must not leave the survivor two lines for one
+#                      edition: its re-keyed lines that repeat one of the survivor's published
+#                      lines (same market + medium, most ISBNs shared) merge into that line
+#                      (tier0/carried_ids.py merge; the ids are redirected at 7b). AFTER the
+#                      enrichment: openBD caches whole 80-ISBN batches of the sorted JP ISBNs,
+#                      so a merge that drops one ISBN before it re-keys every later batch
+#                      (measured: 363 of 755 batch URLs) -- a request burst, or dates lost offline
 #   5. clean           date_type, Jan-1 precision, malformed ISBNs
 #   5b. corrections    hand-checked values (corrections/), applied after clean
 #                      so clean cannot undo them and before resolve so the
 #                      confidence layer reports them as manual_override
 #   6. resolve         claims -> values + confidence
 #   7. audit           report remaining defects -- EXITS NON-ZERO on any defect
+#   7b. redirects      every id of the carried (last published) artifact this build no longer
+#                      has -> id_redirect to its successor, any market, work / line / volume
+#                      (tier0/carried_ids.py; docs/carried-ids.md); the export collapses chains
+#                      and 8c fails on any carried id left without a present target
 #   8. export          Mangarr-shaped artifact (+ curated aliases, + id carry)
 #   8a. anilist ids   series.anilist_id for English lines (export/resolve_anilist.py, cached), then
 #                      corrections/anilist.json's hand-checked ids over the resolver's pick, then
@@ -69,15 +81,44 @@ ART="$PWD/build/manga-metadata.sqlite"
 #                    whatever alias fan-out that export had.
 ID_CARRY=""
 if [ -f "$ART" ]; then ID_CARRY="$ART"; fi
+# No carry = every id assigned cold: integers re-issued, nothing redirected. In CI (OPENTOME_CI=1,
+# set by catalogue.yml, or CI=true) that fails the build -- a missed download must never ship.
+# OPENTOME_COLD_START=1 is the one deliberate exception: the very first build, or a rebuild after
+# the published artifact itself was lost (docs/carried-ids.md).
+if [ -z "$ID_CARRY" ]; then
+  if { [ "${OPENTOME_CI:-0}" = "1" ] || [ "${CI:-}" = "true" ]; } && [ "${OPENTOME_COLD_START:-0}" != "1" ]; then
+    echo "FAILED: no carried artifact at $ART -- CI must start from the last published artifact" >&2
+    echo "(set OPENTOME_COLD_START=1 only for a deliberate cold start)" >&2
+    exit 1
+  fi
+  echo "   WARNING: no carried artifact at $ART -- cold id assignment, nothing redirected"
+fi
 PREV="${PREV_ARTIFACT:-}"
 
-echo "== 0. unit tests ==";        python3 tier0/test_parser.py >/dev/null && echo "   parser ok"
-                                   python3 tier2/test_resolve.py >/dev/null && echo "   resolve ok"
-                                   python3 export/test_resolve_anilist.py >/dev/null && echo "   anilist ok"
-                                   python3 export/test_measure_fixture.py >/dev/null && echo "   measure ok"
-                                   python3 export/test_line_status.py >/dev/null && echo "   line_status ok"
-                                   python3 export/test_to_mangarr.py >/dev/null && echo "   to_mangarr ok"
-                                   python3 tier0/test_dnb.py >/dev/null && echo "   dnb ok"
+# A suite's output goes to a temp file and is printed only when it fails -- quiet when green,
+# the whole reason when not (f182bbb made a failure stop the build; this makes it say why).
+suite() {
+  local name="$1" file="$2" log
+  log="$(mktemp)"
+  if python3 "$file" >"$log" 2>&1; then
+    echo "   $name ok"
+  else
+    cat "$log"
+    echo "   $name FAILED ($file)"
+    rm -f "$log"
+    exit 1
+  fi
+  rm -f "$log"
+}
+echo "== 0. unit tests =="
+suite parser      tier0/test_parser.py
+suite resolve     tier2/test_resolve.py
+suite anilist     export/test_resolve_anilist.py
+suite measure     export/test_measure_fixture.py
+suite line_status export/test_line_status.py
+suite to_mangarr  export/test_to_mangarr.py
+suite dnb         tier0/test_dnb.py
+suite "carried ids" tier0/test_carried_ids.py
 echo "== 1. work identity ==";     python3 tier0/work_identity.py
 echo "== 2. corpus en+fr ==";      python3 tier0/build_corpus.py "$DB"
 echo "== 3. corpus de ==";         python3 tier0/build_corpus_de.py "$DB"
@@ -93,10 +134,12 @@ echo "== 4. enrichment ==";        python3 tier1/enrich.py "$DB"
                                    # for 4 records and 0 claims (rebuild2.log).
                                    python3 tier1/enrich_more.py "$DB" both
 echo "== 4b. covers ==";           python3 tier1/covers.py "$DB"
+echo "== 4c. merged works ==";     python3 tier0/carried_ids.py merge "$DB" "$ID_CARRY"
 echo "== 5. clean ==";             python3 tier2/clean.py "$DB"
 echo "== 5b. corrections ==";      python3 tier2/corrections.py "$DB"
 echo "== 6. resolve ==";           python3 tier2/resolve.py "$DB"
 echo "== 7. audit ==";             python3 tier2/audit.py "$DB"
+echo "== 7b. redirects ==";        python3 tier0/carried_ids.py redirect "$DB" "$ID_CARRY"
 if [ "$DB" != "$FINAL" ]; then
   mv -f "$DB" "$FINAL"
   echo "   catalogue -> $FINAL"

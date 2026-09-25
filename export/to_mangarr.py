@@ -41,7 +41,7 @@ import collections, hashlib, json, os, re, sqlite3, sys, datetime
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tier0"))
 sys.path.insert(0, os.path.join(ROOT, "tier2"))
-from build_corpus import work_title
+from build_corpus import work_title, FR_LIST_ARTICLE, CONTRACTED_ARTICLE
 from release_lines import GENERIC
 from corrections import load_aliases, load_alias_removals, load_exclusions
 from line_status import line_status
@@ -345,8 +345,9 @@ def _line_raw(lname, wtitle):
 # space, so 'de' never eats the start of 'des' ("... des Chevaliers du Zodiaque" -> "s Chevaliers").
 # 'des' and 'du' are contractions of de + les / de + le, so the title's own article comes back
 # ("Liste des chapitres des Gouttes de Dieu" -> "Les Gouttes de Dieu"); 'de' and "d'" carry none.
-_LIST_ARTICLE = re.compile(r"^(?:liste|chronologie)\s+des?\s+.+?\s+(?:(?P<art>des|du)\s+|de\s+|d['’]\s*)(?P<t>\S.*)$", re.I)
-_CONTRACTED_ARTICLE = {"des": "Les ", "du": "Le "}
+# The article fragment and the contraction map are build_corpus's (work_title uses them too).
+_LIST_ARTICLE = re.compile(r"^(?:liste|chronologie)\s+des?\s+.+?\s+" + FR_LIST_ARTICLE + r"(?P<t>\S.*)$", re.I)
+_CONTRACTED_ARTICLE = CONTRACTED_ARTICLE
 # A disambiguator is an ASCII "(...)" after a space. A full-width "（...）" is part of the title
 # itself -- every one measured was ("オトメン（乙男）", "神統記（テオゴニア）",
 # "男女の友情は成立する?（いや、しないっ!!）"), so it is never stripped.
@@ -403,8 +404,21 @@ def export(src_path, out_path, carry_ids_from=None):
 
     # reuse existing id assignments if a prior artifact is supplied
     mapping, taken, prev_status = {}, set(), {}
+    # meta.carried_from: which published artifact this build's ids were carried from.
+    # export/publish.sh refuses an artifact without it (unless OPENTOME_COLD_START=1).
+    carried_from = "cold-start" if os.environ.get("OPENTOME_COLD_START") == "1" else None
+    carried_sha256 = None
     if carry_ids_from and os.path.exists(carry_ids_from):
         old = sqlite3.connect(carry_ids_from)
+        try:
+            cm = dict(old.execute("SELECT key, value FROM meta WHERE key IN ('gcd_dump','generated_at')"))
+        except sqlite3.OperationalError:
+            cm = {}
+        carried_from = "%s (%s)" % (cm.get("gcd_dump") or os.path.basename(carry_ids_from),
+                                    cm.get("generated_at") or "no generated_at")
+        # the carry's exact bytes: publish.sh compares this with the release it would replace
+        with open(carry_ids_from, "rb") as fh:
+            carried_sha256 = hashlib.sha256(fh.read()).hexdigest()
         try:
             for t, i, k in old.execute("SELECT opentome_id,int_id,kind FROM id_map"):
                 mapping[t] = i
@@ -424,8 +438,19 @@ def export(src_path, out_path, carry_ids_from=None):
     redirect = dict(src.execute("SELECT old_id, new_id FROM id_redirect"))
     redirect_meta = {o: (e, r) for o, e, r in src.execute("SELECT old_id, entity, reason FROM id_redirect")}
 
+    # Chains stop at the first id present in THIS catalogue: a stale row (a re-key reverted, its
+    # old id live again) must never carry a live id onward or close a cycle. Volumes the export
+    # does not write (volumes_special: a non-integer number) are not present.
+    cat_present = {r[0] for r in src.execute("SELECT id FROM release_line UNION SELECT work_id FROM release_line")}
+    for vid, num in src.execute("SELECT id, number FROM volume"):
+        try:
+            if int(num) >= 0:
+                cat_present.add(vid)
+        except (TypeError, ValueError):
+            pass
+
     def final(i, seen=()):
-        while i in redirect and i not in seen:
+        while i in redirect and i not in cat_present and i not in seen:
             seen += (i,)
             i = redirect[i]
         return i
@@ -526,8 +551,11 @@ def export(src_path, out_path, carry_ids_from=None):
     # Aventures de Roxy"), which pairs FR with JP correctly but has no English form for
     # a hand-added EN line to match -- the fallback below would otherwise resolve to
     # the JP work's MAIN manga line instead of its JP Roxy spin-off.
-    origin_line_override = dict(src.execute("""SELECT entity_id, value FROM claim
-                                               WHERE entity='release_line' AND field='origin_line'"""))
+    # A hand-checked pin (source 'correction') wins over a derived one (source 'opentome', written
+    # by tier0/carried_ids.py when it merges a line): read the correction last.
+    origin_line_override = {rid: (val, source) for rid, val, source in src.execute(
+        """SELECT entity_id, value, source FROM claim WHERE entity='release_line' AND field='origin_line'
+           ORDER BY source='correction', rowid""")}
     # Earliest dated volume per line (day/month precision, like last_dated_of below),
     # for pick_origin()'s step 2: whichever candidate market's main line shipped first.
     first_dated_of = dict(src.execute("""SELECT release_line_id, MIN(release_date) FROM volume
@@ -556,13 +584,18 @@ def export(src_path, out_path, carry_ids_from=None):
         om = origin_of.get((wid, medium))
         if om is None or om == market:
             return None
-        pinned = origin_line_override.get(rid)
+        pinned, pin_source = origin_line_override.get(rid, (None, None))
         if pinned:
             pinned_market = line_market.get(pinned)
-            if pinned_market != om:
+            if pinned_market == om:
+                return pinned
+            if pin_source != "opentome":
                 raise ValueError("origin_line correction on %s points at %s (market %s), "
                                  "not the origin market %s" % (rid, pinned, pinned_market, om))
-            return pinned
+            # a DERIVED pin (a merge's) that disagrees with the picked origin market is advice,
+            # not a hand-checked fact: warn and fall back to the name / main-line rule
+            print("  WARN derived origin_line on %s points at %s (market %s), not the origin market %s "
+                  "-- ignored" % (rid, pinned, pinned_market, om))
         return (line_key.get((wid, medium, om, (lname or wtitle).strip().lower()))
                 or main_of.get((wid, om, medium)))
 
@@ -756,15 +789,21 @@ def export(src_path, out_path, carry_ids_from=None):
                                        VALUES(?,?,?,?)""", (sid, a, alang, akind))
                         n_alias += 1
 
-    # id_redirect, chains collapsed to ids present in this artifact; retired integers reserved
+    # id_redirect, chains collapsed to ids present in this artifact; retired integers reserved.
+    # Work ids are present too (series.tome_work_id): a merged work's redirect
+    # (tier0/carried_ids.py) must reach the artifact like a line's.
     present = {r[0] for r in out.execute("SELECT tome_id FROM series")} | \
-              {r[0] for r in out.execute("SELECT tome_id FROM volumes")}
+              {r[0] for r in out.execute("SELECT tome_id FROM volumes")} | \
+              {r[0] for r in out.execute("SELECT DISTINCT tome_work_id FROM series")}
     series_of_vol = dict(out.execute("SELECT v.tome_id, s.tome_id FROM volumes v JOIN series s USING(gcd_series_id)"))
     int_of = dict(out.execute("SELECT tome_id, gcd_series_id FROM series"))
-    n_redirect = 0
+    n_redirect = n_stale = 0
     for old_id in sorted(redirect):
         new_id = final(old_id)
-        if old_id in present or new_id not in present:
+        if old_id in present:
+            n_stale += 1             # its id is live again: the row is stale, never exported
+            continue
+        if new_id not in present:
             continue
         entity, reason = redirect_meta[old_id]
         old_int = mapping.get(old_id) if entity == "release_line" else None
@@ -772,6 +811,8 @@ def export(src_path, out_path, carry_ids_from=None):
         out.execute("INSERT OR REPLACE INTO id_redirect VALUES(?,?,?,?,?,?)",
                     (old_id, new_id, entity, reason, old_int if old_int != new_int else None, new_int))
         n_redirect += 1
+    print("  id_redirect: %d rows%s" % (n_redirect, "; %d stale (old id present again) not exported" % n_stale
+                                        if n_stale else ""))
     used = {r[0] for r in out.execute("SELECT int_id FROM id_map")}
     for old_id, i in mapping.items():
         if i not in used and old_id not in int_of:
@@ -829,6 +870,10 @@ def export(src_path, out_path, carry_ids_from=None):
 
     src_counts = dict(src.execute("SELECT source, COUNT(*) FROM claim GROUP BY source"))
     dnb_degraded = (src.execute("SELECT value FROM meta WHERE key='dnb:degraded'").fetchone() or [None])[0]
+    # tier0/carried_ids.py merge (stage 4c): [duplicate line id, surviving line] pairs, carried so
+    # the next build merges the same duplicate the same way (not a consumer field)
+    merged_lines = json.dumps(sorted([d[2], d[3]] for d in json.loads(
+        (src.execute("SELECT value FROM meta WHERE key='carried:merged'").fetchone() or ["[]"])[0])))
     try:
         dnb_lines = {"roles": dict(src.execute("SELECT role, COUNT(*) FROM dnb_line GROUP BY 1")),
                      "exported_tiers": dict(src.execute("""SELECT tier, COUNT(*) FROM dnb_line
@@ -873,7 +918,10 @@ def export(src_path, out_path, carry_ids_from=None):
         ("release_date_semantics", "release_date is day-precision only; coarser values are in "
                                    "release_date_raw with release_date_precision; release_date_type "
                                    "says which milestone (projected = a planned month, not a publication)."),
-    ] + ([("dnb_degraded", dnb_degraded)] if dnb_degraded else []):
+    ] + ([("dnb_degraded", dnb_degraded)] if dnb_degraded else []) \
+      + ([("carried_from", carried_from)] if carried_from else []) \
+      + ([("carried_sha256", carried_sha256)] if carried_sha256 else []) \
+      + ([("merged_lines", merged_lines)] if merged_lines != "[]" else []):
         # dnb_degraded: DNB failed during this build's refresh -- export/publish.sh refuses it
         out.execute("INSERT OR REPLACE INTO meta VALUES(?,?)", (k, v))
 

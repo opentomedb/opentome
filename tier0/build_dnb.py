@@ -49,6 +49,7 @@ import dnb_enumerate as E
 import dnb_link as L
 import dnb_marc as M
 import dnb_sru as S
+import carried_ids as CI
 from load import LICENCE, _id
 
 NOW = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
@@ -624,9 +625,11 @@ def redirects(db, carry):
       1. its own id_redirect rows are re-read, so a redirect survives every later build;
       2. a German line id it has that this build does not is redirected to the German line
          now holding most of its ISBNs, else to the same work's main German line ('retired');
-      3. each of its volumes that is gone follows by ISBN, else by number in the successor
-         line, else to the successor LINE itself ('retired': the volume is no longer in the
-         catalogue, the id still resolves to where it belonged).
+      3. each of its volumes that is gone follows carried_ids.volume_successor (7b's rule): a
+         unique ISBN in the successor line, else its number there, else a unique ISBN in the
+         market, else the successor LINE itself ('retired': the volume is no longer in the
+         catalogue, the id still resolves to where it belonged). When the LINE was retired to
+         its work's main line, numbers are never used: the main line's vol N is another book.
     -> (lines redirected, lines with no successor)."""
     if not carry or not os.path.exists(carry):
         return 0, []
@@ -644,9 +647,12 @@ def redirects(db, carry):
     now = {r[0] for r in db.execute("SELECT id FROM release_line WHERE market='DE'")}
     vol_now = {r[0] for r in db.execute("""SELECT v.id FROM volume v JOIN release_line rl
                                            ON rl.id=v.release_line_id WHERE rl.market='DE'""")}
-    isbn_to = {i: (rid, vid) for vid, rid, i in db.execute(
-        """SELECT v.id, v.release_line_id, v.isbn13 FROM volume v JOIN release_line rl
-           ON rl.id=v.release_line_id WHERE rl.market='DE' AND v.isbn13 IS NOT NULL""")}
+    isbn_to, isbn_vols, line_of = {}, collections.defaultdict(list), {}
+    for vid, rid, i in db.execute("""SELECT v.id, v.release_line_id, v.isbn13 FROM volume v JOIN release_line rl
+                                     ON rl.id=v.release_line_id WHERE rl.market='DE' AND v.isbn13 IS NOT NULL"""):
+        isbn_to[i] = (rid, vid)
+        isbn_vols[i].append(vid)
+        line_of[vid] = rid
     main_de = {}
     for rid, wid in db.execute("""SELECT rl.id, rl.work_id FROM release_line rl WHERE rl.market='DE'
                                   ORDER BY (SELECT COUNT(*) FROM volume v WHERE v.release_line_id=rl.id) DESC, rl.id"""):
@@ -663,6 +669,7 @@ def redirects(db, carry):
         if old_id != new_id and old_id not in redirected:
             db.execute("INSERT OR IGNORE INTO id_redirect VALUES(?,?,?,?,?)", (old_id, new_id, entity, reason, NOW))
             redirected.add(old_id)
+    retired_line = set()
     for tid in work_of:
         line = tid
         if tid not in now and tid not in redirected:
@@ -673,19 +680,26 @@ def redirects(db, carry):
             elif work_of[tid] in main_de:
                 line = main_de[work_of[tid]]
                 put(tid, line, "release_line", "retired")
+                retired_line.add(tid)
             else:
                 orphans.append(tid)
                 continue
             moved += 1
         elif tid in redirected:
-            line = next(r[0] for r in db.execute("SELECT new_id FROM id_redirect WHERE old_id=?", (tid,)))
+            line, why = next(db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (tid,)))
+            if why == "retired":
+                retired_line.add(tid)
         for num, vtid, isbn in by_old[tid]:
             if vtid in vol_now or vtid in redirected:
                 continue
-            nv = (isbn_to.get(isbn) or (None, None))[1] or next(
-                (r[0] for r in db.execute("SELECT id FROM volume WHERE release_line_id=? AND number=?",
-                                          (line, str(num)))), None)
-            put(vtid, nv or line, "volume", "correction" if nv else "retired")
+            # the rule 7b uses (tier0/carried_ids.volume_successor): a RETIRED line's volumes never
+            # match the main line's books by number -- a unique ISBN in the market, else the line
+            in_market = isbn_vols.get(isbn, []) if isbn else []
+            by_number = next((r[0] for r in db.execute("SELECT id FROM volume WHERE release_line_id=? AND number=?",
+                                                       (line, str(num)))), None)
+            target, kind = CI.volume_successor(tid in retired_line, line, in_market,
+                                               [v for v in in_market if line_of[v] == line], by_number)
+            put(vtid, target, "volume", "retired" if kind == "retired" else "correction")
     db.commit()
     return moved, orphans
 

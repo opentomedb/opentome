@@ -20,6 +20,15 @@ from load import load
 
 TPL = {"en": "Template:Graphic novel list", "fr": "Modèle:TomeBD"}
 
+# The article between a French list kind and the title: 'des' and 'du' are tried before 'de',
+# and 'de' needs a following space, so 'de' never eats the start of 'des' ("Liste des chapitres
+# des Gouttes de Dieu" once became "s Gouttes de Dieu"). 'des' and 'du' are contractions of
+# de + les / de + le, so the title's own article comes back ("Les Gouttes de Dieu"); 'de' and
+# "d'" carry none. Shared with export/to_mangarr.local_title (_LIST_ARTICLE), so the ingest
+# title and the Preferred Edition local name read a list article the same way.
+FR_LIST_ARTICLE = r"(?:(?P<art>des|du)\s+|de\s+|d['’]\s*)"
+CONTRACTED_ARTICLE = {"des": "Les ", "du": "Le "}
+
 # "List of X chapters" / "Liste des chapitres de X" -> X
 # Ordered: first match wins. Trailing parentheticals ("(Part I)", "(1-186)")
 # are stripped first so the main patterns see a clean tail.
@@ -28,7 +37,7 @@ STRIP = [
      r"light novels|novels|episodes|manga|comics)$", 1),
     (r"^List of (.+?) comics issued by .+$", 1),
     (r"^Liste des (?:chapitres|volumes|tomes|publications dérivées|"
-     r"light novels|publications|romans) d[eu\'’]\s*(.+)$", 1),
+     r"light novels|publications|romans)\s+" + FR_LIST_ARTICLE + r"(?P<t>\S.*)$", "t"),
     (r"^Liste des (?:chapitres|volumes|tomes|mangas|publications dérivées|"
      r"light novels|publications|romans) de (?:la |l\'|l’)?(.+)$", 1),
     (r"^Liste des (?:chapitres|volumes|tomes|mangas) (.+)$", 1),
@@ -48,7 +57,10 @@ def work_title(article):
     for pat, g in STRIP:
         m = re.match(pat, article, re.I)
         if m:
-            return TRAILING_PAREN.sub("", m.group(g)).strip()
+            t = m.group(g)
+            if "art" in m.re.groupindex:
+                t = CONTRACTED_ARTICLE.get((m.group("art") or "").lower(), "") + t
+            return TRAILING_PAREN.sub("", t).strip()
     return re.sub(r"\s*\((?:manga|manhwa|light novel|novel|film|anime|série|comics?)\)$",
                   "", article, flags=re.I).strip()
 

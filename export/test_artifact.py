@@ -355,36 +355,130 @@ DNB_FIELDS = ("isbn13", "release_date", "projected_date", "page_count", "volume_
 
 
 MAX_RETIRED_DE_VOLUMES = 25
-
+# Every market (2026-09-25, alias-fix). RETIRED = a carried id that no longer resolves to an id of
+# its own kind: a volume redirected to a line, a line redirected with reason 'retired' (to its
+# work's main line), anything with reason 'retired', or not resolving at all. A re-key or a merge
+# moves ids without retiring them (alias-fix: 261 moved, 0 retired). A mass retirement is a lost
+# source or a parser change -- stop and look. The lines and volumes of a work listed in THIS
+# build's corrections/excluded.json (meta.excluded_works) are retired on purpose and do not
+# count; a work that vanishes without being listed there counts (and fails the lost-ids rule).
+MAX_RETIRED_VOLUMES = 100
+MAX_RETIRED_LINES = 10
+# Moved (re-keyed or merged) carried ids of any kind. Generous -- this round moved 261 -- but a
+# mass re-key (a title rule touching thousands of names) must not ship green because every id
+# found a successor; the count is always printed.
+MAX_MOVED_IDS = 500
 
 def run_ids(path, carry):
-    """IDs are a public contract: every German line and volume id of the carried (last
-    published) artifact is still present here, or resolves through this artifact's id_redirect
-    to one that is."""
+    """IDs are a public contract: every work, line and volume id of the carried (last published)
+    artifact, in every market -- and every id its own id_redirect already resolved -- is still
+    present here or resolves through this artifact's id_redirect to one that is
+    (tier0/carried_ids.py). A work in meta.excluded_works takes its lines and volumes with it,
+    on purpose."""
     db = sqlite3.connect(path)
     C = sqlite3.connect(carry)
+    cols = {r[1] for r in C.execute("PRAGMA table_info(series)")}
+    work_col = "tome_work_id" if "tome_work_id" in cols else "NULL"
     try:
-        old = [r[0] for r in C.execute("""SELECT tome_id FROM series WHERE language='de' UNION
-                   SELECT v.tome_id FROM volumes v JOIN series s USING(gcd_series_id) WHERE s.language='de'""")]
+        lines = {t: (w, l) for t, w, l in C.execute("SELECT tome_id, %s, language FROM series" % work_col) if t}
+        vols = {t: (s, lines.get(s, (None, None))[1]) for t, s in C.execute(
+            "SELECT v.tome_id, s.tome_id FROM volumes v JOIN series s USING(gcd_series_id)") if t}
     except sqlite3.OperationalError:
-        old = []
+        lines, vols = {}, {}
+    works = {w for w, _ in lines.values() if w}
+    old = list(lines) + list(vols) + sorted(works)
+    # ids the carry already resolved through ITS id_redirect must keep resolving here: a
+    # retired id resolves forever, not only in the build that retired it
+    try:
+        carried_red = dict(C.execute("SELECT old_tome_id, new_tome_id FROM id_redirect"))
+    except sqlite3.OperationalError:
+        carried_red = {}
+    old += sorted(set(carried_red) - set(old))
     present = {r[0] for r in db.execute("SELECT tome_id FROM series UNION SELECT tome_id FROM volumes")}
+    vol_now = {r[0] for r in db.execute("SELECT tome_id FROM volumes")}
+    try:    # a merged work's redirect targets a work id (tier0/carried_ids.py)
+        present |= {r[0] for r in db.execute("SELECT DISTINCT tome_work_id FROM series")}
+    except sqlite3.OperationalError:
+        pass
     try:
         red = dict(db.execute("SELECT old_tome_id, new_tome_id FROM id_redirect"))
     except sqlite3.OperationalError:
         red = {}
-    lost = [t for t in old if t and t not in present and red.get(t) not in present]
-    rule("German ids of the carried artifact neither present nor redirected", len(lost), str(lost[:5]))
+    try:
+        excluded = set(json.loads(db.execute("SELECT value FROM meta WHERE key='excluded_works'").fetchone()[0]))
+    except (sqlite3.OperationalError, TypeError, ValueError):
+        excluded = set()
+    work_of = {t: w for t, (w, _) in lines.items()}
+    work_of.update({t: work_of.get(s) for t, (s, _) in vols.items()})
+    work_of.update({t: work_of.get(n, n) for t, n in carried_red.items() if t not in work_of})
+    exempt = {t for t in old if (work_of.get(t) or t) in excluded}
+    lost = [t for t in old if t and t not in present and red.get(t) not in present and t not in exempt]
+    rule("carried ids (every market: works, lines, volumes) neither present nor redirected", len(lost), str(lost[:5]))
     # A redirect keeps an id resolvable; it does not make losing the volume right. More than a
     # handful of carried German volumes gone in one build is a DNB outage, a clustering change or
     # a linker change -- stop and look before it ships (N1, 2026-09-24 re-review).
-    gone = [t for t in old if t and t.startswith("v_") and t not in present]
+    de = [t for t, (_, lang) in vols.items() if lang == "de"]
+    gone = [t for t in de if t not in present]
     rule("more than %d carried German volumes retired in one build" % MAX_RETIRED_DE_VOLUMES,
          0 if len(gone) <= MAX_RETIRED_DE_VOLUMES else len(gone), str(gone[:5]))
+    try:
+        reason = dict(db.execute("SELECT old_tome_id, reason FROM id_redirect"))
+    except sqlite3.OperationalError:
+        reason = {}
+    retired = [t for t in vols if t not in present and t not in exempt
+               and (red.get(t) not in vol_now or reason.get(t) == "retired")]
+    rule("more than %d carried volumes retired in one build (every market)" % MAX_RETIRED_VOLUMES,
+         0 if len(retired) <= MAX_RETIRED_VOLUMES else len(retired), str(retired[:5]))
+    line_now = {r[0] for r in db.execute("SELECT tome_id FROM series")}
+    retired_lines = [t for t in lines if t not in present and t not in exempt
+                     and (red.get(t) not in line_now or reason.get(t) == "retired")]
+    rule("more than %d carried lines retired in one build (every market)" % MAX_RETIRED_LINES,
+         0 if len(retired_lines) <= MAX_RETIRED_LINES else len(retired_lines), str(retired_lines[:5]))
+    # moved in THIS build: an id the carry had already redirected is not a new move (else the
+    # cap would count every redirect ever written, and trip once history passed 500)
+    moved_ids = [t for t in old if t not in present and t not in exempt and t not in carried_red
+                 and red.get(t) in present]
+    rule("more than %d carried ids moved (re-keyed or merged) in one build" % MAX_MOVED_IDS,
+         0 if len(moved_ids) <= MAX_MOVED_IDS else len(moved_ids), str(moved_ids[:5]))
     rule("id_redirect rows whose target is not in the artifact",
          sum(1 for t in red.values() if t not in present))
+    # Integers are a contract too (Mangarr stores gcd_series_id): every carried integer is still a
+    # series here, or an id_redirect.old_series_id that resolves it -- and one the carry already
+    # resolved keeps resolving.
+    def ints(d, q):
+        try:
+            return {r[0]: r[1] for r in d.execute(q) if r[0] is not None}
+        except sqlite3.OperationalError:
+            return {}
+    carried_ints = ints(C, "SELECT gcd_series_id, tome_id FROM series")
+    carried_ints.update({i: t for i, t in ints(C, "SELECT old_series_id, old_tome_id FROM id_redirect").items()
+                         if i not in carried_ints})
+    have_ints = set(ints(db, "SELECT gcd_series_id, tome_id FROM series")) | \
+        set(ints(db, "SELECT old_series_id, old_tome_id FROM id_redirect"))
+    lost_ints = [i for i, t in carried_ints.items() if i not in have_ints and t not in exempt]
+    rule("carried series integers neither a series nor an id_redirect.old_series_id", len(lost_ints),
+         str(lost_ints[:5]))
+    # A duplicate line 4c merged (the carry's meta.merged_lines) must stay merged: if a later
+    # build stops re-applying the record, the duplicate ships again under its own id and no
+    # carried id is lost -- nothing else would notice.
+    try:
+        merged_dups = [d for d, _ in json.loads(C.execute(
+            "SELECT value FROM meta WHERE key='merged_lines'").fetchone()[0])]
+    except (sqlite3.OperationalError, TypeError, ValueError):
+        merged_dups = []
+    back = [d for d in merged_dups if d in present]
+    rule("duplicate lines merged in an earlier build (carry meta.merged_lines) shipping again", len(back), str(back[:5]))
+    moved = [t for t in old if t not in present and t not in exempt]
+    print("  info  carried ids: %s works / %s lines / %s volumes / %s already redirected; not present here: %s "
+          "(redirected %s, moved %s of %s allowed, retired lines %s / volumes %s, excluded works' ids %s)" % (
+              format(len(works), ","), format(len(lines), ","), format(len(vols), ","), format(len(carried_red), ","),
+              format(len(moved) + len([t for t in exempt if t not in present]), ","),
+              format(sum(1 for t in moved if red.get(t) in present), ","), format(len(moved_ids), ","),
+              format(MAX_MOVED_IDS, ","), format(len(retired_lines), ","), format(len(retired), ","),
+              format(sum(1 for t in exempt if t not in present), ",")))
+    de_ids = [t for t, (_, lang) in lines.items() if lang == "de"] + de
     print("  info  carried German ids: %s, redirected: %s" % (
-        format(len(old), ","), format(sum(1 for t in old if t in red), ",")))
+        format(len(de_ids), ","), format(sum(1 for t in de_ids if t in red), ",")))
 
 
 def run_dnb(path, catalogue):
