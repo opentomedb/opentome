@@ -285,6 +285,10 @@ eq("merge: the omnibus composition and the arc's parent now point at the survivo
    (db.execute("SELECT DISTINCT ref_line_id FROM composition WHERE ref_line_id IS NOT NULL").fetchall(),
     db.execute("SELECT parent_id FROM release_line WHERE parent_id IS NOT NULL").fetchall()), ([(S_JP,)], [(S_JP,)]))
 eq("merge: no reference to the merged line or its volumes is left", dangling(db), 0)
+N_FR = rl(WA, "FR", "Drops of God (Les Gouttes de Dieu)")
+eq("merge: the FR line that paired with the merged JP line by name is pinned to the survivor",
+   db.execute("SELECT value, source FROM claim WHERE entity_id=? AND field='origin_line'", (N_FR,)).fetchone(),
+   (S_JP, "opentome"))
 eq("merge: the pre-existing same-edition pair (both published) is left alone",
    db.execute("SELECT COUNT(*) FROM release_line WHERE id=?", (S_TK,)).fetchone()[0], 1)
 rep = K.redirects(db, carry, excluded=set())
@@ -306,6 +310,8 @@ eq("merge: the survivor keeps its integer; the merged line's integer resolves to
    (A.execute("SELECT gcd_series_id FROM series WHERE tome_id=?", (S_JP,)).fetchone()[0],
     A.execute("SELECT old_series_id, new_series_id FROM id_redirect WHERE old_tome_id=?", (OLD_JP,)).fetchone()),
    (s_int, (o_int, s_int)))
+eq("merge: ... so the FR line's origin is the survivor, not whatever the name fallback finds",
+   A.execute("SELECT orig_series_id FROM series WHERE tome_id=?", (N_FR,)).fetchone()[0], s_int)
 eq("merge: the gate passes", ids_ok(art, carry), [])
 
 # the next build: the French article comes back as a duplicate every time; the carried work

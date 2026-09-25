@@ -50,10 +50,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "schema"))
 sys.path.insert(0, os.path.join(ROOT, "tier2"))
-from load import _id, MARKET_LANG
+from load import _id, MARKET_LANG, LICENCE
 
 NOW = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 MARKET_OF_LANG = {v: k for k, v in MARKET_LANG.items()}
+ORIGIN_MARKETS = ("JP", "KR", "CN", "TW")          # to_mangarr.ORIGIN
 
 
 # ---- the carried artifact -------------------------------------------------------------------
@@ -182,6 +183,23 @@ def merge_line(c, dup, keep):
     """Fold line `dup` into line `keep`: keep's own volumes are untouched; a number keep lacks
     moves over as v_<hash(keep, number)>; every reference to dup points at keep.
     -> (volumes moved, volumes dropped)."""
+    # A licensed line finds its origin-market counterpart by the exact line name
+    # (to_mangarr.origin_line). The French article's FR "Mariage" line named its JP twin, which
+    # this merge removes; without a pin it would fall back to the JP MAIN line (44 volumes, not
+    # 26) and export `ongoing` instead of `completed` (measured). So the lines that paired with
+    # dup by name get an origin_line claim naming keep -- the corrections' mechanism, derived.
+    wid, medium, market = c.execute("SELECT work_id, medium, market FROM release_line WHERE id=?", (dup,)).fetchone()
+    name = (c.execute("""SELECT value FROM claim WHERE entity='release_line' AND entity_id=? AND field='line_name'
+                         ORDER BY rowid""", (dup,)).fetchone() or [None])[0]
+    if name and market in ORIGIN_MARKETS:
+        for (lid,) in c.execute("""SELECT rl.id FROM release_line rl JOIN claim n ON n.entity='release_line'
+                                   AND n.entity_id=rl.id AND n.field='line_name'
+                                   WHERE rl.work_id=? AND rl.medium=? AND rl.market<>? AND LOWER(TRIM(n.value))=?
+                                   AND NOT EXISTS (SELECT 1 FROM claim o WHERE o.entity='release_line'
+                                                   AND o.entity_id=rl.id AND o.field='origin_line')""",
+                                (wid, medium, market, name.strip().lower())).fetchall():
+            c.execute("""INSERT OR IGNORE INTO claim(entity,entity_id,field,value,source,source_url,licence,retrieved_at)
+                         VALUES('release_line',?,'origin_line',?,'opentome',NULL,?,?)""", (lid, keep, LICENCE["opentome"], NOW))
     have = {n for (n,) in c.execute("SELECT number FROM volume WHERE release_line_id=?", (keep,))}
     moved = dropped = 0
     for vid, num in c.execute("SELECT id, number FROM volume WHERE release_line_id=?", (dup,)).fetchall():
