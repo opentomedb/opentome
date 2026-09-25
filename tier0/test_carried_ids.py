@@ -111,6 +111,14 @@ art3 = artifact(again, carry2)
 eq("next build: the redirects are still in the artifact",
    sqlite3.connect(art3).execute("SELECT COUNT(*) FROM id_redirect").fetchone()[0], 7)
 eq("next build: the gate passes against the re-keyed carry", ids_ok(art3, carry2), [])
+lost_rows = os.path.join(TMP, "rekey3-lost.sqlite")
+__import__("shutil").copy(art3, lost_rows)
+L = sqlite3.connect(lost_rows)
+L.execute("DELETE FROM id_redirect WHERE entity='volume'")
+L.commit()
+L.close()
+eq("next build: an artifact that drops the carry's redirect rows fails the gate",
+   ids_ok(lost_rows, carry2), ["carried ids (every market: works, lines, volumes) neither present nor redirected"])
 db.close()
 
 # chain: a line of the re-keyed carry is re-keyed again -> the oldest id reaches the newest line

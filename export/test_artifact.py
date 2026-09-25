@@ -365,9 +365,10 @@ MAX_RETIRED_VOLUMES = 100
 
 def run_ids(path, carry):
     """IDs are a public contract: every work, line and volume id of the carried (last published)
-    artifact, in every market, is still present here or resolves through this artifact's
-    id_redirect to one that is (tier0/carried_ids.py). A work in meta.excluded_works takes its
-    lines and volumes with it, on purpose."""
+    artifact, in every market -- and every id its own id_redirect already resolved -- is still
+    present here or resolves through this artifact's id_redirect to one that is
+    (tier0/carried_ids.py). A work in meta.excluded_works takes its lines and volumes with it,
+    on purpose."""
     db = sqlite3.connect(path)
     C = sqlite3.connect(carry)
     cols = {r[1] for r in C.execute("PRAGMA table_info(series)")}
@@ -380,6 +381,13 @@ def run_ids(path, carry):
         lines, vols = {}, {}
     works = {w for w, _ in lines.values() if w}
     old = list(lines) + list(vols) + sorted(works)
+    # ids the carry already resolved through ITS id_redirect must keep resolving here: a
+    # retired id resolves forever, not only in the build that retired it
+    try:
+        carried_red = dict(C.execute("SELECT old_tome_id, new_tome_id FROM id_redirect"))
+    except sqlite3.OperationalError:
+        carried_red = {}
+    old += sorted(set(carried_red) - set(old))
     present = {r[0] for r in db.execute("SELECT tome_id FROM series UNION SELECT tome_id FROM volumes")}
     vol_now = {r[0] for r in db.execute("SELECT tome_id FROM volumes")}
     try:    # a merged work's redirect targets a work id (tier0/carried_ids.py)
@@ -396,6 +404,7 @@ def run_ids(path, carry):
         excluded = set()
     work_of = {t: w for t, (w, _) in lines.items()}
     work_of.update({t: work_of.get(s) for t, (s, _) in vols.items()})
+    work_of.update({t: work_of.get(n, n) for t, n in carried_red.items() if t not in work_of})
     exempt = {t for t in old if (work_of.get(t) or t) in excluded}
     lost = [t for t in old if t and t not in present and red.get(t) not in present and t not in exempt]
     rule("carried ids (every market: works, lines, volumes) neither present nor redirected", len(lost), str(lost[:5]))
@@ -412,9 +421,9 @@ def run_ids(path, carry):
     rule("id_redirect rows whose target is not in the artifact",
          sum(1 for t in red.values() if t not in present))
     moved = [t for t in old if t not in present and t not in exempt]
-    print("  info  carried ids: %s works / %s lines / %s volumes; not present here: %s (redirected %s, retired "
-          "volumes %s, excluded works' ids %s)" % (
-              format(len(works), ","), format(len(lines), ","), format(len(vols), ","),
+    print("  info  carried ids: %s works / %s lines / %s volumes / %s already redirected; not present here: %s "
+          "(redirected %s, retired volumes %s, excluded works' ids %s)" % (
+              format(len(works), ","), format(len(lines), ","), format(len(vols), ","), format(len(carried_red), ","),
               format(len(moved) + len([t for t in exempt if t not in present]), ","),
               format(sum(1 for t in moved if red.get(t) in present), ","), format(len(retired), ","),
               format(sum(1 for t in exempt if t not in present), ",")))
