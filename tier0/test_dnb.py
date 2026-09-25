@@ -204,6 +204,31 @@ eq("series cluster folds into the parent line; edition and medium stay apart",
    sorted([("dnb:1200000000", ["1", "2", "3", "4"]), ("dnb:1400000002", ["1"]), ("dnb:99286450X", ["1"])]))
 eq("lowest IDN compares as a number ('99286450X' < '1400000002')",
    min(["1400000002", "99286450X"], key=B.idn_key), "99286450X")
+eq("publisher family: KAZÉ = Crunchyroll = Pegasus = VIZ Media Switzerland",
+   {B.pubkey(p) for p in ("KAZÉ Manga", "Crunchyroll Manga", "Pegasus Manga GmbH", "VIZ Media Switzerland SA")}, {"kaze"})
+
+
+def kvol(idn, num, isbn, parent, pub):
+    return rec(idn, JPN, MANGA, ("245", [("a", "Ragna Crimson"), ("n", num)]), ("264", [("b", pub)]),
+               ("020", [("a", isbn)]), ("773", [("w", "(DE-101)" + parent)]))
+
+
+def kpar(idn, pub):
+    return rec(idn, JPN, ("245", [("a", "Ragna Crimson")]), ("264", [("b", pub)]), parent=True)
+
+
+ks = {r["cf"]["001"]: r for r in (kvol("1800000001", "7", "9782889216796", "1700000100", "KAZÉ Manga"),
+                                  kvol("1800000002", "13", "9782889216802", "1700000200", "Crunchyroll Manga"),
+                                  kvol("1800000003", "16", "9782889216819", "1700000300", "Pegasus Manga"),
+                                  kvol("1800000004", "7", "9783753936000", "1700000400", "KAZÉ Manga"))}
+kp = {"1700000100": kpar("1700000100", "KAZÉ Manga"), "1700000200": kpar("1700000200", "Crunchyroll Manga"),
+      "1700000300": kpar("1700000300", "Pegasus Manga"), "1700000400": kpar("1700000400", "KAZÉ Manga")}
+kk, _ = B.select(ks)
+kg, _ = B.twins(kk)
+kl = B.cluster(kg, kp)
+eq("one series across publisher rebrands (disjoint numbers) is one line; a set repeating a number stays apart",
+   sorted((k, sorted(g["num"] for g in gs)) for k, gs in kl.items()),
+   [("dnb:1700000100", ["13", "16", "7"]), ("dnb:1700000400", ["7"])])
 ln, lost = B.shape_line("dnb:1200000000", lines["dnb:1200000000"], {"1200000000": parent})
 eq("line named from the parent record", ln["name"], "Snowball earth")
 eq("one volume per number", sorted(g["number"] for g in ln["vols"]), ["1", "2", "3", "4"])

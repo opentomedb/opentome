@@ -84,9 +84,17 @@ def idn_key(i):
     return (len(i), i)
 
 
+# One German manga publisher under successive names -- a series keeps its numbering across a
+# rebrand, so its line must too. VIZ Media Switzerland SA published as KAZÉ Manga, which became
+# Crunchyroll Manga, whose list moved to Pegasus Manga (2026-09-24 review: 49 works split into
+# consecutive-number lines, 33 of them along this chain); Planet Manga is Panini's imprint.
+PUBLISHER_FAMILY = {"vizmed": "kaze", "crunch": "kaze", "pegasu": "kaze", "planet": "panini"}
+
+
 def pubkey(p):
-    return L.fold(re.sub(r"(?i)\b(gmbh|verlag\w*|verl\.?-?ges\.?|verlagsgesellschaften|mbh|manga!?|sa|ag)\b",
-                         "", p or ""), False)[:6]
+    k = L.fold(re.sub(r"(?i)\b(gmbh|verlag\w*|verl\.?-?ges\.?|verlagsgesellschaften|mbh|manga!?|sa|ag)\b",
+                      "", p or ""), False)[:6]
+    return PUBLISHER_FAMILY.get(k, k)
 
 
 # ---- 2. select --------------------------------------------------------------------
@@ -218,37 +226,68 @@ def raw_key(g):
     return "single:" + g["primary"]
 
 
+def _numbers(gs):
+    return {g["num"] for g in gs if g["num"]}
+
+
 def cluster(groups, parents):
-    """-> {line key: [groups]}, folding series/title clusters into a unique parent line of
-    the same folded name + publisher + medium + edition marker (a light novel and its manga
-    adaptation often share a title and a publisher)."""
+    """-> {line key: [groups]}. Raw clusters (parent set / series statement / bare title) that
+    share a signature -- folded name, publisher family, medium, edition marker -- are one line:
+      * series- and title-keyed clusters of one signature merge ("Black Clover 37" announced
+        with no series statement joins "Black Clover" with one);
+      * parent sets of one signature merge while their volume numbers stay disjoint (a new
+        set record per publisher name: KAZÉ 1-26, Crunchyroll 27-30, Pegasus 31-32); a set
+        that repeats the numbers is another edition and stays apart;
+      * the series/title cluster then folds into the parent line when exactly one is left.
+    A light novel and its manga adaptation often share a title and a publisher -- medium is
+    part of the signature."""
     raw = collections.defaultdict(list)
     for g in groups:
         raw[raw_key(g)].append(g)
-    pname = collections.defaultdict(set)
+    by_sig = collections.defaultdict(lambda: {"parents": [], "loose": []})
     for k, gs in raw.items():
-        if k.startswith("parent:") and k[7:] in parents:
-            p = parents[k[7:]]
-            media = collections.Counter(g["medium"] for g in gs)
-            medium = "light_novel" if media["light_novel"] > media["manga"] else "manga"
-            pname[(L.fold(M.clean(M.first(p, "245", "a")), False), pubkey(M.publisher(p)),
-                   medium, M.edition_marker(p) or "")].add(k)
-    lines = collections.defaultdict(list)
-    for k, gs in raw.items():
-        target = k
-        if k.startswith(("series:", "title:")):
-            name, pub, medium, ed = k.split(":", 1)[1].split("|")
-            cands = pname.get((name, pub, medium, ed), set())
-            if len(cands) == 1:
-                target = next(iter(cands))
-        lines[target].extend(gs)
-    out = {}
-    for k, gs in lines.items():
+        media = collections.Counter(g["medium"] for g in gs)
+        medium = "light_novel" if media["light_novel"] > media["manga"] else "manga"
         if k.startswith("parent:"):
-            key = "dnb:" + k[7:]
+            p = parents.get(k[7:])
+            if p is None:
+                by_sig[k]["parents"].append((k, gs))          # an unknown set: on its own
+                continue
+            pubs = collections.Counter(g["publisher"] for g in gs if g["publisher"])
+            pub = M.publisher(p) or (pubs.most_common(1)[0][0] if pubs else None)
+            sig = (L.fold(M.clean(M.first(p, "245", "a")), False), pubkey(pub), medium, M.edition_marker(p) or "")
+            by_sig[sig]["parents"].append((k, gs))
+        elif k.startswith(("series:", "title:")):
+            by_sig[tuple(k.split(":", 1)[1].split("|"))]["loose"].append((k, gs))
         else:
-            key = "dnb:" + min((i for g in gs for i in g["idns"]), key=idn_key)
+            by_sig[k]["loose"].append((k, gs))
+    out = {}
+
+    def emit(gs, parent_ids):
+        key = "dnb:" + (min(parent_ids, key=idn_key) if parent_ids else
+                        min((i for g in gs for i in g["idns"]), key=idn_key))
         out[key] = gs
+    for sig, d in by_sig.items():
+        merged = []                      # [(parent ids, groups)], sets merged while disjoint
+        for k, gs in sorted(d["parents"], key=lambda kg: idn_key(kg[0][7:])):
+            for m in merged:
+                a, b = _numbers(m[1]), _numbers(gs)
+                # disjoint, or one shared number (a transitional volume both catalogued) between
+                # sets of 3+ volumes; a small set repeating a number is another edition
+                if not a & b or (len(a & b) == 1 and min(len(a), len(b)) >= 3):
+                    m[0].append(k[7:])
+                    m[1].extend(gs)
+                    break
+            else:
+                merged.append(([k[7:]], list(gs)))
+        loose = [g for _, gs in d["loose"] for g in gs]
+        if loose and len(merged) == 1:
+            merged[0][1].extend(loose)
+            loose = []
+        for pids, gs in merged:
+            emit(gs, pids)
+        if loose:
+            emit(loose, [])
     return out
 
 
