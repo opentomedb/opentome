@@ -266,6 +266,13 @@ CREATE TABLE IF NOT EXISTS volumes_special (
 -- OpenTome text id <-> Mangarr integer id. Carried across rebuilds so ids never churn.
 CREATE TABLE IF NOT EXISTS id_map (
     opentome_id TEXT PRIMARY KEY, int_id INTEGER UNIQUE NOT NULL, kind TEXT NOT NULL);
+-- Retired ids (2026-09-24, additive): a line or volume id a consumer may hold that this build
+-- no longer has resolves here to the id that replaced it -- never a 404 (docs/id-scheme.md).
+-- A retired VOLUME with no successor volume resolves to its line (reason 'retired').
+CREATE TABLE IF NOT EXISTS id_redirect (
+    old_tome_id TEXT PRIMARY KEY, new_tome_id TEXT NOT NULL, entity TEXT NOT NULL, reason TEXT,
+    old_series_id INTEGER,          -- the retired line's integer, when it had one
+    new_series_id INTEGER);         -- the successor line's integer
 CREATE INDEX IF NOT EXISTS idx_series_name    ON series (name);
 CREATE INDEX IF NOT EXISTS idx_volumes_series ON volumes (gcd_series_id);
 CREATE INDEX IF NOT EXISTS idx_alias_alias    ON series_alias (alias);
@@ -345,13 +352,24 @@ def export(src_path, out_path, carry_ids_from=None):
         except sqlite3.OperationalError:
             pass
 
-    # A line id the pipeline retired (id_redirect: a DNB line whose source key changed) keeps
-    # its consumer-facing integer on the successor, so a Mangarr that stored the old integer
-    # still finds the line. Only when the successor has no integer of its own yet.
-    for old_id, new_id in src.execute("""SELECT old_id, new_id FROM id_redirect
-                                         WHERE entity='release_line' ORDER BY created_at, old_id"""):
-        if new_id not in mapping and old_id in mapping:
-            mapping[new_id] = mapping[old_id]
+    # Retired ids (id_redirect) resolve forever, and so do their integers. Chains collapse to
+    # the id that exists now. The integer rule: a successor with no integer of its own takes
+    # the retired line's; a successor that already has one keeps it, and the retired integer
+    # resolves through the artifact's id_redirect table (old_series_id -> new_series_id) and
+    # stays reserved in id_map, so it is never issued to another line.
+    redirect = dict(src.execute("SELECT old_id, new_id FROM id_redirect"))
+    redirect_meta = {o: (e, r) for o, e, r in src.execute("SELECT old_id, entity, reason FROM id_redirect")}
+
+    def final(i, seen=()):
+        while i in redirect and i not in seen:
+            seen += (i,)
+            i = redirect[i]
+        return i
+    for old_id in sorted(redirect):
+        if redirect_meta[old_id][0] == "release_line":
+            new_id = final(old_id)
+            if new_id not in mapping and old_id in mapping:
+                mapping[new_id] = mapping[old_id]
 
     # resolved page counts (BnF / Open Library / DNB) -- tier0 never fills volume.page_count
     pages = {}
@@ -656,6 +674,28 @@ def export(src_path, out_path, carry_ids_from=None):
                         seen.add(a.lower())
                         out.execute("INSERT OR IGNORE INTO series_alias VALUES(?,?)", (sid, a))
                         n_alias += 1
+
+    # id_redirect, chains collapsed to ids present in this artifact; retired integers reserved
+    present = {r[0] for r in out.execute("SELECT tome_id FROM series")} | \
+              {r[0] for r in out.execute("SELECT tome_id FROM volumes")}
+    series_of_vol = dict(out.execute("SELECT v.tome_id, s.tome_id FROM volumes v JOIN series s USING(gcd_series_id)"))
+    int_of = dict(out.execute("SELECT tome_id, gcd_series_id FROM series"))
+    n_redirect = 0
+    for old_id in sorted(redirect):
+        new_id = final(old_id)
+        if old_id in present or new_id not in present:
+            continue
+        entity, reason = redirect_meta[old_id]
+        old_int = mapping.get(old_id) if entity == "release_line" else None
+        new_int = int_of.get(new_id) or int_of.get(series_of_vol.get(new_id))
+        out.execute("INSERT OR REPLACE INTO id_redirect VALUES(?,?,?,?,?,?)",
+                    (old_id, new_id, entity, reason, old_int if old_int != new_int else None, new_int))
+        n_redirect += 1
+    used = {r[0] for r in out.execute("SELECT int_id FROM id_map")}
+    for old_id, i in mapping.items():
+        if i not in used and old_id not in int_of:
+            out.execute("INSERT OR IGNORE INTO id_map VALUES(?,?, 'retired')", (old_id, i))
+            used.add(i)
 
     # Hand-checked alias corrections (corrections/aliases.json). Applied last so
     # a correction always reaches the artifact, and asserted by test_artifact.py

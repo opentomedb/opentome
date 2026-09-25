@@ -330,11 +330,11 @@ B.load(cat2, l_before, lost_b, W2, wi2)
 tmp = tempfile.mkdtemp()
 art = os.path.join(tmp, "carry.sqlite")
 A = sqlite3.connect(art)
-A.executescript("CREATE TABLE series (gcd_series_id INTEGER PRIMARY KEY, tome_id TEXT, language TEXT);"
+A.executescript("CREATE TABLE series (gcd_series_id INTEGER PRIMARY KEY, tome_id TEXT, tome_work_id TEXT, language TEXT);"
                 "CREATE TABLE volumes (id INTEGER PRIMARY KEY, gcd_series_id INTEGER, volume_number INTEGER,"
                 " tome_id TEXT, isbn13 TEXT);")
 old_rl = l_before[0]["rl_id"]
-A.execute("INSERT INTO series VALUES(1, ?, 'de')", (old_rl,))
+A.execute("INSERT INTO series VALUES(1, ?, 'w_se', 'de')", (old_rl,))
 for n, (vid, isbn) in enumerate(cat2.execute("SELECT id, isbn13 FROM volume ORDER BY number"), 1):
     A.execute("INSERT INTO volumes VALUES(?, 1, ?, ?, ?)", (n, n, vid, isbn))
 A.commit()
@@ -353,6 +353,26 @@ eq("the old line id is redirected to the new one",
 eq("its volumes follow by number",
    cat2.execute("SELECT COUNT(*) FROM id_redirect WHERE entity='volume'").fetchone()[0], 2)
 eq("no orphaned ids", orphans, [])
+
+# the carried artifact's own redirects survive, and chain
+A.execute("CREATE TABLE id_redirect (old_tome_id TEXT PRIMARY KEY, new_tome_id TEXT, entity TEXT, reason TEXT,"
+          " old_series_id INTEGER, new_series_id INTEGER)")
+A.execute("INSERT INTO id_redirect VALUES('rl_ancient', ?, 'release_line', 'correction', NULL, NULL)", (old_rl,))
+A.commit()
+B.redirects(cat2, art)
+eq("a redirect carried in the artifact is re-read (and chains: ancient -> old -> new)",
+   cat2.execute("SELECT new_id FROM id_redirect WHERE old_id='rl_ancient'").fetchone(), (old_rl,))
+
+# a published line the linker no longer links is kept, never silently dropped
+cat3 = sqlite3.connect(":memory:")
+cat3.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+cat3.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_se','Renamed Work',?,?)", (T, T))
+W3, wi3 = B.wiki_lines(cat3)
+l3, _, _ = B.build(before, {}, L.Index(cat3), W3, wi3)
+eq("without the carried artifact the line is unlinked", [ln["role"] for ln in l3], ["unlinked"])
+l3, _, _ = B.build(before, {}, L.Index(cat3), W3, wi3, carried={old_rl: "w_se"})
+eq("with it, the published line is kept under its published work",
+   [(ln["role"], ln["work"]) for ln in l3], [("kept", "w_se")])
 
 # ---- the fetcher: politeness, cache, offline -- against a fake DNB (no network) ----------
 import email.message, re as _re, time as _time, urllib.error, urllib.parse

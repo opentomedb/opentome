@@ -113,7 +113,7 @@ if [ -n "$PREV" ] && [ -f "$PREV" ]; then
   python3 export/merge_aliases.py "$ART.new" "$PREV"
 fi
 echo "== 8c. artifact contract tests =="
-python3 export/test_artifact.py "$ART.new" "$FINAL"
+python3 export/test_artifact.py "$ART.new" "$FINAL" "$ID_CARRY"
 # 8d measures the NEW artifact before it replaces the old one, like 8c: a failed
 # gate leaves the last good artifact in place.
 echo "== 8d. measure gate =="

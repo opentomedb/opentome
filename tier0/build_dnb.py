@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS dnb_line (       -- one row per DNB line, exported or
     n_volumes INTEGER,
     tier TEXT, via TEXT,                    -- the linker's verdict, whatever the role
     link_work TEXT, candidates TEXT,
-    role TEXT NOT NULL,                     -- merged | sibling | linked | review | unlinked | absorbed
+    role TEXT NOT NULL,                     -- merged | sibling | linked | kept | review | unlinked | absorbed
     wiki_line TEXT, truth_work TEXT,        -- merged / sibling: the Wikipedia line and its work
     exported INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS dnb_member (     -- one row per DNB volume record kept
@@ -360,8 +360,11 @@ def assign_roles(lines, W, w_isbn):
 
 # ---- the build (pure: records in, lines out) -----------------------------------------------
 
-def build(recs, parents, idx, W, w_isbn):
-    """-> (lines, stats, lost [(group, fate, line key)])."""
+def build(recs, parents, idx, W, w_isbn, carried=None):
+    """-> (lines, stats, lost [(group, fate, line key)]). carried: {tome_id: work_id} of the
+    German lines in the last published artifact -- a line that shipped there keeps shipping
+    (role 'kept', under its published work) when only the linker's answer changed: ids are a
+    public contract, and a consumer may already store it."""
     allparents = dict(parents)
     allparents.update({k: r for k, r in recs.items() if M.is_parent(r)})
     vols, drop = select(recs, allparents)
@@ -386,6 +389,8 @@ def build(recs, parents, idx, W, w_isbn):
             ln["role"] = {"high": "linked", "medium": "linked", "low": "review",
                           "ambiguous": "review"}.get(ln["tier"], "unlinked")
             ln["work"] = ln["link_work"] if ln["role"] == "linked" else None
+            if ln["role"] != "linked" and (carried or {}).get(ln["rl_id"]) in idx.name:
+                ln["role"], ln["work"] = "kept", carried[ln["rl_id"]]
     stats = {"records": len(recs), "parents_known": len(allparents), "kept_records": len(vols),
              "dropped": dict(sorted(drop.items())), "volume_groups": len(groups),
              "twin_records_merged": len(vols) - len(groups), "boxset_isbns": len(boxset),
@@ -442,7 +447,7 @@ def load(db, lines, lost, W, w_isbn):
     unload(c)
     st = collections.Counter()
     for ln in lines:
-        exported = ln["role"] in ("merged", "sibling", "linked")
+        exported = ln["role"] in ("merged", "sibling", "linked", "kept")
         rid = ln["wiki_line"] if ln["role"] == "merged" else ln["rl_id"]
         wvols = W[rid]["vols"] if ln["role"] == "merged" else {}
         if exported and ln["role"] != "merged":
@@ -535,42 +540,84 @@ def fill_attached(c, vid, g):
 
 # ---- 8. redirects ----------------------------------------------------------------------------
 
+def carried_lines(carry):
+    """{tome_id: work_id} of the German lines in the carried (last published) artifact."""
+    if not carry or not os.path.exists(carry):
+        return {}
+    try:
+        return dict(sqlite3.connect(carry).execute(
+            "SELECT tome_id, tome_work_id FROM series WHERE language='de' AND tome_id IS NOT NULL"))
+    except sqlite3.OperationalError:
+        return {}
+
+
 def redirects(db, carry):
-    """German line ids in the carried artifact that this build no longer has -> id_redirect
-    to the German line now holding most of their ISBNs (volumes follow by number).
+    """Retired ids resolve forever (docs/id-scheme.md). From the carried artifact:
+      1. its own id_redirect rows are re-read, so a redirect survives every later build;
+      2. a German line id it has that this build does not is redirected to the German line
+         now holding most of its ISBNs, else to the same work's main German line ('retired');
+      3. each of its volumes that is gone follows by ISBN, else by number in the successor
+         line, else to the successor LINE itself ('retired': the volume is no longer in the
+         catalogue, the id still resolves to where it belonged).
     -> (lines redirected, lines with no successor)."""
     if not carry or not os.path.exists(carry):
         return 0, []
     A = sqlite3.connect(carry)
     try:
-        old = A.execute("""SELECT s.tome_id, v.volume_number, v.tome_id, v.isbn13 FROM series s
-                           JOIN volumes v USING(gcd_series_id) WHERE s.language='de'""").fetchall()
+        for row in A.execute("SELECT old_tome_id, new_tome_id, entity, reason FROM id_redirect"):
+            db.execute("INSERT OR IGNORE INTO id_redirect VALUES(?,?,?,?,?)", row + (NOW,))
+    except sqlite3.OperationalError:
+        pass                                  # an artifact from before id_redirect was exported
+    try:
+        old = A.execute("""SELECT s.tome_id, s.tome_work_id, v.volume_number, v.tome_id, v.isbn13 FROM series s
+                           LEFT JOIN volumes v USING(gcd_series_id) WHERE s.language='de'""").fetchall()
     except sqlite3.OperationalError:
         return 0, []
     now = {r[0] for r in db.execute("SELECT id FROM release_line WHERE market='DE'")}
-    isbn_to = dict(db.execute("""SELECT v.isbn13, v.release_line_id FROM volume v JOIN release_line rl
-                                 ON rl.id=v.release_line_id WHERE rl.market='DE' AND v.isbn13 IS NOT NULL"""))
-    by_old = collections.defaultdict(list)
-    for tid, num, vtid, isbn in old:
-        by_old[tid].append((num, vtid, isbn))
+    vol_now = {r[0] for r in db.execute("""SELECT v.id FROM volume v JOIN release_line rl
+                                           ON rl.id=v.release_line_id WHERE rl.market='DE'""")}
+    isbn_to = {i: (rid, vid) for vid, rid, i in db.execute(
+        """SELECT v.id, v.release_line_id, v.isbn13 FROM volume v JOIN release_line rl
+           ON rl.id=v.release_line_id WHERE rl.market='DE' AND v.isbn13 IS NOT NULL""")}
+    main_de = {}
+    for rid, wid in db.execute("""SELECT rl.id, rl.work_id FROM release_line rl WHERE rl.market='DE'
+                                  ORDER BY (SELECT COUNT(*) FROM volume v WHERE v.release_line_id=rl.id) DESC, rl.id"""):
+        main_de.setdefault(wid, rid)
+    redirected = {r[0] for r in db.execute("SELECT old_id FROM id_redirect")}
+    by_old, work_of = collections.defaultdict(list), {}
+    for tid, wid, num, vtid, isbn in old:
+        work_of[tid] = wid
+        if vtid:
+            by_old[tid].append((num, vtid, isbn))
     moved, orphans = 0, []
-    for tid, vs in by_old.items():
-        if tid in now or db.execute("SELECT 1 FROM id_redirect WHERE old_id=?", (tid,)).fetchone():
-            continue
-        votes = collections.Counter(isbn_to[i] for _, _, i in vs if i in isbn_to)
-        if not votes:
-            orphans.append(tid)
-            continue
-        new = votes.most_common(1)[0][0]
-        db.execute("INSERT OR IGNORE INTO id_redirect VALUES(?,?,?,?,?)",
-                   (tid, new, "release_line", "correction", NOW))
-        for num, vtid, _ in vs:
-            nv = db.execute("SELECT id FROM volume WHERE release_line_id=? AND number=?",
-                            (new, str(num))).fetchone()
-            if nv and vtid and nv[0] != vtid:
-                db.execute("INSERT OR IGNORE INTO id_redirect VALUES(?,?,?,?,?)",
-                           (vtid, nv[0], "volume", "correction", NOW))
-        moved += 1
+
+    def put(old_id, new_id, entity, reason):
+        if old_id != new_id and old_id not in redirected:
+            db.execute("INSERT OR IGNORE INTO id_redirect VALUES(?,?,?,?,?)", (old_id, new_id, entity, reason, NOW))
+            redirected.add(old_id)
+    for tid in work_of:
+        line = tid
+        if tid not in now and tid not in redirected:
+            votes = collections.Counter(isbn_to[i][0] for _, _, i in by_old[tid] if i in isbn_to)
+            if votes:
+                line = votes.most_common(1)[0][0]
+                put(tid, line, "release_line", "correction")
+            elif work_of[tid] in main_de:
+                line = main_de[work_of[tid]]
+                put(tid, line, "release_line", "retired")
+            else:
+                orphans.append(tid)
+                continue
+            moved += 1
+        elif tid in redirected:
+            line = next(r[0] for r in db.execute("SELECT new_id FROM id_redirect WHERE old_id=?", (tid,)))
+        for num, vtid, isbn in by_old[tid]:
+            if vtid in vol_now or vtid in redirected:
+                continue
+            nv = (isbn_to.get(isbn) or (None, None))[1] or next(
+                (r[0] for r in db.execute("SELECT id FROM volume WHERE release_line_id=? AND number=?",
+                                          (line, str(num)))), None)
+            put(vtid, nv or line, "volume", "correction" if nv else "retired")
     db.commit()
     return moved, orphans
 
@@ -606,7 +653,7 @@ def run(dbpath, carry=None):
     db.commit()
     idx = L.Index(db)
     W, w_isbn = wiki_lines(db)
-    lines, stats, lost = build(recs, parents, idx, W, w_isbn)
+    lines, stats, lost = build(recs, parents, idx, W, w_isbn, carried_lines(carry))
     fates = load(db, lines, lost, W, w_isbn)
     moved, orphans = redirects(db, carry)
     os.makedirs(BUILD, exist_ok=True)

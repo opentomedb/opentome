@@ -207,7 +207,7 @@ def measure_de(art_path, catalogue=None):
     except (TypeError, sqlite3.OperationalError):
         roles = {}
     total = sum(roles.values())
-    out = sum(roles.get(r, 0) for r in ("merged", "sibling", "linked"))
+    out = sum(roles.get(r, 0) for r in ("merged", "sibling", "linked", "kept"))
     gate("DNB link rate", total > 0 and out / total >= DE_MIN_LINK_RATE,
          "%.1f%% (%s of %s DNB lines exported; floor %.0f%%) %s" % (
              100 * out / max(total, 1), format(out, ","), format(total, ","), 100 * DE_MIN_LINK_RATE,

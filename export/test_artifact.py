@@ -336,6 +336,30 @@ def run(path):
 DNB_FIELDS = ("isbn13", "release_date", "projected_date", "page_count", "volume_number", "line_name", "publisher")
 
 
+def run_ids(path, carry):
+    """IDs are a public contract: every German line and volume id of the carried (last
+    published) artifact is still present here, or resolves through this artifact's id_redirect
+    to one that is."""
+    db = sqlite3.connect(path)
+    C = sqlite3.connect(carry)
+    try:
+        old = [r[0] for r in C.execute("""SELECT tome_id FROM series WHERE language='de' UNION
+                   SELECT v.tome_id FROM volumes v JOIN series s USING(gcd_series_id) WHERE s.language='de'""")]
+    except sqlite3.OperationalError:
+        old = []
+    present = {r[0] for r in db.execute("SELECT tome_id FROM series UNION SELECT tome_id FROM volumes")}
+    try:
+        red = dict(db.execute("SELECT old_tome_id, new_tome_id FROM id_redirect"))
+    except sqlite3.OperationalError:
+        red = {}
+    lost = [t for t in old if t and t not in present and red.get(t) not in present]
+    rule("German ids of the carried artifact neither present nor redirected", len(lost), str(lost[:5]))
+    rule("id_redirect rows whose target is not in the artifact",
+         sum(1 for t in red.values() if t not in present))
+    print("  info  carried German ids: %s, redirected: %s" % (
+        format(len(old), ","), format(sum(1 for t in old if t in red), ",")))
+
+
 def run_dnb(path, catalogue):
     """The German (DNB) rules, docs/dnb-design.md "Gates". Most need the pipeline catalogue:
     the artifact carries no per-claim provenance."""
@@ -407,8 +431,8 @@ def run_dnb(path, catalogue):
                 AND w.entity_id=v.id AND w.field='isbn13' AND w.source='wikipedia' AND w.value=v.isbn13)) > 0)"""))
 
     # export policy (decision 1): only high/medium links (and ISBN-proven lines) ship
-    rule("exported DNB lines that are not merged / sibling / high-or-medium linked",
-         c("""SELECT COUNT(*) FROM dnb_line WHERE exported=1 AND NOT (role IN ('merged','sibling')
+    rule("exported DNB lines that are not merged / sibling / kept / high-or-medium linked",
+         c("""SELECT COUNT(*) FROM dnb_line WHERE exported=1 AND NOT (role IN ('merged','sibling','kept')
               OR (role='linked' AND tier IN ('high','medium')))"""))
     held = {r[0] for r in cat.execute("SELECT rl_id FROM dnb_line WHERE exported=0")}
     rule("held-back DNB lines (review / unlinked) present in the artifact",
@@ -464,6 +488,9 @@ if __name__ == "__main__":
     if len(sys.argv) > 2:
         print("\n  -- German (DNB) rules, catalogue %s --" % sys.argv[2])
         run_dnb(sys.argv[1], sys.argv[2])
+    if len(sys.argv) > 3 and sys.argv[3] and os.path.exists(sys.argv[3]):
+        print("\n  -- ids, carried artifact %s --" % sys.argv[3])
+        run_ids(sys.argv[1], sys.argv[3])
     print()
     if fails:
         print(f"{len(fails)} contract rule(s) FAILED: {fails}")

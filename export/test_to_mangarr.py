@@ -90,9 +90,14 @@ def run():
     # ---- a redirected line keeps its consumer-facing integer (2026-09-24, DNB) --------
     # A DNB line whose source key changed (a parent record appeared) gets a new rl_ id and
     # an id_redirect row; the integer a Mangarr stored for the old id must follow it.
-    sid, rtype = fixture_redirect_carry()
+    sid, rtype, red, idmap = fixture_redirect_carry()
     eq("a redirected line carries the old line's integer id", sid, 424242)
     eq("release_date_type ships with a dated volume", rtype, "projected")
+    eq("the artifact's id_redirect resolves the retired id (chained) to the line that exists",
+       red.get("rl_older"), ("rl_new", "release_line", None))
+    eq("a successor that already had an integer keeps it; the retired integer resolves through id_redirect",
+       red.get("rl_twin"), ("rl_new", "release_line", 555555))
+    eq("a retired integer stays reserved in id_map", idmap.get("rl_twin"), (555555, "retired"))
 
     if FAILS:
         print("FAILED: " + ", ".join(FAILS))
@@ -112,10 +117,13 @@ def fixture_redirect_carry():
                   release_date_type,created_at,updated_at)
                   VALUES('v_new1','rl_new','1','9783753935874','2026-11','month','projected','x','x')""")
     db.execute("INSERT INTO id_redirect VALUES('rl_old','rl_new','release_line','correction','x')")
+    db.execute("INSERT INTO id_redirect VALUES('rl_older','rl_old','release_line','correction','x')")
+    db.execute("INSERT INTO id_redirect VALUES('rl_twin','rl_new','release_line','duplicate_merge','x')")
     db.commit()
     c = sqlite3.connect(carry)
     c.execute("CREATE TABLE id_map (opentome_id TEXT PRIMARY KEY, int_id INTEGER UNIQUE NOT NULL, kind TEXT NOT NULL)")
     c.execute("INSERT INTO id_map VALUES('rl_old', 424242, 'release_line')")
+    c.execute("INSERT INTO id_map VALUES('rl_twin', 555555, 'release_line')")
     c.commit()
     real_dir = corr.DIR
     corr.DIR = tempfile.mkdtemp(prefix="opentome-nocorr-")      # no corrections in play
@@ -126,7 +134,10 @@ def fixture_redirect_carry():
     out = sqlite3.connect(out_path)
     sid = out.execute("SELECT gcd_series_id FROM series WHERE tome_id='rl_new'").fetchone()[0]
     rtype = out.execute("SELECT release_date_type FROM volumes WHERE tome_id='v_new1'").fetchone()[0]
-    return sid, rtype
+    red = {o: (n, e, oi) for o, n, e, oi in out.execute(
+        "SELECT old_tome_id, new_tome_id, entity, old_series_id FROM id_redirect")}
+    idmap = {o: (i, k) for o, i, k in out.execute("SELECT opentome_id, int_id, kind FROM id_map")}
+    return sid, rtype, red, idmap
 
 
 def fixture_origin_line_pin():
