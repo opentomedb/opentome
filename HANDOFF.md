@@ -58,7 +58,20 @@ Done (one commit per step; design + numbers: `docs/carried-ids.md`):
   integers, gate green apart from the two AniList rules, measure 49/49 (log identical to main's),
   second build a no-op (moved 0); OPENTOME_CI=1 without a carry fails, with cold start it builds.
 
+**Fix round 2 (same day, re-review "safe to publish" with three fixes):**
+- N1: a tie goes to the single candidate NEW in this build (a re-key beside its published
+  same-edition twin -- 456 of the 496 pairs nest); any other tie is still ambiguous.
+- N2: 3e (build_dnb.redirects) uses 7b's volume rule (`carried_ids.volume_successor`): a retired
+  German line's volumes never match the main line's books by number.
+- N3: publish.sh refuses a `cold-start` artifact without `OPENTOME_COLD_START=1` at publish time,
+  and a carried one unless `CARRY_SHA256` (CI: `build/carry.sha256` from the restore step; by
+  hand: the live version.json's sha256) equals `meta.carried_sha256`. ROLLBACK_TO past this
+  release un-publishes its redirects -- Nick's go-ahead.
+- Re-verified: 7b re-run on the measured catalogue + export: the same 261 redirects and integers,
+  gate green (AniList rules aside), measure 49/49; no full rebuild (3e wrote 0 redirects here).
+
 Next:
+- **Publishing from a workstation now needs `CARRY_SHA256`** (the live version.json's sha256).
 - Merge, CI build-only, then publish. Mangarr reads `id_redirect` for `release_line` rows; the
   `work` and `volume` rows are additive; integers resolve through `old_series_id` (the coordinator
   sends Mangarr the matching follow-up).
