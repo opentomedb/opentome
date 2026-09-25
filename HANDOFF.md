@@ -4,6 +4,16 @@ _Last updated: 2026-09-24_
 
 ## 2026-09-24 — branch `dnb-ingest`: the German market from DNB (stage 3e)
 
+**Review round (same day):** the independent review's ten items are fixed, one commit each
+(NFC; linker precision + `must_not_link` fixture; bundles / boxes + protected-line gate; id
+contract: exported `id_redirect`, `kept`, carried-id gate, integer rule; clustering: publisher
+families + signature merge; volume numbers; CI: `DNB_REFRESH_DAYS=6`, refresh fallback, stable
+parent batches; date floor on deposited volumes; origin regex; Magmell / leading "The").
+Re-measured offline, zero DNB requests: **DE 1,459 lines / 12,470 volumes**, linked 1,227 high
++ 196 medium, merged 31, sibling 1; review 206; ground truth 31/33, 0 wrong; labelled 44/45;
+dates 99.8% of deposited; split editions 13 works / 26 lines (was 49 / 111). Numbers below are
+the first build's.
+
 Not merged, not pushed, no CI triggered -- Nick's gate.
 
 Done (design: `docs/dnb-design.md`, results: `docs/german-market.md`):
@@ -52,11 +62,14 @@ Next:
   linked less often; the 518 current-year announcements without a 263 month are undated.
 
 Gotchas:
-- Floors: date coverage 95.8% vs the 95% floor -- announcement-only volumes are the undated
-  part; a burst of new announcements could trip it.
+- The date floor is now on deposited volumes (99.8%); announced-only volumes are reported
+  apart and cannot trip it.
 - `dnb_member.volume_id` can point at a volume a later stage deleted (5b exclusions).
 - The spike's `From the sea` (Okubo one-shot in the Fire Force series statement) still links
   to Fire Force; spin-offs named inside a parent's series statement link to the parent.
+- 13 works still split across lines by a subtitle variant between set records ("Kemono jihen"
+  / "Kemono Jihen. Gefährlichen Phänomenen auf der Spur"); a post-link merge would fix it.
+- `.cache/dnb-parents.json` is part of the cache (not a response); it must travel with the seed.
 - DE lines of Swiss publishers carry 978-2 ISBNs (Kazé / Crunchyroll SA): the audit's
   "DE lines with no DE-group ISBN" info line counts them; 14 volumes collide with FR lines
   citing the same ISBN (flagged, info).

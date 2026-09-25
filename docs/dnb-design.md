@@ -129,3 +129,12 @@ Code: `tier0/dnb_sru.py` (client), `tier0/dnb_enumerate.py`, `tier0/dnb_marc.py`
   re-reads the totals and re-pages only frozen slices whose count changed. Default off.
 - **Resolve.** A bare DNB year never beats a finer claim it disagrees with (9 of the 223
   volumes with both a DNB year and another date); scoped to DNB, it changes 0 other values.
+
+### Review round (2026-09-24)
+
+NFC at parse time; medium links need no author contradiction (fuzzy romanised name match);
+part titles out of link keys; box ISBNs and box set records out; publisher families and
+signature merging in clustering; 245$a numbers before 490$v; exported `id_redirect`, `kept`
+lines and a carried-id gate; date floor on deposited volumes, projected months dropped after 12
+months; refresh window 6 days with a cache fallback; parents fetched once via
+`.cache/dnb-parents.json`; manhwa / manhua works out. Details: `docs/german-market.md`.

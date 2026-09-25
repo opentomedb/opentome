@@ -160,3 +160,50 @@ months, 292 Wikipedia dates, 538 undated (95.8% dated); page counts on 97.8%. No
 the German market changed: series, aliases and volumes of every other language are
 identical to a DNB-free export of the same catalogue, and the 35 German Wikipedia lines keep
 their ids and integer ids.
+
+## 2026-09-24 — after the independent review (same branch)
+
+The review found real defects in the exported German data; all fixed, re-measured offline
+(zero DNB requests):
+
+- **NFC.** DNB text is NFD: "ungezählte" never matched (1,345 page counts short), umlaut
+  patterns never fired, 99 names / 44 publishers / 99 aliases shipped NFD. Now normalised at
+  parse time; a contract rule forbids non-NFC German strings.
+- **Linker precision.** Medium needs one side without creator data; both sides naming creators
+  with none shared is a title collision (review). Names fold romanisation and agree on a family
+  name within one edit; 245$c credits and translator-free 700s count. Part titles (a volume's
+  245$a inside a set / numbered series, anthology volumes' 240) no longer key links; an ISBN
+  shared across two different sets with different titles twins nothing. The nine confirmed
+  wrong links are gone and pinned in the fixture (`must_not_link`). Cost: 3 correct
+  artist-credited lines now in review (Gate, AJIN, Puella Magi Madoka Magica; Cantarella's
+  second line unclear).
+- **Bundles and boxes.** Double Pack, Doppelpack, NNer-Pack, Schmuckbox, Einsteiger-Set,
+  Dekorama / Acryl-Aufsteller editions, Schuberauflage, Tarot-Buch, Guidebook are out; a box
+  ISBN (qualified "in Behältnis", "Kassette", "in Schuber", and again as a bare ISBN-10) is no
+  volume's ISBN; a box set record never keys a line. Given (the German Wikipedia line) merges
+  again; Death Note "The complete box", the Berserk Kassetten and the Double Packs are gone.
+- **IDs.** The artifact exports `id_redirect`; each build re-reads the last artifact's; a line
+  the linker stops linking stays published (`kept`); every German id of the carried artifact is
+  gated present-or-redirected (426 today, all present).
+- **Clustering.** Publisher families (VIZ Media Switzerland = KAZÉ = Crunchyroll = Pegasus;
+  Planet = Panini); series-, title- and disjoint parent-keyed clusters of one signature merge.
+  Split editions (the review's heuristic): 49 works in 111 lines -> 13 works in 26 lines (the
+  rest are subtitle variants between set records).
+- **Volume numbers.** 245$a's own number ("Band 16 (Finale)", a trailing number) beats a
+  disagreeing 490$v; an unnumbered volume is 1 only when it is a real one-shot.
+- **Dates.** The floor is measured on deposited volumes (99.8%); announced-only volumes are
+  reported apart; a projected month more than 12 months past is dropped (381 had shipped).
+- **Scope.** Works OpenTome knows as manhwa / manhua / webtoon are out (Ultramarine Magmell,
+  Priest); "Aus dem Japan." counts as Japanese.
+
+| | First build | After the review |
+|---|---:|---:|
+| DE lines / volumes | 1,593 / 12,678 | **1,459 / 12,470** |
+| exported: linked (high / medium) + merged + sibling | 1,209 / 348 + 30 + 1 | **1,227 / 196 + 31 + 1** |
+| linker on all lines: high / medium / low / ambiguous / none | 1,246 / 353 / 210 / 7 / 2,740 | 1,264 / 202 / 202 / 4 / 2,668 |
+| review file | 217 | **206** |
+| ground truth (linked, wrong) | 30/32, 0 | **31/33, 0** |
+| labelled set | 43/44 (97.7%) | **44/45 (97.8%)**, recall 44/49 |
+| dates | 95.8% of all | **99.8% of deposited**; 301 projected months; 92.8% of all |
+| page counts | 97.8% | 97.8% (sums now include unnumbered pages) |
+| split editions | 49 works / 111 lines | **13 / 26** |
