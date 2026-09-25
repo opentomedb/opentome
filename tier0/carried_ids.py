@@ -37,7 +37,8 @@ resolve forever through id_redirect. Two stages keep it, for any market, any ent
       3. a carried LINE this build lost -> in its (successor) work, same market + medium, the
          line holding a strict majority of its ISBNs, else of its dated volumes; then the same
          ISBN test market-wide (a line re-attached to another work); else the work's main
-         line of that market + medium (reason retired);
+         line of that market + medium (reason retired). Two candidates tied at the top is
+         AMBIGUOUS at every step: reported as an orphan (the gate fails), never picked;
       4. a carried VOLUME this build lost -> the one volume of its line's successor with its
          ISBN, else the volume of the same number there, else the one volume of its market with
          its ISBN, else the successor LINE (reason retired: the volume is gone, the id still
@@ -106,9 +107,17 @@ def _table(db, name):
     return bool(db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone())
 
 
-def _majority(votes, n):
-    """The candidates holding a strict majority of n pieces of evidence, best first."""
-    return [k for k, v in votes.most_common() if v * 2 > n]
+def _winner(votes, n):
+    """-> (winner, ambiguous). The candidate holding a strict majority of n pieces of evidence and
+    more of it than any other; ordered by (-votes, id), never by dict or set order (which follows
+    the hash seed). Two candidates tied at the top is AMBIGUOUS: no winner -- the caller reports
+    it, the gate fails, a person decides."""
+    best = sorted(((v, k) for k, v in votes.items() if v * 2 > n), key=lambda x: (-x[0], x[1]))
+    if not best:
+        return None, False
+    if len(best) > 1 and best[1][0] == best[0][0]:
+        return None, True
+    return best[0][1], False
 
 
 # ---- 4c. an absorbed work's duplicate lines ----------------------------------------------------
@@ -139,10 +148,9 @@ def absorbing_works(db, C):
         if entity == "work" and new in present:
             out[old] = new
     for w in sorted({w for w, _, _ in C["lines"].values() if w} - present - set(out)):
-        votes, n = _isbn_work_votes(db, C, w)
-        best = _majority(votes, n)
-        if best:
-            out[w] = best[0]
+        best, _ = _winner(*_isbn_work_votes(db, C, w))
+        if best:                          # a tie is not an absorption; 7b reports it
+            out[w] = best
     return out
 
 
@@ -226,8 +234,9 @@ def merge_line(c, dup, keep):
     return moved, dropped
 
 
-def merge_absorbed(db, carry):
-    """Stage 4c. -> [(absorbed work, work, merged line, kept line, moved, dropped)]."""
+def merge_absorbed(db, carry, ambiguous=None):
+    """Stage 4c. -> [(absorbed work, work, merged line, kept line, moved, dropped)]; a line two
+    published lines match equally is not merged and goes to `ambiguous` (a list) when given."""
     C = read_carry(carry)
     if not C:
         return []
@@ -247,8 +256,14 @@ def merge_absorbed(db, carry):
                     n = same_edition(ev, es)
                     if n:
                         best.append((-n, -es[2], s))
-            if best:
-                keep = sorted(best)[0][2]
+            best.sort()
+            if len(best) > 1 and best[0][0] == best[1][0]:
+                # two published lines hold the same evidence: which one survives is not ours to
+                # guess -- no merge; 7b then finds the tie too and reports the id as an orphan
+                if ambiguous is not None:
+                    ambiguous.append((old_w, w, rid, [b[2] for b in best if b[0] == best[0][0]]))
+            elif best:
+                keep = best[0][2]
                 moved, dropped = merge_line(c, rid, keep)
                 done.append((old_w, w, rid, keep, moved, dropped))
     db.commit()
@@ -261,7 +276,7 @@ def redirects(db, carry, excluded=None):
     """Stage 7b. -> report dict (counts by entity / reason / market, orphans, exempt)."""
     C = read_carry(carry)
     rep = {"rows": collections.Counter(), "by_market": collections.Counter(), "orphans": [],
-           "excluded": 0, "carried_rows": 0, "written": [], "stale": []}
+           "excluded": 0, "carried_rows": 0, "written": [], "stale": [], "ambiguous": []}
     if not C:
         return rep
     if excluded is None:
@@ -324,9 +339,11 @@ def redirects(db, carry, excluded=None):
                 if i:
                     n += 1
                     votes.update({lines_now[vols_now[v][0]][0] for v in by_isbn.get((C["lines"][l][1], i), ())})
-        best = _majority(votes, n)
+        best, amb = _winner(votes, n)
         if best:
-            put(w, best[0], "work", "duplicate_merge" if best[0] in carried_works else "correction", None)
+            put(w, best, "work", "duplicate_merge" if best in carried_works else "correction", None)
+        elif amb:
+            rep["ambiguous"].append(w)
 
     # 3. lines
     def line_votes(l, cands):
@@ -340,15 +357,6 @@ def redirects(db, carry, excluded=None):
 
     size = collections.Counter(l for l, _, _ in vols_now.values())
 
-    def pick(votes, n):
-        best = _majority(votes, n)
-        if not best:
-            return None
-        top = votes[best[0]]
-        tied = [c for c in best if votes[c] == top]
-        # a line new in this build first (a re-keyed line), then the larger, then the id
-        return sorted(tied, key=lambda c: (c in C["lines"], -size[c], c))[0]
-
     # the main line of a (work, market, medium): the largest, then the id (build_dnb's rule)
     main_of = {}
     for r, k in sorted(lines_now.items(), key=lambda kv: (-size[kv[0]], kv[0])):
@@ -359,17 +367,22 @@ def redirects(db, carry, excluded=None):
             continue
         w, market, medium = C["lines"][l]
         wn = w if w in works_now else (final(w) if final(w) in works_now else None)
-        succ, how = None, None
+        succ, how, amb = None, None, False
         if wn:
             cands = {r for r, (rw, m, d) in lines_now.items() if rw == wn and m == market and d == medium}
-            succ = pick(*line_votes(l, cands))
-            if not succ:
+            succ, amb = _winner(*line_votes(l, cands))
+            if not succ and not amb:
                 dated = {(n, d) for _, n, _, d in vols_of[l] if d}
                 sig = collections.Counter({r: len(dated & dated_in[r]) for r in cands})
-                succ = pick(sig, len(dated)) if len(dated) >= 2 else None
-        if not succ:
+                if len(dated) >= 2:
+                    succ, amb = _winner(sig, len(dated))
+        if not succ and not amb:
             cands = {r for r, (_, m, d) in lines_now.items() if m == market and d == medium}
-            succ = pick(*line_votes(l, cands))
+            succ, amb = _winner(*line_votes(l, cands))
+        if amb:
+            rep["ambiguous"].append(l)
+            rep["orphans"].append(l)
+            continue
         if succ:
             how = "duplicate_merge" if succ in C["lines"] else "correction"
         elif wn and (wn, market, medium) in main_of:
@@ -385,11 +398,13 @@ def redirects(db, carry, excluded=None):
             continue
         votes = collections.Counter(lines_now[final(l)][0] for l, (lw, _, _) in C["lines"].items()
                                     if lw == w and final(l) in lines_now)
-        best = _majority(votes, sum(votes.values()))
-        if best:
-            put(w, best[0], "work", "duplicate_merge" if best[0] in carried_works else "correction", None)
+        best, amb = _winner(votes, sum(votes.values()))
+        if best and w not in rep["ambiguous"]:
+            put(w, best, "work", "duplicate_merge" if best in carried_works else "correction", None)
         else:
             rep["orphans"].append(w)
+            if amb and w not in rep["ambiguous"]:
+                rep["ambiguous"].append(w)
 
     # 4. volumes
     for v in sorted(C["vols"]):
@@ -450,8 +465,11 @@ def main(argv):
         print("  WARNING: no carried artifact -- nothing to keep resolving (cold id assignment)")
         return
     if argv[1] == "merge":
-        done = merge_absorbed(db, carry)
+        amb = []
+        done = merge_absorbed(db, carry, amb)
         print("  absorbed-work duplicate lines merged: %d" % len(done))
+        for old_w, w, dup, keeps in amb:
+            print("    AMBIGUOUS %s -> %s: %s matches %s equally -- not merged (7b reports it)" % (old_w, w, dup, keeps))
         for old_w, w, dup, keep, moved, dropped in done:
             print("    %s -> %s: %s into %s (%d volumes moved, %d dropped)" % (old_w, w, dup, keep, moved, dropped))
         db.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('carried:merged',?)", (json.dumps(done),))
@@ -468,12 +486,15 @@ def main(argv):
         print("  by market: %s" % ", ".join("%s %s %d" % (m or "-", e, n) for (m, e), n in sorted(
             rep["by_market"].items(), key=lambda kv: (kv[0][0] or "", kv[0][1]))))
     print("  excluded works' ids retired without a row: %d" % rep["excluded"])
+    if rep["ambiguous"]:
+        print("  AMBIGUOUS (two successors tied on the evidence -- a person decides): %d: %s"
+              % (len(rep["ambiguous"]), rep["ambiguous"][:10]))
     if rep["orphans"]:
         print("  NO SUCCESSOR for %d carried id(s): %s -- export/test_artifact.py will fail"
               % (len(rep["orphans"]), rep["orphans"][:10]))
     db.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('carried:redirects',?)", (json.dumps({
         "rows": {"%s/%s" % k: v for k, v in rep["rows"].items()}, "orphans": rep["orphans"],
-        "excluded": rep["excluded"], "stale": rep["stale"]}),))
+        "excluded": rep["excluded"], "stale": rep["stale"], "ambiguous": rep["ambiguous"]}),))
     db.commit()
 
 

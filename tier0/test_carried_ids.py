@@ -5,7 +5,7 @@ loader the corpus stage uses, so ids hash exactly as in a real build), exported 
 export/to_mangarr.py into a carried artifact, rebuilt with the change under test, redirected,
 exported again against the carry, and checked with export/test_artifact.py's run_ids.
 """
-import os, sqlite3, sys, tempfile
+import os, sqlite3, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -213,15 +213,63 @@ rep = K.redirects(db, carry, excluded=set())
 eq("merged work: the absorbed work redirects to the survivor (duplicate_merge)",
    db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (_id("w_", WB),)).fetchone(),
    (_id("w_", WA), "duplicate_merge"))
-eq("merged work: the JP line goes to the re-keyed copy when one exists (a new line first)",
-   db.execute("SELECT new_id FROM id_redirect WHERE old_id=?", (rl(WB, "JP", "Les Gouttes de Dieu"),)).fetchone(),
-   (rl(WA, "JP", "Drops of God (Les Gouttes de Dieu)"),))
+# review I2: the absorbed JP line's ISBNs sit in two lines now -- the survivor's published JP
+# line and the re-keyed copy. Without 4c that is a tie: reported, never picked by dict order.
+JP_OLD = rl(WB, "JP", "Les Gouttes de Dieu")
+eq("merged work, no 4c: the tied JP line is reported ambiguous and left an orphan (the gate fails)",
+   (JP_OLD in rep["ambiguous"], JP_OLD in rep["orphans"],
+    db.execute("SELECT new_id FROM id_redirect WHERE old_id=?", (JP_OLD,)).fetchone()), (True, True, None))
+db.close()
+art_amb = artifact(after, carry)
+eq("merged work, no 4c: the gate fails on it", "carried ids (every market: works, lines, volumes) neither present "
+   "nor redirected" in ids_ok(art_amb, carry), True)
+# with 4c first -- the pipeline's order -- the copy merges into the published line and 7b resolves
+after = catalogue("merge3", [
+    (WA, "Drops of God", [("JP", "manga", "Drops of God", jp), ("EN", "manga", "Drops of God", vols(4, 4))]),
+    (WA, "Drops of God", [("JP", "manga", "Drops of God (Les Gouttes de Dieu)", jp),
+                          ("FR", "manga", "Drops of God (Les Gouttes de Dieu)", vols(5, 4))])])
+db = sqlite3.connect(after)
+K.merge_absorbed(db, carry)
+rep = K.redirects(db, carry, excluded=set())
+eq("merged work, 4c then 7b: the JP line goes to the survivor's published line, nothing ambiguous",
+   (db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (JP_OLD,)).fetchone(), rep["ambiguous"]),
+   ((rl(WA, "JP", "Drops of God"), "duplicate_merge"), []))
+db.close()
 art = artifact(after, carry)
 eq("merged work: the work redirect reaches the artifact (works count as present)",
    sqlite3.connect(art).execute("SELECT new_tome_id, entity FROM id_redirect WHERE old_tome_id=?",
                                 (_id("w_", WB),)).fetchone(), (_id("w_", WA), "work"))
 eq("merged work: the gate passes", ids_ok(art, carry), [])
 db.close()
+
+# ---- review I2 (repro3): a tie between two works / lines is reported, whatever the hash seed ------
+TIE = """
+import os, sys, sqlite3
+sys.path[:0] = [%r, %r, %r, %r]
+import carried_ids as K
+db = sqlite3.connect(%r)
+print(sorted(K.absorbing_works(db, K.read_carry(%r)).items()))
+rep = K.redirects(db, %r, excluded=set())
+print(rep["ambiguous"], rep["orphans"], sorted(rep["written"]))
+"""
+t1 = artifact(catalogue("tie1", [("en:Old", "Old", [("JP", "manga", "Old", vols(15, 3))]),
+                                 ("en:B", "B", [("JP", "manga", "B", vols(16, 2))]),
+                                 ("en:C", "C", [("JP", "manga", "C", vols(17, 2))])]))
+t2 = catalogue("tie2", [("en:B", "B", [("JP", "manga", "B", vols(16, 2)), ("JP", "manga", "B2", vols(15, 3))]),
+                        ("en:C", "C", [("JP", "manga", "C", vols(17, 2)), ("JP", "manga", "C2", vols(15, 3))])])
+outs = []
+for seed in ("1", "2", "3"):
+    work = os.path.join(TMP, "tie2-%s.db" % seed)
+    __import__("shutil").copy(t2, work)
+    code = TIE % (HERE, os.path.join(ROOT, "schema"), os.path.join(ROOT, "tier2"), os.path.join(ROOT, "export"),
+                  work, t1, t1)
+    outs.append(subprocess.run([sys.executable, "-c", code], env=dict(os.environ, PYTHONHASHSEED=seed),
+                               capture_output=True, text=True).stdout)
+eq("tie: identical output under PYTHONHASHSEED 1, 2 and 3", len(set(outs)) == 1 and bool(outs[0]), True)
+eq("tie: no absorbing work, the old work and its line reported ambiguous, nothing written",
+   outs[0].splitlines()[:1] + [str(("w_" in outs[0].splitlines()[1], rl("en:Old", "JP", "Old") in outs[0].splitlines()[1]))],
+   ["[]", "(True, True)"])
+eq("tie: no redirect row was guessed", outs[0].splitlines()[1].endswith("[]"), True)
 
 # ---- shared ISBNs: the successor is looked for in the line's own work first ----------------------
 WK, WO = "en:Kindaichi", "fr:Liste des chapitres des Enquêtes (2e partie)"

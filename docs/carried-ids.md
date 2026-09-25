@@ -79,8 +79,7 @@ burst. After the enrichment the batches see the same ISBN set.
    volumes' ISBNs; else the work its lines' successors belong to. Reason `duplicate_merge` when
    that work was published, else `correction`.
 3. A carried **line** this build lost → in its (successor) work, same market + medium: the line
-   holding a strict majority of its ISBNs (ties: a line new in this build, then the larger, then
-   the id); else a strict majority of its dated volumes; then the same ISBN test market-wide (a
+   holding a strict majority of its ISBNs; else a strict majority of its dated volumes; then the same ISBN test market-wide (a
    line that moved to another work); else the work's main line of that market + medium, reason
    `retired`. Reason `duplicate_merge` when the successor was published, else `correction`.
 4. A carried **volume** this build lost → the one volume of its line's successor holding its ISBN
@@ -90,7 +89,12 @@ burst. After the enrichment the batches see the same ISBN set.
    **retired** (fell back to the work's main line) numbers are never used -- the main line's vol 1
    is a different book than an arc's vol 1 -- only a unique ISBN in the market, else `retired`
    to the line. A volume redirected to a line is never labelled `correction`.
-5. Lines and volumes of a work in `corrections/excluded.json` are retired on purpose and get no
+5. **Ties are never broken.** Every "strict majority" above is ordered by (votes, id), never by
+   dict or set order (which follows the hash seed); two candidates tied at the top are
+   **ambiguous**: no row, the id is reported (`AMBIGUOUS ...`, `meta` `carried:redirects`) and
+   is an orphan, so the gate fails and a person decides. 4c likewise does not merge a line that
+   two published lines match equally.
+6. Lines and volumes of a work in `corrections/excluded.json` are retired on purpose and get no
    row — an excluded work has no successor. Anything else without a present target is an
    orphan: printed, written to `meta` `carried:redirects`, and the gate fails.
 
