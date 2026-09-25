@@ -7,6 +7,11 @@
 #   1. work identity   langlinks -> cross-language work classes  (MUST precede build)
 #   2. corpus en+fr    Wikipedia volume-list templates
 #   3. corpus de       wikitables, discovered via langlinks
+#   3a. merged works   a published work this build folded into another (a title fix can
+#                      union two articles) must not leave the survivor two lines for one
+#                      edition: its re-keyed lines that repeat one of the survivor's published
+#                      lines (same market + medium, most ISBNs shared) merge into that line
+#                      (tier0/carried_ids.py merge; the ids are redirected at 7b)
 #   3b. official titles main-article + redirect names (the titles folders use)
 #   3c. main articles  status / first / last / publishers / people / genres from the main
 #   3d. relations      sequel / spin-off / adaptation from titles and shared main articles
@@ -86,6 +91,7 @@ echo "== 0. unit tests ==";        python3 tier0/test_parser.py >/dev/null && ec
 echo "== 1. work identity ==";     python3 tier0/work_identity.py
 echo "== 2. corpus en+fr ==";      python3 tier0/build_corpus.py "$DB"
 echo "== 3. corpus de ==";         python3 tier0/build_corpus_de.py "$DB"
+echo "== 3a. merged works ==";     python3 tier0/carried_ids.py merge "$DB" "$ID_CARRY"
 echo "== 3b. official titles ==";  python3 tier0/main_titles.py "$DB"
 echo "== 3c. main articles ==";     python3 tier0/main_articles.py "$DB"
 echo "== 3d. relations ==";         python3 tier0/relations.py "$DB"

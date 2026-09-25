@@ -215,6 +215,122 @@ eq("a work gone for no known reason: its work, line and volumes are orphans",
                                    _id("v_", rl(WG, "EN", "Gone"), "1"), _id("v_", rl(WG, "EN", "Gone"), "2")]))
 db.close()
 
+# ---- 3a: an absorbed work's duplicate lines merge into the survivor's published line --------------
+def gouttes(name, merged):
+    """WA 'Drops of God' (JP + EN, plus a pre-existing same-edition JP pair sharing 3 of 4 ISBNs with
+    the main line, 2 of 4 with the French article's); WB the French
+    article (JP + FR, FR volume 1 an omnibus pointing at its JP line, a JP arc under it). JP vol 3
+    carries a different ISBN on each side (the English article's error); WB's JP line has a vol 5
+    WA's lacks. merged: the French article loads into WA, as a fixed work_title makes it."""
+    path = os.path.join(TMP, name + ".db")
+    db = sqlite3.connect(path)
+    db.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+    jp = [(str(i), "9784063724%03d" % i, "2005-0%d-2%d" % (i, i)) for i in range(1, 5)]
+    wa = [{"volume": n, "line": "Drops of God", "medium": "manga",
+           "markets": {"original": {"market": "JP", "isbn13": i if n != "3" else "9784063724002",
+                                    "date": d, "date_precision": "day"}}} for n, i, d in jp]
+    wa += [{"volume": n, "line": "Drops of God (Tankōbon)", "medium": "manga",
+            "markets": {"original": {"market": "JP", "isbn13": {"3": "9784063724002", "4": "9784063724104"}.get(n, i),
+                                     "date": d, "date_precision": "day"}}} for n, i, d in jp]
+    wa += [{"volume": str(n), "line": "Drops of God", "medium": "manga",
+            "markets": {"original": {"market": "EN", "isbn13": "978197%07d" % n, "date": "2019-01-0%d" % n,
+                                     "date_precision": "day"}}} for n in (1, 2)]
+    load(db, "Drops of God", wa, work_key=WA)
+    line = "Drops of God (Les Gouttes de Dieu)" if merged else "Les Gouttes de Dieu"
+    wb = [{"volume": n, "line": line, "medium": "manga",
+           "markets": {"original": {"market": "JP", "isbn13": i, "date": d, "date_precision": "day"}}}
+          for n, i, d in jp + [("5", "9784063724005", "2005-09-25")]]
+    wb[0]["markets"]["licensed"] = {"market": "FR", "number": "1", "isbn13": "9782352940001",
+                                    "date": "2008-01-01", "date_precision": "day", "contains": [1, 2]}
+    wb += [{"volume": "1", "line": line + " (Arc)", "arc_of": line, "medium": "manga",
+            "markets": {"original": {"market": "JP", "isbn13": "9784063729999", "date": "2012-01-01",
+                                     "date_precision": "day"}}}]
+    load(db, "Drops of God" if merged else "s Gouttes de Dieu", wb, work_key=WA if merged else WB)
+    db.commit()
+    db.close()
+    return path
+
+
+def dangling(db):
+    rl = "(SELECT id FROM release_line)"
+    v = "(SELECT id FROM volume)"
+    return db.execute(f"""SELECT
+        (SELECT COUNT(*) FROM volume WHERE release_line_id NOT IN {rl}) +
+        (SELECT COUNT(*) FROM composition WHERE volume_id NOT IN {v}) +
+        (SELECT COUNT(*) FROM composition WHERE ref_line_id IS NOT NULL AND ref_line_id NOT IN {rl}) +
+        (SELECT COUNT(*) FROM release_line WHERE parent_id IS NOT NULL AND parent_id NOT IN {rl}) +
+        (SELECT COUNT(*) FROM claim WHERE entity='release_line' AND entity_id NOT IN {rl}) +
+        (SELECT COUNT(*) FROM claim WHERE entity='volume' AND entity_id NOT IN {v})""").fetchone()[0]
+
+
+S_JP, S_TK = rl(WA, "JP", "Drops of God"), rl(WA, "JP", "Drops of God (Tankōbon)")
+N_JP, OLD_JP = rl(WA, "JP", "Drops of God (Les Gouttes de Dieu)"), rl(WB, "JP", "Les Gouttes de Dieu")
+carry = artifact(gouttes("g1", merged=False))
+path = gouttes("g2", merged=True)
+db = sqlite3.connect(path)
+keep_rows = db.execute("SELECT * FROM volume WHERE release_line_id=? ORDER BY id", (S_JP,)).fetchall()
+keep_claims = db.execute("""SELECT * FROM claim WHERE entity_id IN (SELECT id FROM volume WHERE release_line_id=?)
+                            ORDER BY entity_id, field""", (S_JP,)).fetchall()
+done = K.merge_absorbed(db, carry)
+eq("merge: the re-keyed JP line folds into the survivor's published JP line (4 dropped, vol 5 moved)",
+   done, [(_id("w_", WB), _id("w_", WA), N_JP, S_JP, 1, 4)])
+eq("merge: the published line's own volumes are untouched",
+   db.execute("SELECT * FROM volume WHERE release_line_id=? AND number<>'5' ORDER BY id", (S_JP,)).fetchall(), keep_rows)
+eq("merge: ... and so are their claims",
+   db.execute("""SELECT * FROM claim WHERE entity_id IN (SELECT id FROM volume WHERE release_line_id=? AND number<>'5')
+                 ORDER BY entity_id, field""", (S_JP,)).fetchall(), keep_claims)
+eq("merge: the volume it lacked moves over, re-keyed by number, with its claims",
+   db.execute("SELECT COUNT(*) FROM claim WHERE entity_id=?", (_id("v_", S_JP, "5"),)).fetchone()[0], 2)
+eq("merge: the omnibus composition and the arc's parent now point at the survivor",
+   (db.execute("SELECT DISTINCT ref_line_id FROM composition WHERE ref_line_id IS NOT NULL").fetchall(),
+    db.execute("SELECT parent_id FROM release_line WHERE parent_id IS NOT NULL").fetchall()), ([(S_JP,)], [(S_JP,)]))
+eq("merge: no reference to the merged line or its volumes is left", dangling(db), 0)
+eq("merge: the pre-existing same-edition pair (both published) is left alone",
+   db.execute("SELECT COUNT(*) FROM release_line WHERE id=?", (S_TK,)).fetchone()[0], 1)
+rep = K.redirects(db, carry, excluded=set())
+eq("merge: the old JP line redirects to the survivor (duplicate_merge)",
+   db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (OLD_JP,)).fetchone(), (S_JP, "duplicate_merge"))
+eq("merge: its vol 3 follows by NUMBER (its ISBN is on the survivor's vol 3 only on one side)",
+   db.execute("SELECT new_id FROM id_redirect WHERE old_id=?", (_id("v_", OLD_JP, "3"),)).fetchone(),
+   (_id("v_", S_JP, "3"),))
+eq("merge: its vol 5 follows to the moved volume",
+   db.execute("SELECT new_id FROM id_redirect WHERE old_id=?", (_id("v_", OLD_JP, "5"),)).fetchone(),
+   (_id("v_", S_JP, "5"),))
+eq("merge: no orphan", rep["orphans"], [])
+db.close()
+art = artifact(path, carry)
+A, C = sqlite3.connect(art), sqlite3.connect(carry)
+s_int = C.execute("SELECT gcd_series_id FROM series WHERE tome_id=?", (S_JP,)).fetchone()[0]
+o_int = C.execute("SELECT gcd_series_id FROM series WHERE tome_id=?", (OLD_JP,)).fetchone()[0]
+eq("merge: the survivor keeps its integer; the merged line's integer resolves to it",
+   (A.execute("SELECT gcd_series_id FROM series WHERE tome_id=?", (S_JP,)).fetchone()[0],
+    A.execute("SELECT old_series_id, new_series_id FROM id_redirect WHERE old_tome_id=?", (OLD_JP,)).fetchone()),
+   (s_int, (o_int, s_int)))
+eq("merge: the gate passes", ids_ok(art, carry), [])
+
+# the next build: the French article comes back as a duplicate every time; the carried work
+# redirect is what says the merge was made, so it merges again and no new id ships
+path3 = gouttes("g3", merged=True)
+db = sqlite3.connect(path3)
+eq("next build: merged again through the carried work redirect",
+   [(d[2], d[3]) for d in K.merge_absorbed(db, art)], [(N_JP, S_JP)])
+K.redirects(db, art, excluded=set())
+db.close()
+art3 = artifact(path3, art)
+eq("next build: the same line ids as the build before",
+   sorted(r[0] for r in sqlite3.connect(art3).execute("SELECT tome_id FROM series")),
+   sorted(r[0] for r in A.execute("SELECT tome_id FROM series")))
+eq("next build: the gate passes", ids_ok(art3, art), [])
+
+# scope: a new line that repeats a published line of a work that absorbed nothing stays a line
+path4 = gouttes("g4", merged=False)
+db = sqlite3.connect(path4)
+load(db, "Drops of God", [{"volume": "1", "line": "Drops of God (Reprint)", "medium": "manga",
+                           "markets": {"original": {"market": "JP", "isbn13": "9784063724001",
+                                                    "date": "2005-01-21", "date_precision": "day"}}}], work_key=WA)
+eq("scope: no absorbed work, no merge", K.merge_absorbed(db, carry), [])
+db.close()
+
 # ---- no carry: nothing to do ---------------------------------------------------------------------
 db = sqlite3.connect(after)
 eq("no carried artifact: an empty report", K.redirects(db, None, excluded=set())["orphans"], [])
