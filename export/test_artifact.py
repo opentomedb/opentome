@@ -331,6 +331,12 @@ def run(path):
          g("""SELECT COUNT(*) FROM (SELECT tome_work_id, language, medium FROM series
               WHERE is_main=1 GROUP BY 1,2,3 HAVING COUNT(*)>1)"""))
 
+    # Preferred Edition (2026-09-24): meta.markets must agree with a straight count of series.language
+    mk = json.loads(g("SELECT COALESCE((SELECT value FROM meta WHERE key='markets'),'{}')"))
+    rule("meta.markets disagrees with series.language counts",
+         sum(1 for l, n in db.execute("SELECT language, COUNT(*) FROM series WHERE language IS NOT NULL GROUP BY 1")
+             if mk.get(l) != n))
+
     # informational
     print("  info  series %s / volumes %s / aliases %s / omnibus lines %s / specials %s" % (
         format(g("SELECT COUNT(*) FROM series"), ","),

@@ -90,3 +90,32 @@ BnF's Etalab licence and openBD's terms both require retained attribution. The `
 carries a source list and a licence note. **Cover art is deliberately not included** — see
 `docs/legal-position.md`; the artifact stores facts, and covers are fetched at display time
 per user.
+
+## Edition columns (2026-09-24, Preferred Edition v0)
+
+Additive; a consumer reading named columns sees nothing change.
+
+| Column / key | Meaning |
+|---|---|
+| `series.country` | the release line's market code verbatim (measured: `CN DE EN ES FR IT JP KR TW`) — never NULL |
+| `series.local_name` | the line's title in its own language: a DE line (main or not) takes the DNB series title when it has one, else — main line only — the line's official title in its own language (FR/JP/…, cleaned of list-article prefixes: "Liste des … des X" / "Chronologie des … des X" → "Les X", "… du X" → "Le X"; disambiguators stripped); NULL for EN lines, for a non-main line with no DNB name, and — today, for lack of source data rather than by rule — for KR/CN/TW/IT/ES |
+| `series_alias.language`, `series_alias.kind` | the alias's language (NULL for a line's own name and corrections) and kind (`line`, `official`, `alias`, `abbreviation`, `romanized`, `correction`); first insertion wins, the alias ORDER is unchanged |
+| meta `markets` | JSON `{language: line count}` keyed by `series.language` codes (`ja`, `zh-TW`, …, not `country`), sorted keys |
+| `id_redirect` | (pre-existing, `dnb-ingest`) a retired release-line id → the line in this artifact that replaced it (`entity='release_line'`); the edition picker resolves a retired id through it instead of a dedicated table: `SELECT new_tome_id FROM id_redirect WHERE old_tome_id=@t AND entity='release_line'`. A carried id with no successor (an excluded work; 55 today, see HANDOFF.md) has no row at all — a consumer must treat "no row" as gone, not as an error |
+
+One work can have the same spelling in more than one of its titles (e.g. an English and a
+French claim that read identically); the alias row they collapse to (first-insert-wins:
+line name, then work titles in stored order, then corrections) keeps whichever language
+was inserted first, alphabetically among ties — so a consumer must treat
+`series_alias.language` as a hint, never an exclusion filter.
+
+Measured on branch `preferred-edition-v0` (build/opentome.db; **not published**): FR
+official titles on 1,254 of 1,255 FR main lines; all 1,459 DE lines carry a local name
+(1,424 direct from a DNB `line_name` claim — main and non-main alike — plus 35 more on main
+lines via the de official-title fallback), of which 1,080 differ from the work's primary
+title; JP official titles are native script (3,749 of 5,188 main JP lines). `local_name` is
+NULL today for every KR/CN/TW/IT/ES line (measured ko 0/66, zh 0/4, zh-TW 0/3, it 0/1, es
+0/1) — no official-title claims exist yet for those languages, not a rule exclusion. No
+`series_alias.kind='romanized'` rows exist yet — romaji arrives as `en`/`alias`. meta
+`markets`: `{"de": 1459, "en": 3030, "es": 1, "fr": 1493, "it": 1, "ja": 6978, "ko": 66,
+"zh": 4, "zh-TW": 3}`.

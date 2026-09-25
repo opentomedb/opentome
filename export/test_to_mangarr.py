@@ -2,7 +2,7 @@
 """Unit tests for export/to_mangarr.py's pure functions -- no database, no network.
 Run: python3 export/test_to_mangarr.py
 """
-import os, sqlite3, sys, tempfile
+import json, os, sqlite3, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
@@ -90,7 +90,7 @@ def run():
     # ---- a redirected line keeps its consumer-facing integer (2026-09-24, DNB) --------
     # A DNB line whose source key changed (a parent record appeared) gets a new rl_ id and
     # an id_redirect row; the integer a Mangarr stored for the old id must follow it.
-    sid, rtype, red, idmap = fixture_redirect_carry()
+    sid, rtype, red, idmap, markets = fixture_redirect_carry()
     eq("a redirected line carries the old line's integer id", sid, 424242)
     eq("release_date_type ships with a dated volume", rtype, "projected")
     eq("the artifact's id_redirect resolves the retired id (chained) to the line that exists",
@@ -100,6 +100,7 @@ def run():
     eq("a retired integer stays reserved in id_map", idmap.get("rl_twin"), (555555, "retired"))
     eq("a degraded DNB refresh reaches the artifact as meta.dnb_degraded (publish.sh refuses it)",
        FIX_META.get("dnb_degraded"), '{"reason": "HTTP 502"}')
+    eq("meta markets counts lines per language", markets, {"de": 1})
 
     # ---- local_title / local_name_for (2026-09-24, Preferred Edition v0) -------------
     # Measured on build/opentome.db: FR official work titles are raw Wikipedia article
@@ -205,7 +206,8 @@ def fixture_redirect_carry():
         "SELECT old_tome_id, new_tome_id, entity, old_series_id FROM id_redirect")}
     idmap = {o: (i, k) for o, i, k in out.execute("SELECT opentome_id, int_id, kind FROM id_map")}
     FIX_META["dnb_degraded"] = (out.execute("SELECT value FROM meta WHERE key='dnb_degraded'").fetchone() or [None])[0]
-    return sid, rtype, red, idmap
+    markets = json.loads(out.execute("SELECT value FROM meta WHERE key='markets'").fetchone()[0])
+    return sid, rtype, red, idmap, markets
 
 
 def fixture_local_names():

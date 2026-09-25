@@ -823,6 +823,10 @@ def export(src_path, out_path, carry_ids_from=None):
                 "fix or remove the entry (see corrections/README.md)" % (alias, line_id))
         n_removed += gone
 
+    # Preferred Edition (2026-09-24): lines per language, for Mangarr's edition picker.
+    markets = dict(out.execute("""SELECT language, COUNT(*) FROM series
+                                  WHERE language IS NOT NULL GROUP BY language ORDER BY language"""))
+
     src_counts = dict(src.execute("SELECT source, COUNT(*) FROM claim GROUP BY source"))
     dnb_degraded = (src.execute("SELECT value FROM meta WHERE key='dnb:degraded'").fetchone() or [None])[0]
     try:
@@ -860,6 +864,8 @@ def export(src_path, out_path, carry_ids_from=None):
         # by omission. Fail-closed, not fail-open.
         ("alias_provenance", "opentome"),
         ("claim_sources", json.dumps(src_counts)),
+        # Preferred Edition (2026-09-24): lines per language, for Mangarr's edition picker
+        ("markets", json.dumps(markets, sort_keys=True)),
         # DNB line tally (tier0/build_dnb.py): the measure gate's link-rate floor reads it
         ("dnb_lines", json.dumps(dnb_lines)),
         ("composition_semantics", "volumes.composition = original-market volume numbers this "
