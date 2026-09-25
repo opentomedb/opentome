@@ -305,7 +305,11 @@ def shape_line(key, gs, parents):
     for g in gs:
         num = g["num"]
         if num is None:
-            if len(gs) == 1:
+            # only a real one-shot is volume 1: no set, no series, no digit in its title (a
+            # digit there is a number the parser could not place, or a bundle)
+            r = g["members"][0]["r"]
+            if len(gs) == 1 and not g["parent"] and not g["series"] and \
+                    not re.search(r"\d", M.clean(M.first(r, "245", "a"))):
                 num = "1"
             else:
                 lost.append((g, "dropped_unnumbered"))

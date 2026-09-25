@@ -166,30 +166,51 @@ def series_statements(r):
     return out
 
 
+# an explicit volume word inside 245$a: "Kaiju No. 8 – Band 16 (Finale)", "... – Band 8 – Limited Edition"
+_BAND = re.compile(r"^(.*?\S)\s*[,.:;–—-]?\s*\b(?:band|bd\.|vol\.|volume)\s*(\d{1,3})\b", re.I)
+
+
+def title_number(r):
+    """-> (number, the title before it) from 245$a alone: an explicit 'Band N' anywhere, else a
+    trailing number ('Car Crush 02'); (None, None) when there is neither."""
+    a = clean(first(r, "245", "a"))
+    m = _BAND.match(a)
+    if m:
+        return str(int(m.group(2))), m.group(1).rstrip(" ,.:;–—-")
+    m = _TRAILING.match(a)
+    if m and not re.search(r"\d$", m.group(1)):
+        return str(int(m.group(2))), m.group(1).rstrip(" ,.:;–—-")
+    return None, None
+
+
 def volume_number(r):
-    """-> (number, kind, source): 245$n, else 490/830 $v, else a trailing number in 245$a."""
+    """-> (number, kind, source): 245$n, else the number in 245$a, else 490/830 $v.
+
+    245$a before the series statement: where both state a number and disagree, the title is
+    right -- Record of Ragnarok 11 and 12 carry $v 23 / 24 (a continuous count across two
+    series), and shipped as 23 / 24."""
     for n in reversed(subs(r, "245", "n")):
         num, kind = canon_number(n)
         if kind != "none":
             return num, kind, "245n"
+    tnum, _ = title_number(r)
+    if tnum:
+        return tnum, "int", "title"
     for _, v in series_statements(r):
         num, kind = canon_number(v)
         if kind != "none":
             return num, kind, "series_v"
-    a = clean(first(r, "245", "a"))
-    m = _TRAILING.match(a)
-    if m and not re.search(r"\d$", m.group(1)):
-        return str(int(m.group(2))), "int", "trailing"
     return None, "none", None
 
 
 def bare_title(r):
-    """245$a without a trailing volume number ('Car Crush 02' -> 'Car Crush')."""
+    """245$a without its volume number ('Car Crush 02' -> 'Car Crush', 'Kaiju No. 8 – Band 16
+    (Finale)' -> 'Kaiju No. 8')."""
     a = clean(first(r, "245", "a"))
-    m = _TRAILING.match(a)
-    if m and not subs(r, "245", "n") and not re.search(r"\d$", m.group(1)):
-        return m.group(1).rstrip(" ,.:;–—-")
-    return a
+    if subs(r, "245", "n"):
+        return a
+    _, before = title_number(r)
+    return before or a
 
 
 # ---- extent, dates ------------------------------------------------------------------
