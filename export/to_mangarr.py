@@ -249,6 +249,9 @@ CREATE TABLE IF NOT EXISTS volumes (
     release_date_precision TEXT, release_date_raw TEXT, volume_chapters TEXT,
     tome_id TEXT,
     cover_url TEXT, cover_source TEXT,      -- looked up by THIS edition's ISBN; never hosted
+    -- 2026-09-24 (DNB): which milestone release_date_raw is -- published | on_sale | projected
+    -- (a planned month from an announcement, never a publication) | unknown; NULL when undated
+    release_date_type TEXT,
     UNIQUE (gcd_series_id, volume_number));
 CREATE TABLE IF NOT EXISTS series_alias (
     gcd_series_id INTEGER NOT NULL REFERENCES series(gcd_series_id),
@@ -263,6 +266,13 @@ CREATE TABLE IF NOT EXISTS volumes_special (
 -- OpenTome text id <-> Mangarr integer id. Carried across rebuilds so ids never churn.
 CREATE TABLE IF NOT EXISTS id_map (
     opentome_id TEXT PRIMARY KEY, int_id INTEGER UNIQUE NOT NULL, kind TEXT NOT NULL);
+-- Retired ids (2026-09-24, additive): a line or volume id a consumer may hold that this build
+-- no longer has resolves here to the id that replaced it -- never a 404 (docs/id-scheme.md).
+-- A retired VOLUME with no successor volume resolves to its line (reason 'retired').
+CREATE TABLE IF NOT EXISTS id_redirect (
+    old_tome_id TEXT PRIMARY KEY, new_tome_id TEXT NOT NULL, entity TEXT NOT NULL, reason TEXT,
+    old_series_id INTEGER,          -- the retired line's integer, when it had one
+    new_series_id INTEGER);         -- the successor line's integer
 CREATE INDEX IF NOT EXISTS idx_series_name    ON series (name);
 CREATE INDEX IF NOT EXISTS idx_volumes_series ON volumes (gcd_series_id);
 CREATE INDEX IF NOT EXISTS idx_alias_alias    ON series_alias (alias);
@@ -342,7 +352,26 @@ def export(src_path, out_path, carry_ids_from=None):
         except sqlite3.OperationalError:
             pass
 
-    # resolved page counts (BnF / Open Library) -- tier0 never fills volume.page_count
+    # Retired ids (id_redirect) resolve forever, and so do their integers. Chains collapse to
+    # the id that exists now. The integer rule: a successor with no integer of its own takes
+    # the retired line's; a successor that already has one keeps it, and the retired integer
+    # resolves through the artifact's id_redirect table (old_series_id -> new_series_id) and
+    # stays reserved in id_map, so it is never issued to another line.
+    redirect = dict(src.execute("SELECT old_id, new_id FROM id_redirect"))
+    redirect_meta = {o: (e, r) for o, e, r in src.execute("SELECT old_id, entity, reason FROM id_redirect")}
+
+    def final(i, seen=()):
+        while i in redirect and i not in seen:
+            seen += (i,)
+            i = redirect[i]
+        return i
+    for old_id in sorted(redirect):
+        if redirect_meta[old_id][0] == "release_line":
+            new_id = final(old_id)
+            if new_id not in mapping and old_id in mapping:
+                mapping[new_id] = mapping[old_id]
+
+    # resolved page counts (BnF / Open Library / DNB) -- tier0 never fills volume.page_count
     pages = {}
     for vid, val in src.execute("""SELECT entity_id, value FROM resolution
                                    WHERE entity='volume' AND field='page_count'"""):
@@ -495,7 +524,7 @@ def export(src_path, out_path, carry_ids_from=None):
         native_script_ok = (om == market) if om is not None else (market in ORIGIN)
 
         vols = src.execute("""SELECT id, number, title, release_date, release_date_precision,
-                                     isbn13, isbn10, format
+                                     isbn13, isbn10, format, release_date_type
                               FROM volume WHERE release_line_id=? ORDER BY rowid""", (rid,)).fetchall()
         comp_vol, comp_ch = {}, {}
         for vid, contains, ref_list in src.execute(
@@ -503,7 +532,7 @@ def export(src_path, out_path, carry_ids_from=None):
                    WHERE c.volume_id IN (SELECT id FROM volume WHERE release_line_id=?)""", (rid,)):
             (comp_vol if contains == "volume" else comp_ch)[vid] = ref_list
         ints_written, dated, years, is_omni = set(), 0, [], 0
-        for vid, num, title, rdate, prec, i13, i10, fmt in vols:
+        for vid, num, title, rdate, prec, i13, i10, fmt, rtype in vols:
             c = comp_vol.get(vid)
             cv = covers.get(vid) or {}
             cover_src = ("correction" if "correction" in cv else          # a picked cover wins
@@ -530,10 +559,10 @@ def export(src_path, out_path, carry_ids_from=None):
             cur = out.execute("""INSERT OR IGNORE INTO volumes
                 (gcd_series_id,volume_number,title,release_date,isbn13,isbn10,page_count,
                  composition,release_date_precision,release_date_raw,volume_chapters,tome_id,
-                 cover_url,cover_source)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 cover_url,cover_source,release_date_type)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (sid, iv, title_out, day, i13, i10, pages.get(vid), c, prec, rdate,
-                 comp_ch.get(vid), vid, cover_url, cover_src))
+                 comp_ch.get(vid), vid, cover_url, cover_src, (rtype or "unknown") if rdate else None))
             if cur.rowcount:
                 ints_written.add(iv)
                 n_vol += 1
@@ -646,6 +675,28 @@ def export(src_path, out_path, carry_ids_from=None):
                         out.execute("INSERT OR IGNORE INTO series_alias VALUES(?,?)", (sid, a))
                         n_alias += 1
 
+    # id_redirect, chains collapsed to ids present in this artifact; retired integers reserved
+    present = {r[0] for r in out.execute("SELECT tome_id FROM series")} | \
+              {r[0] for r in out.execute("SELECT tome_id FROM volumes")}
+    series_of_vol = dict(out.execute("SELECT v.tome_id, s.tome_id FROM volumes v JOIN series s USING(gcd_series_id)"))
+    int_of = dict(out.execute("SELECT tome_id, gcd_series_id FROM series"))
+    n_redirect = 0
+    for old_id in sorted(redirect):
+        new_id = final(old_id)
+        if old_id in present or new_id not in present:
+            continue
+        entity, reason = redirect_meta[old_id]
+        old_int = mapping.get(old_id) if entity == "release_line" else None
+        new_int = int_of.get(new_id) or int_of.get(series_of_vol.get(new_id))
+        out.execute("INSERT OR REPLACE INTO id_redirect VALUES(?,?,?,?,?,?)",
+                    (old_id, new_id, entity, reason, old_int if old_int != new_int else None, new_int))
+        n_redirect += 1
+    used = {r[0] for r in out.execute("SELECT int_id FROM id_map")}
+    for old_id, i in mapping.items():
+        if i not in used and old_id not in int_of:
+            out.execute("INSERT OR IGNORE INTO id_map VALUES(?,?, 'retired')", (old_id, i))
+            used.add(i)
+
     # Hand-checked alias corrections (corrections/aliases.json). Applied last so
     # a correction always reaches the artifact, and asserted by test_artifact.py
     # so one that stops landing fails the build instead of vanishing quietly.
@@ -691,16 +742,24 @@ def export(src_path, out_path, carry_ids_from=None):
         n_removed += gone
 
     src_counts = dict(src.execute("SELECT source, COUNT(*) FROM claim GROUP BY source"))
+    dnb_degraded = (src.execute("SELECT value FROM meta WHERE key='dnb:degraded'").fetchone() or [None])[0]
+    try:
+        dnb_lines = {"roles": dict(src.execute("SELECT role, COUNT(*) FROM dnb_line GROUP BY 1")),
+                     "exported_tiers": dict(src.execute("""SELECT tier, COUNT(*) FROM dnb_line
+                                                           WHERE role='linked' GROUP BY 1"""))}
+    except sqlite3.OperationalError:
+        dnb_lines = {}
     for k, v in [
         ("schema_version", "2"),
         ("generator", "opentome"),
         ("generated_at", NOW),
-        ("source", "OpenTome — reconciled from Wikipedia, openBD, Open Library, BnF"),
-        # BnF's Etalab licence and openBD's terms both REQUIRE retained attribution.
-        # Names only the sources the pipeline actually reads (DNB is not wired in yet);
-        # LICENSE-DATA.md carries this string byte-for-byte -- change both together.
+        ("source", "OpenTome — reconciled from Wikipedia, openBD, Open Library, BnF, DNB"),
+        # BnF's Etalab licence and openBD's terms both REQUIRE retained attribution; DNB's
+        # CC0 does not, but naming it is accurate. Names only the sources the pipeline
+        # actually reads; LICENSE-DATA.md carries this string byte-for-byte -- change both
+        # together.
         ("attribution", "Bibliographic data: Bibliotheque nationale de France (Licence Ouverte/Open Licence); "
-                        "openBD; Open Library / Internet Archive; "
+                        "Deutsche Nationalbibliothek (CC0); openBD; Open Library / Internet Archive; "
                         "Wikipedia contributors (facts only). Cover art is not included."),
         ("licence", "Free/non-commercial use. openBD and Open Library terms are non-commercial; "
                     "see docs/legal-position.md before any paid use."),
@@ -719,11 +778,15 @@ def export(src_path, out_path, carry_ids_from=None):
         # by omission. Fail-closed, not fail-open.
         ("alias_provenance", "opentome"),
         ("claim_sources", json.dumps(src_counts)),
+        # DNB line tally (tier0/build_dnb.py): the measure gate's link-rate floor reads it
+        ("dnb_lines", json.dumps(dnb_lines)),
         ("composition_semantics", "volumes.composition = original-market volume numbers this "
                                   "volume contains (omnibus). Chapters are in volume_chapters."),
         ("release_date_semantics", "release_date is day-precision only; coarser values are in "
-                                   "release_date_raw with release_date_precision."),
-    ]:
+                                   "release_date_raw with release_date_precision; release_date_type "
+                                   "says which milestone (projected = a planned month, not a publication)."),
+    ] + ([("dnb_degraded", dnb_degraded)] if dnb_degraded else []):
+        # dnb_degraded: DNB failed during this build's refresh -- export/publish.sh refuses it
         out.execute("INSERT OR REPLACE INTO meta VALUES(?,?)", (k, v))
 
     # Read before publishing: what title_for_export kept vs rejected, and why (fix

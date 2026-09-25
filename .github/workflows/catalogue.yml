@@ -64,7 +64,17 @@ jobs:
             || { echo "::warning::no published artifact to carry ids from — cold id assignment"; rm -f build/manga-metadata.sqlite; }
       # Runs every stage including the measure gate (8d, writes build/measure.log)
       # and exits non-zero on any test, audit, contract or coverage failure.
+      # DNB freshness window (Nick 2026-09-24: a weekly refresh, no manual step): the build
+      # re-reads last year, this year and later and the no-year remainder when older than 6
+      # days -- 6, not 7: the cache files are ~7 days old at the next Sunday run, and a 7-day
+      # window on a 7-day cron is not reliably "older", so alternate weeks would be skipped.
+      # ~62 SRU requests a week at >= 3 s, plus up to 42 small recounts when a total moved.
+      # A DNB failure in a refresh run keeps each affected result set's previous complete page
+      # set and marks the build degraded (built and gated, never published); a result set with
+      # no complete earlier set fails the build (an unseeded cache is not a refresh).
       - name: rebuild (every gate)
+        env:
+          DNB_REFRESH_DAYS: "6"
         run: bash tier0/rebuild_all.sh
       # Without PUBLISH=1 publish.sh only writes build/version.json and prints the
       # per-build tag; it also runs the two clean-room refusals.
@@ -79,6 +89,9 @@ jobs:
             build/anilist-resolve-report.tsv
             build/measure.log
             build/status-transitions.tsv
+            build/dnb-review.tsv
+            build/dnb-report.json
+            build/dnb-netlog.tsv
       # The human gate. The PAT (not GITHUB_TOKEN) is what writes to the
       # mangarr-metadata releases, so this workflow needs no write permission.
       - name: publish

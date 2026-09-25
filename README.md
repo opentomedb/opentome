@@ -44,6 +44,22 @@ attribution block. The schema is documented in `docs/schema-v1.md`; the ids in
 
 Site: [opentomedb.com](https://opentomedb.com) (coming).
 
+## Coverage
+
+What the current build carries, per market (release lines and volumes in the artifact,
+offline rebuild of 2026-09-24):
+
+| Market | Lines | Volumes | Primary source | Dates |
+|---|---:|---:|---|---|
+| Japan | 6,978 | 67,703 | Wikipedia, openBD | day / month |
+| English | 3,030 | 26,188 | Wikipedia, Open Library | day |
+| France | 1,493 | 16,857 | Wikipedia, BnF | day |
+| Germany | 1,459 | 12,470 | DNB (CC0), German Wikipedia | mostly year |
+
+German dates are year precision for published volumes (the national library's record) and
+month precision, typed `projected`, for announced ones; the few German Wikipedia tables
+keep their day dates. `docs/german-market.md` has the measurements.
+
 ## Licence
 
 - **Code:** MIT — [`LICENSE`](LICENSE).
@@ -52,7 +68,7 @@ Site: [opentomedb.com](https://opentomedb.com) (coming).
   came from it — [`LICENSE-DATA.md`](LICENSE-DATA.md).
 
 Data is sourced so the catalogue stays as unencumbered as possible: **BnF** (Etalab
-Open Licence), **DNB** (CC0; the German primary source, not yet wired in — see
+Open Licence), **DNB** (CC0; the German primary source — see
 `docs/german-market.md`), **Wikipedia** as a *citation index* — facts only, never
 prose, every value attributed to the primary source the article itself cites —
 **openBD** and **Open Library** (both non-commercial by their terms, which is why the
@@ -79,7 +95,9 @@ There is also a [Discord](https://discord.gg/bQVwv54KdP): `#corrections` is a fo
 1. **Unit tests** — a rebuild on a broken parser is worse than no rebuild.
 2. **Work identity** — Wikipedia language links become cross-language work classes.
 3. **Corpus** — volume lists from the English, French and German Wikipedias, plus the
-   main article's titles, status, publishers and relations.
+   main article's titles, status, publishers and relations; then the German market from
+   the Deutsche Nationalbibliothek (CC0): print manga and light novels of Japanese origin,
+   linked to their works by title and author, only confident links exported.
 4. **Enrichment** — every ISBN checked against openBD (JP), Open Library (EN, FR) and
    BnF (FR), each value stored as a claim with its source and licence.
 5. **Clean** — date semantics (`_precision`, `_type`), malformed ISBNs.
@@ -104,7 +122,7 @@ builds and gates; **publishing is a separate, human decision** — a dispatched 
 per-build release, and re-points `metadata` at it.
 
 ```
-tier0/          Wikipedia extraction (one dialect entry per wiki language), work identity, the rebuild script
+tier0/          Wikipedia extraction (one dialect entry per wiki language), DNB (German market), work identity, the rebuild script
 tier1/          enrichment and cross-verification against independent sources
 tier2/          clean, corrections, resolve (claims -> values + confidence), audit
 schema/         schema.sql + loader, per-field provenance

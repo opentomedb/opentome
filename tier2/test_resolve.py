@@ -27,6 +27,17 @@ CASES = [
     ("single source",    {"wikipedia": "2020-04-21"},                          "single_source"),
 ]
 
+VALUE_CASES = [
+    # DNB ranks above Wikipedia, but its 008 year is the coarsest date there is: a
+    # late-December release catalogued under the next year must not beat the day date.
+    ("dnb year vs wikipedia day, years differ", {"dnb": "2020", "wikipedia": "2019-12-20"}, "2019-12-20"),
+    ("dnb year agrees with wikipedia day",      {"dnb": "2019", "wikipedia": "2019-12-20"}, "2019-12-20"),
+    ("dnb year alone",                          {"dnb": "2019"},                            "2019"),
+    # the rule is DNB's alone: a Wikipedia year keeps precedence over Open Library
+    ("wikipedia year vs openlibrary day",       {"wikipedia": "2005", "openlibrary": "2003-11-14"}, "2005"),
+]
+
+
 def run():
     fails = 0
     db = sqlite3.connect(":memory:")
@@ -50,7 +61,21 @@ def run():
         fails += not ok
         print(f"{name:<20}{expect:<20}{got:<20}{conf:>6.2f}  {'' if ok else '<-- FAIL'}")
     print("-"*68)
-    print(f"{len(CASES)-fails}/{len(CASES)} passed")
+    # the VALUE that wins, where precedence and precision disagree
+    for name, claims, want in VALUE_CASES:
+        vid = "v_val" + name[:20]
+        for src, val in claims.items():
+            db.execute("""INSERT INTO claim(entity,entity_id,field,value,source,licence,retrieved_at)
+                          VALUES('volume',?,'release_date',?,?,'open','2026-01-01')""", (vid, val, src))
+    db.commit()
+    resolve(db)
+    for name, claims, want in VALUE_CASES:
+        got = db.execute("SELECT value FROM resolution WHERE entity_id=?", ("v_val" + name[:20],)).fetchone()[0]
+        ok = got == want
+        fails += not ok
+        print(f"{name:<40}{want:<14}{got:<14}  {'' if ok else '<-- FAIL'}")
+    n = len(CASES) + len(VALUE_CASES)
+    print(f"{n-fails}/{n} passed")
     return fails
 
 if __name__ == "__main__":

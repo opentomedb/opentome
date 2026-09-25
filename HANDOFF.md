@@ -2,6 +2,94 @@
 
 _Last updated: 2026-09-24_
 
+## 2026-09-24 — branch `dnb-ingest`: the German market from DNB (stage 3e)
+
+**Review round (same day):** the independent review's ten items are fixed, one commit each
+(NFC; linker precision + `must_not_link` fixture; bundles / boxes + protected-line gate; id
+contract: exported `id_redirect`, `kept`, carried-id gate, integer rule; clustering: publisher
+families + signature merge; volume numbers; CI: `DNB_REFRESH_DAYS=6`, refresh fallback, stable
+parent batches; date floor on deposited volumes; origin regex; Magmell / leading "The").
+Re-measured offline, zero DNB requests: **DE 1,459 lines / 12,470 volumes**, linked 1,229 high
++ 194 medium, merged 31, sibling 1; review 207; ground truth 31/33, 0 wrong; labelled 44/45;
+dates 99.8% of deposited; split editions 13 works / 26 lines (was 49 / 111). Numbers below are
+the first build's.
+
+Not merged, not pushed, no CI triggered -- Nick's gate.
+
+Done (design: `docs/dnb-design.md`, results: `docs/german-market.md`):
+- `tier0/dnb_sru.py` (>= 3 s cross-process throttle, one Retry-After wait then stop, cache,
+  `build/dnb-netlog.tsv`, `DNB_OFFLINE`, opt-in `DNB_REFRESH_DAYS`), `tier0/dnb_enumerate.py`
+  (spo=jpn print + manga imprints + parents; jhr slices + a `not jhr>0` remainder; distinct
+  totals checked), `tier0/dnb_marc.py`, `tier0/dnb_link.py`, `tier0/build_dnb.py` (stage 3e,
+  after relations), tests `tier0/test_dnb.py` (stage 0).
+- Export: `volumes.release_date_type` (additive), DNB in `meta.attribution` + LICENSE-DATA.md,
+  `meta.dnb_lines`, redirected lines keep their integer id. `tier2/resolve.py`: a bare DNB
+  year never beats a finer date it disagrees with (9 volumes; 0 resolution changes elsewhere).
+- CI uploads `build/dnb-review.tsv`, `dnb-report.json`, `dnb-netlog.tsv` with the build.
+- Gates: DNB rules in `export/test_artifact.py` (needs the catalogue as 2nd arg -- the
+  rebuild passes it) incl. the linker fixture `export/fixtures/dnb_linker_labels.json` and
+  the 35 pre-DNB ids `export/fixtures/de_lines_pre_dnb.json`; German floors in
+  `export/measure_library.py` (`--catalogue=`), printed after the `matched` line.
+- Stage 8a ran locally through a driver in `build/` (not committed) that leaves uncached
+  AniList terms unbound; the rebuild's final `mv` never ran, so `build/manga-metadata.sqlite`
+  is still the 2026-09-20 artifact and the DNB build is `build/manga-metadata.sqlite.new`.
+- Measured (offline rebuild, warm cache): DE 35 lines / 391 vols -> **1,593 / 12,678**
+  (1,557 linked + 30 merged + 1 sibling + the 5 unmerged Wikipedia lines); linker
+  high 1,246 / medium 353 / low 210 / ambiguous 7 / none 2,740; ground truth 30/32 linked,
+  0 wrong; labelled set 43/44 (97.7%); dates 95.8%, pages 97.8%; review file 217 lines.
+  392 live DNB requests in all, all 200. Non-German side byte-identical to a DNB-free
+  export; replay `--base main` 0 new / 0 changed / 0 lost.
+
+Next:
+- **Seed the CI cache before the next CI build -- and regenerate the seed, never append.**
+  CI's cache has no DNB responses. Unseeded, the first CI build has no complete earlier result
+  sets, so any DNB failure fails it (DnbIncomplete), and `actions/cache` saves only on success.
+  The only procedure: rebuild the tarball from the FULL current local `.cache`, which now holds
+  the DNB responses AND `.cache/dnb-parents.json` (the parent-batch index):
+  `tar --zstd -cf opentome-cache.tar.zst -C .cache .`, upload it as the private
+  opentome-cache repo's `seed` release asset, run the seed-cache workflow. Never append files
+  to the old tarball and never build it from a subset -- a partial seed silently lacks
+  whatever it misses, and the next cold CI run re-fetches it (or, for AniList, binds
+  differently).
+- Refreshing: `DNB_REFRESH_DAYS=6` is now set in `catalogue.yml` (last year, this year and
+  later, the no-year remainder, when older than 6 days: ~62 requests a week, plus up to 42
+  small recounts when a total moved). Parents are fetched once (stable batches via
+  `.cache/dnb-parents.json`), never refreshed. A result set is cached whole or not at all. When
+  DNB fails during a refresh, a result set with a previous COMPLETE page set keeps that set
+  (never a partial or empty one), the build continues, and it is marked degraded
+  (`meta.dnb_degraded`): `export/publish.sh` refuses to publish it. A result set with NO complete
+  earlier set -- a first run, an unseeded cache, a new slice -- fails the build loudly, refresh
+  window or not (CI always sets one). The contract also fails when more than 25 carried German
+  volumes are retired in one build.
+- Nick: `build/dnb-review.tsv` (207 low/ambiguous lines) -- confirmed ones could become
+  corrections; the design has no correction type for "link this DNB line" yet.
+- Follow-ups: KR/CN round (decision 4); light novels are thin (19 lines) -- LN works are
+  linked less often; the 518 current-year announcements without a 263 month are undated.
+
+Gotchas:
+- The date floor is now on deposited volumes (99.8%); announced-only volumes are reported
+  apart and cannot trip it.
+- `dnb_member.volume_id` can point at a volume a later stage deleted (5b exclusions).
+- The spike's `From the sea` (Okubo one-shot in the Fire Force series statement) still links
+  to Fire Force; spin-offs named inside a parent's series statement link to the parent.
+- 13 works still split across lines by a subtitle variant between set records ("Kemono jihen"
+  / "Kemono Jihen. Gefährlichen Phänomenen auf der Spur"); a post-link merge would fix it.
+- `id_map` now keeps `retired` rows for carried line ids a build no longer has: 55 today, all
+  outside the German market (en 27, ja 25, fr 3) -- the lines of works excluded since the
+  20 September artifact (W.I.T.C.H., Mechademia, The Walking Dead, The Adventures of Rabbi
+  Harvey, ...). A correct catalogue-wide fix: each reserves its integer so it is never reissued.
+  They have NO `id_redirect` row, deliberately: an excluded work has no successor line to point
+  at (none shares work + language + name). Nothing but the exporter reads `id_map`. Say this in
+  the merge commit message. The carried-id gate has only met the 35 German Wikipedia lines so
+  far; the DNB-line redirect path is unit-tested and meets real data at the second publish.
+- `DNB_REFRESH_DAYS` is 6 on the rebuild step (87c7f0f replaced the step's 7 per the review:
+  a 7-day window on a 7-day cron skips alternate weeks). Revert 87c7f0f for 7.
+- 879 German volumes ship undated (announced, no planned month, or a plan older than 12 months);
+  a consumer that treats undated as "missing" will search for them.
+- DE lines of Swiss publishers carry 978-2 ISBNs (Kazé / Crunchyroll SA): the audit's
+  "DE lines with no DE-group ISBN" info line counts them; 14 volumes collide with FR lines
+  citing the same ISBN (flagged, info).
+
 ## 2026-09-24 — branch `anilist-round2`: post-walk tiers, R6+, 26 pins, 4 exclusions
 
 Not merged, not pushed, no CI triggered -- Nick's gate (CI build-only; bar 0 changed / 0 lost).

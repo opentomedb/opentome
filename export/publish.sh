@@ -115,6 +115,21 @@ echo "licence     $(q licence)"
 echo
 echo "manifest -> build/version.json"
 
+# A build whose DNB refresh degraded (tier0/build_dnb.py: DNB failed and some German result
+# sets kept last week's page set) is built and gated, but never published -- only a clean
+# refresh, or an offline rebuild of a complete cache, may replace the live artifact. Checked
+# before the dry-run exit so the manifest step says so, but only a real publish stops on it
+# (the weekly build must not fail over a DNB outage).
+DEGRADED="$(q dnb_degraded)"
+if [ -n "$DEGRADED" ]; then
+  echo
+  echo "DNB DEGRADED: $DEGRADED" >&2
+  if [ "${PUBLISH:-0}" = "1" ]; then
+    echo "refusing: meta.dnb_degraded is set -- rebuild once DNB answers, then publish that build." >&2
+    exit 1
+  fi
+fi
+
 if [ "${PUBLISH:-0}" != "1" ]; then
   echo
   echo "DRY RUN. Nothing was uploaded. This publishes a dataset PUBLICLY:"

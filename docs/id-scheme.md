@@ -45,10 +45,17 @@ Use `tome_id` alongside the fields integrators already carry (`tvdb_id`, `tmdb_i
    re-ingesting the same source produces the same ids. Verified: reloading a populated
    database leaves the volume count unchanged.
 
-`id_redirect` is a pipeline table (`schema/schema.sql`) and is not yet exported to the
-published `manga-metadata.sqlite`, so a retired id is not yet resolvable from the
-published file; the guarantee holds in the pipeline and the export follows once the
-first merge is published.
+`id_redirect` is a pipeline table (`schema/schema.sql`), and since 2026-09-24 the published
+`manga-metadata.sqlite` carries it too: `id_redirect(old_tome_id, new_tome_id, entity, reason,
+old_series_id, new_series_id)`, chains collapsed to an id present in that file. Each build
+re-reads the previous artifact's rows, so a redirect is never lost. A retired volume with no
+successor volume resolves to its line (reason `retired`).
+
+Integer ids (`series.gcd_series_id`) follow the same rule: a successor line with no integer of
+its own takes the retired line's; a successor that already has one keeps it, the retired
+integer resolves through `id_redirect.old_series_id -> new_series_id`, and it stays reserved in
+`id_map` (kind `retired`) so it is never issued again. A German line the DNB linker stops
+linking stays published under its published work (role `kept`) rather than disappearing.
 
 ## What is *not* guaranteed
 
