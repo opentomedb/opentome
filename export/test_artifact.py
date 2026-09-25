@@ -72,6 +72,9 @@ def run(path):
     rule("aliases with wiki markup",
          g("""SELECT COUNT(*) FROM series_alias WHERE alias LIKE '%{{%' OR alias LIKE '%[[%'
               OR alias LIKE '%<%'"""))
+    rule("series_alias rows without a known kind",
+         g("""SELECT COUNT(*) FROM series_alias WHERE kind IS NULL OR kind NOT IN
+              ('line','official','alias','abbreviation','romanized','correction')"""))
     rule("empty series names", g("SELECT COUNT(*) FROM series WHERE TRIM(name)=''"))
     # Preferred Edition (2026-09-24): every line says its market; a local name is a clean title.
     rule("series without a country (the market code)",

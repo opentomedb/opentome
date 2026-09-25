@@ -257,7 +257,12 @@ CREATE TABLE IF NOT EXISTS volumes (
     UNIQUE (gcd_series_id, volume_number));
 CREATE TABLE IF NOT EXISTS series_alias (
     gcd_series_id INTEGER NOT NULL REFERENCES series(gcd_series_id),
-    alias TEXT NOT NULL, UNIQUE (gcd_series_id, alias));
+    alias TEXT NOT NULL,
+    -- Preferred Edition (2026-09-24): the title's language (work_title.language; NULL for the
+    -- line's own name and corrections) and kind: line | official | alias | abbreviation |
+    -- romanized | correction. First insertion wins (UNIQUE below), so the line's name is 'line'.
+    language TEXT, kind TEXT,
+    UNIQUE (gcd_series_id, alias));
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 -- Not read by the current C#. Preserves volumes whose number is not an int, so
 -- nothing is lost silently; a later Mangarr can promote these.
@@ -708,16 +713,18 @@ def export(src_path, out_path, carry_ids_from=None):
         # market's main line lost its arc alias and became unreachable by the
         # only name a folder ever uses -- Re:Zero's "The Sanctuary and the Witch
         # of Greed" resolved to nothing at all.
-        cands = [(lname or wtitle, False)]
+        cands = [(lname or wtitle, False, None, "line")]
         raw = _line_raw(lname, wtitle)
         if raw and raw != lname and len(normalize(raw).split()) >= 3 and not GENERIC.match(raw):
-            cands.append((raw, False))
+            cands.append((raw, False, None, "line"))
         if is_main:
-            for (alias,) in src.execute("SELECT title FROM work_title WHERE work_id=?", (wid,)):
+            # Same query, same order as before (the PK index orders it); only the columns grew.
+            for alias, alang, akind in src.execute(
+                    "SELECT title, language, kind FROM work_title WHERE work_id=?", (wid,)):
                 if alias:
-                    cands.append((alias, True))
-                    cands.append((work_title(alias), True))
-            cands.append((wtitle, True))
+                    cands.append((alias, True, alang, akind))
+                    cands.append((work_title(alias), True, alang, akind))
+            cands.append((wtitle, True, None, "line"))
 
         def owned_by_another_work(text):
             """True when this string is some OTHER work's own title -- the
@@ -726,7 +733,7 @@ def export(src_path, out_path, carry_ids_from=None):
             return bool(other_titles.get(normalize(text), set()) - {wid})
 
         seen = set()
-        for alias, work_level in cands:
+        for alias, work_level, alang, akind in cands:
             # A work-level alias is only as trustworthy as its uniqueness; a
             # line's own name is always kept, since that IS what it is called.
             if work_level and owned_by_another_work(alias):
@@ -734,7 +741,8 @@ def export(src_path, out_path, carry_ids_from=None):
             for a in variants(alias, with_heads=False):
                 if a.lower() not in seen:
                     seen.add(a.lower())
-                    out.execute("INSERT OR IGNORE INTO series_alias VALUES(?,?)", (sid, a))
+                    out.execute("""INSERT OR IGNORE INTO series_alias (gcd_series_id, alias, language, kind)
+                                   VALUES(?,?,?,?)""", (sid, a, alang, akind))
                     n_alias += 1
             if not work_level:
                 continue
@@ -744,7 +752,8 @@ def export(src_path, out_path, carry_ids_from=None):
                 for a in (head, normalize(head)):
                     if a and a.lower() not in seen:
                         seen.add(a.lower())
-                        out.execute("INSERT OR IGNORE INTO series_alias VALUES(?,?)", (sid, a))
+                        out.execute("""INSERT OR IGNORE INTO series_alias (gcd_series_id, alias, language, kind)
+                                       VALUES(?,?,?,?)""", (sid, a, alang, akind))
                         n_alias += 1
 
     # id_redirect, chains collapsed to ids present in this artifact; retired integers reserved
@@ -782,7 +791,8 @@ def export(src_path, out_path, carry_ids_from=None):
                 "fix or remove the entry (see corrections/README.md)" % line_id)
         for a in variants(alias, with_heads=False):
             n_corr += out.execute(
-                "INSERT OR IGNORE INTO series_alias VALUES(?,?)", (sid, a)).rowcount
+                """INSERT OR IGNORE INTO series_alias (gcd_series_id, alias, language, kind)
+                   VALUES(?,?,NULL,'correction')""", (sid, a)).rowcount
 
     # Curated alias REMOVALS (2026-09-23 cleanup, item 2): an exact string on an
     # exact line, not a rule. The automated version of this -- drop any alias

@@ -157,6 +157,14 @@ def run():
     eq("DE line: local_name from the DNB line name", got["rl_de"][1], "Angriff der Titanen")
     eq("EN line: country EN, no local_name", got["rl_en"], ("EN", None))
 
+    # ---- series_alias.language / kind (2026-09-24, Preferred Edition v0 b) ------------
+    tags = fixture_alias_tags()
+    eq("the line's own name is kind 'line', no language", tags["Attack on Titan"], (None, "line"))
+    eq("the cleaned fr official title keeps fr/official", tags["L'Attaque des Titans"], ("fr", "official"))
+    eq("its normalized form inherits fr/official", tags["l attaque des titans"], ("fr", "official"))
+    eq("an en alias row (romaji arrives this way) is en/alias", tags["Shingeki no Kyojin"], ("en", "alias"))
+    eq("a ja official title is ja/official", tags["進撃の巨人"], ("ja", "official"))
+
     if FAILS:
         print("FAILED: " + ", ".join(FAILS))
         sys.exit(1)
@@ -225,6 +233,34 @@ def fixture_local_names():
         corr.DIR = real_dir
     out = sqlite3.connect(out_path)
     rows = {t: (c, n) for t, c, n in out.execute("SELECT tome_id, country, local_name FROM series")}
+    out.close()
+    return rows
+
+
+def fixture_alias_tags():
+    """The FR main line of a work with fr/ja official titles and an en alias. Returns
+    {alias: (language, kind)} for that line."""
+    tmp = tempfile.mkdtemp(prefix="opentome-aliastags-")
+    src_path, out_path = (os.path.join(tmp, n) for n in ("pipeline.db", "artifact.sqlite"))
+    db = sqlite3.connect(src_path)
+    db.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+    db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_aot','Attack on Titan','x','x')")
+    db.execute("""INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at)
+                  VALUES('rl_fr','w_aot','manga','FR','fr','x','x')""")
+    db.execute("""INSERT INTO volume(id,release_line_id,number,created_at,updated_at)
+                  VALUES('v1','rl_fr','1','x','x')""")
+    for lang, title, kind in (("fr", "Liste des chapitres de L'Attaque des Titans", "official"),
+                              ("ja", "進撃の巨人", "official"),
+                              ("en", "Shingeki no Kyojin", "alias")):
+        db.execute("INSERT INTO work_title(work_id,language,title,kind) VALUES('w_aot',?,?,?)", (lang, title, kind))
+    db.commit(); db.close()
+    real_dir, corr.DIR = corr.DIR, tempfile.mkdtemp(prefix="opentome-nocorr-")
+    try:
+        export(src_path, out_path)
+    finally:
+        corr.DIR = real_dir
+    out = sqlite3.connect(out_path)
+    rows = {a: (l, k) for a, l, k in out.execute("SELECT alias, language, kind FROM series_alias")}
     out.close()
     return rows
 
