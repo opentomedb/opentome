@@ -338,7 +338,10 @@ def _line_raw(lname, wtitle):
 # an article's disambiguator ("Radiant (bande dessinée)", "Shiki (roman)", "Wish (漫画)") is not
 # part of the title a reader sees. 'des' is tried before 'de' and every article needs a following
 # space, so 'de' never eats the start of 'des' ("... des Chevaliers du Zodiaque" -> "s Chevaliers").
-_LIST_ARTICLE = re.compile(r"^(?:liste|chronologie)\s+des?\s+.+?\s+(?:(?:des|de|du)\s+|d['’]\s*)(?P<t>\S.*)$", re.I)
+# 'des' and 'du' are contractions of de + les / de + le, so the title's own article comes back
+# ("Liste des chapitres des Gouttes de Dieu" -> "Les Gouttes de Dieu"); 'de' and "d'" carry none.
+_LIST_ARTICLE = re.compile(r"^(?:liste|chronologie)\s+des?\s+.+?\s+(?:(?P<art>des|du)\s+|de\s+|d['’]\s*)(?P<t>\S.*)$", re.I)
+_CONTRACTED_ARTICLE = {"des": "Les ", "du": "Le "}
 # A disambiguator is an ASCII "(...)" after a space. A full-width "（...）" is part of the title
 # itself -- every one measured was ("オトメン（乙男）", "神統記（テオゴニア）",
 # "男女の友情は成立する?（いや、しないっ!!）"), so it is never stripped.
@@ -352,7 +355,9 @@ def local_title(raw):
     # The list prefix is matched on the RAW title: work_title() alone turns "Liste des volumes
     # dérivés de One Piece" into "dérivés de One Piece" (measured), which the prefix no longer matches.
     m = _LIST_ARTICLE.match(raw.strip())
-    t = work_title(m.group("t") if m else raw)
+    if m:
+        raw = _CONTRACTED_ARTICLE.get((m.group("art") or "").lower(), "") + m.group("t")
+    t = work_title(raw)
     t = _TRAILING_QUALIFIER.sub("", t).strip()
     if not t or MARKUP_TITLE_RE.search(t):
         return None
@@ -470,7 +475,7 @@ def export(src_path, out_path, carry_ids_from=None):
                                           WHERE kind='official' ORDER BY rowid"""):
         official_titles.setdefault((wid, lang), []).append(title)
     dnb_line_name = dict(src.execute("""SELECT entity_id, value FROM claim WHERE entity='release_line'
-                                        AND field='line_name' AND source='dnb'"""))
+                                        AND field='line_name' AND source='dnb' ORDER BY rowid"""))
 
     lines = src.execute("""
         SELECT rl.id, rl.work_id, rl.market, rl.medium, rl.publisher, rl.status, rl.parent_id,

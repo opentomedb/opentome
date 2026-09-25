@@ -112,10 +112,21 @@ def run():
     eq("fr light-novel list -> the title", local_title("Liste des light novel de L'Odyssée de Kino"),
        "L'Odyssée de Kino")
     eq("fr d' form", local_title("Liste des chapitres d'Ushio et Tora"), "Ushio et Tora")
+    eq("fr d’ form (curly apostrophe)", local_title("Liste des chapitres d’Ushio et Tora"), "Ushio et Tora")
+    eq("fr 'chapitres et épisodes' list (Love Hina shape)",
+       local_title("Liste des chapitres et épisodes de Love Hina"), "Love Hina")
     # 'de' must not eat the start of 'des' (review ruling, 2026-09-24): the old
-    # alternation turned this into "s Chevaliers du Zodiaque".
-    eq("fr des form", local_title("Liste des chapitres des Chevaliers du Zodiaque"),
-       "Chevaliers du Zodiaque")
+    # alternation turned this into "s Chevaliers du Zodiaque". des = de + les, du = de + le,
+    # so the title's own article comes back (fix round 1 ruling).
+    eq("fr des form restores Les", local_title("Liste des chapitres des Chevaliers du Zodiaque"),
+       "Les Chevaliers du Zodiaque")
+    eq("fr des form, measured title", local_title("Liste des chapitres des Gouttes de Dieu"),
+       "Les Gouttes de Dieu")
+    eq("fr du form restores Le", local_title("Liste des chapitres du Prince du tennis"),
+       "Le Prince du tennis")
+    eq("fr chronologie branch", local_title("Chronologie des volumes de Dragon Ball"), "Dragon Ball")
+    eq("fr chronologie branch, des form", local_title("Chronologie des tomes des Enquêtes de Kindaichi"),
+       "Les Enquêtes de Kindaichi")
     eq("trailing disambiguator dropped", local_title("Radiant (bande dessinée)"), "Radiant")
     eq("trailing disambiguator with a year dropped", local_title("Gestalt (manga, 1992)"), "Gestalt")
     eq("ja qualifier dropped", local_title("Wish (漫画)"), "Wish")
