@@ -414,6 +414,12 @@ eq("without the carried artifact the line is unlinked", [ln["role"] for ln in l3
 l3, _, _ = B.build(before, {}, L.Index(cat3), W3, wi3, carried={old_rl: "w_se"})
 eq("with it, the published line is kept under its published work",
    [(ln["role"], ln["work"]) for ln in l3], [("kept", "w_se")])
+cat3.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_other','Snowball Earth',?,?)", (T, T))
+cat3.execute("INSERT INTO claim VALUES('work','w_other','author',?,'wikipedia',NULL,'facts_only',?)",
+             (json.dumps(["Junji Ito"]), T))
+l3, _, _ = B.build(before, {}, L.Index(cat3), W3, wi3, carried={old_rl: "w_other"})
+eq("... but not against counter-evidence: the creators disagree with the published work -> not kept",
+   [(ln["role"], ln["via"]) for ln in l3], [("review", "title, authors differ")])
 
 # ---- the fetcher: politeness, cache, offline -- against a fake DNB (no network) ----------
 import email.message, re as _re, time as _time, urllib.error, urllib.parse

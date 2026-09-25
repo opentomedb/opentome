@@ -450,7 +450,12 @@ def build(recs, parents, idx, W, w_isbn, carried=None):
             ln["work"] = ln["link_work"] if ln["role"] == "linked" else None
             if ln["role"] == "linked" and ln["work"] in idx.non_japanese:
                 ln["role"], ln["work"] = "out_of_scope", None      # Korean / Chinese origin: next round
-            if ln["role"] != "linked" and (carried or {}).get(ln["rl_id"]) in idx.name:
+            # keep a published line only when the linker has simply lost its answer -- never
+            # against counter-evidence (the creators now disagree with the work it shipped under)
+            # or a scope rule; those lines go, and redirects() retires their ids to a successor
+            counter = "authors differ" in (ln["via"] or "") and ln["link_work"] == (carried or {}).get(ln["rl_id"])
+            if ln["role"] in ("review", "unlinked") and not counter and \
+                    (carried or {}).get(ln["rl_id"]) in idx.name:
                 ln["role"], ln["work"] = "kept", carried[ln["rl_id"]]
     stats = {"records": len(recs), "parents_known": len(allparents), "kept_records": len(vols),
              "dropped": dict(sorted(drop.items())), "volume_groups": len(groups),
