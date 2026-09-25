@@ -80,9 +80,13 @@ burst. After the enrichment the batches see the same ISBN set.
    the id); else a strict majority of its dated volumes; then the same ISBN test market-wide (a
    line that moved to another work); else the work's main line of that market + medium, reason
    `retired`. Reason `duplicate_merge` when the successor was published, else `correction`.
-4. A carried **volume** this build lost → the volume of the same number in its line's successor
-   (by number first: the English Drops of God article repeats vol 23's ISBN on vol 25); else the
-   one volume of its market with its ISBN; else the successor **line**, reason `retired`.
+4. A carried **volume** this build lost → the one volume of its line's successor holding its ISBN
+   (unique there: the English Drops of God article repeats vol 23's ISBN on vol 25, so that ISBN
+   decides nothing); else the volume of the same number there; else the one volume of its market
+   with its ISBN; else the successor **line**, reason `retired`. When the line itself was
+   **retired** (fell back to the work's main line) numbers are never used -- the main line's vol 1
+   is a different book than an arc's vol 1 -- only a unique ISBN in the market, else `retired`
+   to the line. A volume redirected to a line is never labelled `correction`.
 5. Lines and volumes of a work in `corrections/excluded.json` are retired on purpose and get no
    row — an excluded work has no successor. Anything else without a present target is an
    orphan: printed, written to `meta` `carried:redirects`, and the gate fails.
@@ -102,9 +106,12 @@ reserved in `id_map` (kind `retired`).
   `id_redirect` already resolved -- is present or resolves through the artifact's `id_redirect`
   to an id that is; ids of works in `meta.excluded_works` are exempt;
 - unchanged: more than `MAX_RETIRED_DE_VOLUMES` = 25 carried German volumes gone fails;
-- new: more than `MAX_RETIRED_VOLUMES` = 100 carried volumes **retired** in one build, any market,
-  fails — retired = no longer resolving to a volume (redirected to its line, or not at all); ids a
-  re-key or a merge moved to volumes do not count;
+- new: more than `MAX_RETIRED_VOLUMES` = 100 carried volumes, or more than `MAX_RETIRED_LINES` =
+  10 carried lines, **retired** in one build, any market, fails — retired = no longer resolving
+  to an id of its own kind, or reason `retired`, or not resolving; ids a re-key or a merge moved
+  do not count; a work listed in this build's `excluded.json` does not count;
+- new: more than `MAX_MOVED_IDS` = 500 carried ids moved (re-keyed or merged) in one build fails,
+  so a mass re-key cannot ship green because every id found a successor; the count is printed;
 - every `id_redirect` target is in the artifact (works included).
 - every carried integer (`series.gcd_series_id`, and the carry's own `id_redirect.old_series_id`) is
   still a series or an `id_redirect.old_series_id` here (excluded works exempt).

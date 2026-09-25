@@ -36,9 +36,12 @@ resolve forever through id_redirect. Two stages keep it, for any market, any ent
          line holding a strict majority of its ISBNs, else of its dated volumes; then the same
          ISBN test market-wide (a line re-attached to another work); else the work's main
          line of that market + medium (reason retired);
-      4. a carried VOLUME this build lost -> the volume of the same number in its line's
-         successor, else the one volume of its market with its ISBN, else the successor LINE
-         (reason retired: the volume is gone, the id still resolves to where it belonged).
+      4. a carried VOLUME this build lost -> the one volume of its line's successor with its
+         ISBN, else the volume of the same number there, else the one volume of its market with
+         its ISBN, else the successor LINE (reason retired: the volume is gone, the id still
+         resolves to where it belonged). When the LINE was retired (it fell back to its work's
+         main line), numbers mean nothing -- the main line's vol 1 is another book -- so only a
+         unique ISBN in the market claims it; else it retires to the line.
       Lines and volumes of works in corrections/excluded.json are retired on purpose and get
       no row (an excluded work has no successor). Anything else left without a present
       target is an orphan: reported here, and export/test_artifact.py run_ids fails on it.
@@ -270,7 +273,7 @@ def redirects(db, carry, excluded=None):
     works_now = {w for w, _, _ in lines_now.values()}
     present = set(lines_now) | set(vols_now) | works_now
     red = dict(db.execute("SELECT old_id, new_id FROM id_redirect"))
-    reason_of = {}
+    reason_of = dict(db.execute("SELECT old_id, reason FROM id_redirect"))
 
     def final(i):
         seen = set()
@@ -390,12 +393,23 @@ def redirects(db, carry, excluded=None):
         if not ls:
             rep["orphans"].append(v)
             continue
-        line_reason = reason_of.get(l, "correction")
-        nv = num_in.get((ls, n))
+        line_reason = reason_of.get(l) if l not in lines_now else "correction"
+        in_market = by_isbn.get((market, i), ()) if i else ()
+        if line_reason == "retired":
+            # the line fell back to its work's main line: that line's volume N is a DIFFERENT book
+            # (an arc's vol 1 is not the main series' vol 1) -- only a unique ISBN may claim it
+            if len(in_market) == 1:
+                put(v, in_market[0], "volume", "correction", market)
+            else:
+                put(v, ls, "volume", "retired", market)
+            continue
+        vol_reason = "duplicate_merge" if line_reason == "duplicate_merge" else "correction"
+        in_line = [x for x in in_market if vols_now[x][0] == ls]
+        nv = (in_line[0] if len(in_line) == 1 else None) or num_in.get((ls, n))
         if nv:
-            put(v, nv, "volume", "correction" if line_reason == "retired" else line_reason, market)
-        elif i and len(by_isbn.get((market, i), ())) == 1:
-            put(v, by_isbn[(market, i)][0], "volume", "correction", market)
+            put(v, nv, "volume", vol_reason, market)
+        elif len(in_market) == 1:
+            put(v, in_market[0], "volume", "correction", market)
         else:
             put(v, ls, "volume", "retired", market)
 

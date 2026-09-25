@@ -206,6 +206,33 @@ K.redirects(db, carry, excluded=set())
 eq("no successor line: retired to the work's main line of that market",
    db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (rl(WN, "JP", "Undated (Arc)"),)).fetchone(),
    (rl(WN, "JP", "Undated"), "retired"))
+# review C2 (repro1): the retired arc's vol 1 is NOT the main line's vol 1 -- another book
+arc_vols = [db.execute("SELECT new_id, entity, reason FROM id_redirect WHERE old_id=?",
+                       (_id("v_", rl(WN, "JP", "Undated (Arc)"), n),)).fetchone() for n in ("1", "2")]
+eq("a retired line's volumes retire to the line, never to the main line's same-numbered books",
+   arc_vols, [(rl(WN, "JP", "Undated"), "volume", "retired")] * 2)
+db.close()
+art_r = artifact(after, carry)
+eq("... and the artifact carries them that way (reason retired, a line as target)",
+   sqlite3.connect(art_r).execute("""SELECT new_tome_id, reason FROM id_redirect WHERE entity='volume'
+                                     ORDER BY old_tome_id""").fetchall(), [(rl(WN, "JP", "Undated"), "retired")] * 2)
+# a retired line (1 of 3 ISBNs elsewhere: no majority) -- its volume whose ISBN is found once in
+# the market follows that ISBN
+before = catalogue("ret3", [(WN, "Undated", [("JP", "manga", "Undated", vols(7, 3)),
+                                             ("JP", "manga", "Undated (Arc)", [("1", "9784000000013", None), ("2", "9784000000020", None),
+                                                                               ("3", "9784000000037", None)])]),
+                            ("en:Other", "Other", [("JP", "manga", "Other", vols(12, 2))])])
+carry = artifact(before)
+after = catalogue("ret4", [(WN, "Undated", [("JP", "manga", "Undated", vols(7, 3))]),
+                           ("en:Other", "Other", [("JP", "manga", "Other", vols(12, 2) + [("3", "9784000000013", None)])])])
+db = sqlite3.connect(after)
+K.redirects(db, carry, excluded=set())
+eq("a retired line's volume with a unique ISBN in the market follows the ISBN",
+   db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (_id("v_", rl(WN, "JP", "Undated (Arc)"), "1"),)).fetchone(),
+   (_id("v_", rl("en:Other", "JP", "Other"), "3"), "correction"))
+eq("... a sibling whose ISBN is nowhere retires to the line",
+   db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (_id("v_", rl(WN, "JP", "Undated (Arc)"), "2"),)).fetchone(),
+   (rl(WN, "JP", "Undated"), "retired"))
 db.close()
 
 # ---- an excluded work is retired on purpose; any other vanished work is an orphan ----------------
@@ -352,10 +379,10 @@ def tiny(name, series, volumes, redirects=(), excluded=()):
     A.executescript("""CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
         CREATE TABLE series (gcd_series_id INTEGER, tome_id TEXT, tome_work_id TEXT, language TEXT);
         CREATE TABLE volumes (gcd_series_id INTEGER, tome_id TEXT);
-        CREATE TABLE id_redirect (old_tome_id TEXT, new_tome_id TEXT);""")
+        CREATE TABLE id_redirect (old_tome_id TEXT, new_tome_id TEXT, reason TEXT);""")
     A.executemany("INSERT INTO series VALUES(?,?,?,?)", series)
     A.executemany("INSERT INTO volumes VALUES(?,?)", volumes)
-    A.executemany("INSERT INTO id_redirect VALUES(?,?)", redirects)
+    A.executemany("INSERT INTO id_redirect VALUES(?,?,?)", [tuple(r) + (None,) * (3 - len(r)) for r in redirects])
     A.execute("INSERT INTO meta VALUES('excluded_works', ?)", (__import__("json").dumps(list(excluded)),))
     A.commit()
     return path
@@ -384,6 +411,18 @@ eq("gate: ... while 150 volumes redirected to volumes (a re-key) do not count as
                redirects=[("rl_fr", "rl_fr2")] + [("v_fr%03d" % i, "v_fr2%03d" % i) for i in range(150)],
                excluded=["w_x"]), gate_carry), [])
 
+many = tiny("gm", [(i, "rl_m%03d" % i, "w_m", "ja") for i in range(1, 13)], [(i, "v_m%03d" % i) for i in range(1, 13)])
+eq("gate: 11 of 12 carried lines retired to a main line (reason retired) fail the line cap",
+   ids_ok(tiny("gm1", [(1, "rl_m001", "w_m", "ja")], [(1, "v_m001")],
+               redirects=[("rl_m%03d" % i, "rl_m001", "retired") for i in range(2, 13)]
+                         + [("v_m%03d" % i, "rl_m001", "retired") for i in range(2, 13)]), many),
+   ["more than %d carried lines retired in one build (every market)" % TA.MAX_RETIRED_LINES,
+    "carried series integers neither a series nor an id_redirect.old_series_id"])
+big = tiny("gb", [(1, "rl_b", "w_b", "ja")], [(1, "v_b%04d" % i) for i in range(600)])
+eq("gate: 600 volumes re-keyed in one build (all found a successor) fail the moved-ids cap",
+   ids_ok(tiny("gb1", [(1, "rl_b", "w_b", "ja")], [(1, "v_c%04d" % i) for i in range(600)],
+               redirects=[("v_b%04d" % i, "v_c%04d" % i, "correction") for i in range(600)]), big),
+   ["more than %d carried ids moved (re-keyed or merged) in one build" % TA.MAX_MOVED_IDS])
 eq("gate: a carried integer that is neither a series nor an old_series_id fails",
    "carried series integers neither a series nor an id_redirect.old_series_id" in ids_ok(
        tiny("g6", [(7, "rl_fr", "w_a", "fr"), (2, "rl_ja", "w_a", "ja")],

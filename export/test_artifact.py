@@ -355,13 +355,19 @@ DNB_FIELDS = ("isbn13", "release_date", "projected_date", "page_count", "volume_
 
 
 MAX_RETIRED_DE_VOLUMES = 25
-# Every market (2026-09-25, alias-fix). A RETIRED volume is a carried volume id that no longer
-# resolves to a volume: redirected to its line (reason retired) or not at all. A re-key or a
-# merge moves ids without retiring them (this round: 247 volumes redirected, 0 retired); a mass
-# retirement is a lost source, a parser change or a bad exclusion -- stop and look. Excluded
-# works (meta.excluded_works) are retired on purpose and do not count.
+# Every market (2026-09-25, alias-fix). RETIRED = a carried id that no longer resolves to an id of
+# its own kind: a volume redirected to a line, a line redirected with reason 'retired' (to its
+# work's main line), anything with reason 'retired', or not resolving at all. A re-key or a merge
+# moves ids without retiring them (alias-fix: 261 moved, 0 retired). A mass retirement is a lost
+# source or a parser change -- stop and look. The lines and volumes of a work listed in THIS
+# build's corrections/excluded.json (meta.excluded_works) are retired on purpose and do not
+# count; a work that vanishes without being listed there counts (and fails the lost-ids rule).
 MAX_RETIRED_VOLUMES = 100
-
+MAX_RETIRED_LINES = 10
+# Moved (re-keyed or merged) carried ids of any kind. Generous -- this round moved 261 -- but a
+# mass re-key (a title rule touching thousands of names) must not ship green because every id
+# found a successor; the count is always printed.
+MAX_MOVED_IDS = 500
 
 def run_ids(path, carry):
     """IDs are a public contract: every work, line and volume id of the carried (last published)
@@ -415,9 +421,22 @@ def run_ids(path, carry):
     gone = [t for t in de if t not in present]
     rule("more than %d carried German volumes retired in one build" % MAX_RETIRED_DE_VOLUMES,
          0 if len(gone) <= MAX_RETIRED_DE_VOLUMES else len(gone), str(gone[:5]))
-    retired = [t for t in vols if t not in present and t not in exempt and red.get(t) not in vol_now]
+    try:
+        reason = dict(db.execute("SELECT old_tome_id, reason FROM id_redirect"))
+    except sqlite3.OperationalError:
+        reason = {}
+    retired = [t for t in vols if t not in present and t not in exempt
+               and (red.get(t) not in vol_now or reason.get(t) == "retired")]
     rule("more than %d carried volumes retired in one build (every market)" % MAX_RETIRED_VOLUMES,
          0 if len(retired) <= MAX_RETIRED_VOLUMES else len(retired), str(retired[:5]))
+    line_now = {r[0] for r in db.execute("SELECT tome_id FROM series")}
+    retired_lines = [t for t in lines if t not in present and t not in exempt
+                     and (red.get(t) not in line_now or reason.get(t) == "retired")]
+    rule("more than %d carried lines retired in one build (every market)" % MAX_RETIRED_LINES,
+         0 if len(retired_lines) <= MAX_RETIRED_LINES else len(retired_lines), str(retired_lines[:5]))
+    moved_ids = [t for t in old if t not in present and t not in exempt and red.get(t) in present]
+    rule("more than %d carried ids moved (re-keyed or merged) in one build" % MAX_MOVED_IDS,
+         0 if len(moved_ids) <= MAX_MOVED_IDS else len(moved_ids), str(moved_ids[:5]))
     rule("id_redirect rows whose target is not in the artifact",
          sum(1 for t in red.values() if t not in present))
     # Integers are a contract too (Mangarr stores gcd_series_id): every carried integer is still a
@@ -438,10 +457,11 @@ def run_ids(path, carry):
          str(lost_ints[:5]))
     moved = [t for t in old if t not in present and t not in exempt]
     print("  info  carried ids: %s works / %s lines / %s volumes / %s already redirected; not present here: %s "
-          "(redirected %s, retired volumes %s, excluded works' ids %s)" % (
+          "(redirected %s, moved %s of %s allowed, retired lines %s / volumes %s, excluded works' ids %s)" % (
               format(len(works), ","), format(len(lines), ","), format(len(vols), ","), format(len(carried_red), ","),
               format(len(moved) + len([t for t in exempt if t not in present]), ","),
-              format(sum(1 for t in moved if red.get(t) in present), ","), format(len(retired), ","),
+              format(sum(1 for t in moved if red.get(t) in present), ","), format(len(moved_ids), ","),
+              format(MAX_MOVED_IDS, ","), format(len(retired_lines), ","), format(len(retired), ","),
               format(sum(1 for t in exempt if t not in present), ",")))
     de_ids = [t for t, (_, lang) in lines.items() if lang == "de"] + de
     print("  info  carried German ids: %s, redirected: %s" % (
