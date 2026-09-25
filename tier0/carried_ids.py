@@ -18,11 +18,15 @@ resolve forever through id_redirect. Two stages keep it, for any market, any ent
       brings its lines along, re-keyed under the surviving work. Where such a re-keyed line
       is the SAME edition as one of the survivor's carried lines -- same market and medium,
       a strict majority of the smaller line's ISBNs shared, or, when either has no ISBNs, of
-      its dated volumes (number + date) -- it is merged into that carried line: the carried
-      line survives byte for byte, a volume number it lacks moves over (re-keyed by number),
+      its dated volumes (number + date) -- it is merged into that carried line, but only when
+      its evidence also matches one of the ABSORBED work's own published lines (a plain re-key
+      of a line the survivor already had stays a re-key, even beside a same-edition twin): the
+      carried line survives byte for byte, a volume number it lacks moves over (re-keyed by number),
       the rest are dropped with their claims. Scope: only the lines of a work that absorbed
       another (this build, or a carried `work` redirect -- the duplicate comes back on every
-      build), and only a line the carried artifact does not have. A line both artifacts have
+      build; later builds merge it by the carry's meta.merged_lines, [duplicate line id,
+      survivor] pairs the export writes, because the absorbed work's lines are no longer in
+      the carry to compare with), and only a line the carried artifact does not have. A line both artifacts have
       is never merged here: today's catalogue has ~500 same-work same-edition pairs (JoJo
       printings, "Tomes 31 à aujourd'hui" tails) whose ids are published.
 
@@ -100,7 +104,12 @@ def read_carry(carry):
         rc = _cols(A, "id_redirect")
         red = A.execute("SELECT old_tome_id, new_tome_id, %s, %s FROM id_redirect" % (
             "entity" if "entity" in rc else "NULL", "reason" if "reason" in rc else "NULL")).fetchall()
-    return {"lines": lines, "vols": vols, "redirects": red}
+    try:     # the merges 4c made in earlier builds (to_mangarr writes meta.merged_lines)
+        merged = {d: k for d, k in json.loads(A.execute(
+            "SELECT value FROM meta WHERE key='merged_lines'").fetchone()[0])}
+    except (sqlite3.OperationalError, TypeError, ValueError):
+        merged = {}
+    return {"lines": lines, "vols": vols, "redirects": red, "merged": merged}
 
 
 def _table(db, name):
@@ -242,13 +251,32 @@ def merge_absorbed(db, carry, ambiguous=None):
         return []
     c = db.cursor()
     done = []
+    carried_ev = collections.defaultdict(lambda: (set(), set(), 0))
+    for vid, (line, num, isbn, date) in C["vols"].items():
+        i, d, n = carried_ev[line]
+        carried_ev[line] = (i | ({isbn} if isbn else set()), d | ({(num, date)} if date else set()), n + 1)
     for old_w, w in sorted(absorbing_works(db, C).items()):
         lines = c.execute("SELECT id, market, medium FROM release_line WHERE work_id=? ORDER BY id", (w,)).fetchall()
         carried = [(r, m, d) for r, m, d in lines if r in C["lines"]]
+        absorbed = [t for t, (tw, m, d) in C["lines"].items() if tw == old_w]
         for rid, market, medium in lines:
             if rid in C["lines"]:
                 continue
+            keep = C["merged"].get(rid)
+            if keep and any(r == keep and (m, d) == (market, medium) for r, m, d in carried):
+                # the same duplicate an earlier build merged (the carry's meta.merged_lines): the
+                # absorbed work's lines are gone from the carry by now, so its decision is the
+                # evidence -- the same line id, the same survivor, every build
+                moved, dropped = merge_line(c, rid, keep)
+                done.append((old_w, w, rid, keep, moved, dropped))
+                continue
             ev = _line_evidence(c, rid)
+            # only a line that IS one of the absorbed work's published lines (its evidence says
+            # so) is a duplicate brought in by the merge; a plain re-key of a line the survivor
+            # already had stays a re-key (7b redirects it) even beside a same-edition twin
+            if not any(C["lines"][t][1:] == (market, medium) and same_edition(ev, carried_ev[t])
+                       for t in absorbed):
+                continue
             best = []
             for s, sm, sd in carried:
                 if (sm, sd) == (market, medium):
@@ -266,6 +294,7 @@ def merge_absorbed(db, carry, ambiguous=None):
                 keep = best[0][2]
                 moved, dropped = merge_line(c, rid, keep)
                 done.append((old_w, w, rid, keep, moved, dropped))
+    c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('carried:merged',?)", (json.dumps(done),))
     db.commit()
     return done
 
@@ -472,8 +501,6 @@ def main(argv):
             print("    AMBIGUOUS %s -> %s: %s matches %s equally -- not merged (7b reports it)" % (old_w, w, dup, keeps))
         for old_w, w, dup, keep, moved, dropped in done:
             print("    %s -> %s: %s into %s (%d volumes moved, %d dropped)" % (old_w, w, dup, keep, moved, dropped))
-        db.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('carried:merged',?)", (json.dumps(done),))
-        db.commit()
         return
     rep = redirects(db, carry)
     print("  carried id_redirect rows re-read: %d new" % rep["carried_rows"])

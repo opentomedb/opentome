@@ -242,6 +242,32 @@ eq("merged work: the work redirect reaches the artifact (works count as present)
 eq("merged work: the gate passes", ids_ok(art, carry), [])
 db.close()
 
+# ---- review I4: in an absorbing work, a plain re-key of the survivor's own line stays a re-key ----
+# WA absorbs WB (WB's JP line merges as before). WA also publishes two EN editions sharing 2 of 3
+# ISBNs ("DoG" and "DoG (Paperback)"); this build renames the paperback. The renamed line matches
+# the published "DoG" -- but no line of WB, so it is not a duplicate the merge brought in.
+def i4(name, paper):
+    en_a = [("1", "9781970000011", "2019-01-01"), ("2", "9781970000028", "2019-02-01"), ("3", "9781970000097", "2019-03-01")]
+    en_b = [("1", "9781970000011", "2019-01-01"), ("2", "9781970000028", "2019-02-01"), ("3", "9781970000035", "2019-03-01")]
+    merged = paper != "DoG (Paperback)"
+    return catalogue(name, [
+        (WA, "Drops of God", [("JP", "manga", "Drops of God", jp), ("EN", "manga", "DoG", en_a), ("EN", "manga", paper, en_b)]),
+        (WA if merged else WB, "Drops of God" if merged else "s Gouttes de Dieu",
+         [("JP", "manga", "Drops of God (Les Gouttes de Dieu)" if merged else "Les Gouttes de Dieu", jp)])])
+
+
+carry_i4 = artifact(i4("i4a", "DoG (Paperback)"))
+db = sqlite3.connect(i4("i4b", "DoG (Softcover)"))
+done = K.merge_absorbed(db, carry_i4)
+eq("I4: only the absorbed work's JP line merges; the renamed paperback is not merged into its twin",
+   [(d[2], d[3]) for d in done], [(rl(WA, "JP", "Drops of God (Les Gouttes de Dieu)"), rl(WA, "JP", "Drops of God"))])
+rep = K.redirects(db, carry_i4, excluded=set())
+eq("I4: the paperback is a re-key -- redirected to its renamed line (correction), not merged",
+   db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (rl(WA, "EN", "DoG (Paperback)"),)).fetchone(),
+   (rl(WA, "EN", "DoG (Softcover)"), "correction"))
+eq("I4: both EN lines are still there", db.execute("SELECT COUNT(*) FROM release_line WHERE market='EN'").fetchone()[0], 2)
+db.close()
+
 # ---- review I2 (repro3): a tie between two works / lines is reported, whatever the hash seed ------
 TIE = """
 import os, sys, sqlite3
@@ -463,7 +489,10 @@ eq("merge: the gate passes", ids_ok(art, carry), [])
 # redirect is what says the merge was made, so it merges again and no new id ships
 path3 = gouttes("g3", merged=True)
 db = sqlite3.connect(path3)
-eq("next build: merged again through the carried work redirect",
+eq("next build: the artifact records the merge (meta.merged_lines)",
+   sqlite3.connect(art).execute("SELECT value FROM meta WHERE key='merged_lines'").fetchone(),
+   (__import__("json").dumps([[N_JP, S_JP]]),))
+eq("next build: merged again by the recorded decision (the absorbed lines are gone from the carry)",
    [(d[2], d[3]) for d in K.merge_absorbed(db, art)], [(N_JP, S_JP)])
 K.redirects(db, art, excluded=set())
 db.close()

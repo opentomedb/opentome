@@ -58,7 +58,11 @@ under the survivor. Where a re-keyed line is the same edition as one of the surv
 
 **Scope.** Only a line the carry does not have, in a work that absorbed another — in this build,
 or through a carried `work` redirect (the duplicate comes back on every build, so the merge must
-too). Today's catalogue has **496** same-work same-edition line pairs whose ids are all published
+too) — and only when the line's evidence also matches one of the **absorbed** work's own
+published lines: a plain re-key of a line the survivor already had stays a re-key (7b), even
+beside a same-edition twin. The export records each merge as `meta.merged_lines` ([duplicate
+line id, survivor] pairs, not a consumer field); a later build, whose carry no longer holds the
+absorbed work's lines, merges the same duplicate id into the same survivor by that record. Today's catalogue has **496** same-work same-edition line pairs whose ids are all published
 (JoJo printings, "Tomes 31 à aujourd'hui" tails, EN/FR-article JP twins); merging those would
 retire hundreds of consumer-held ids and is a separate decision.
 
