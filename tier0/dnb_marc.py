@@ -265,7 +265,7 @@ def origin_in_scope(r):
     if langs:
         return "jpn" in langs
     resp = " ".join(subs(r, "245", "c") + subs(r, "500", "a") + subs(r, "546", "a"))
-    if re.search(r"aus dem (?!japanischen)\w+", resp, re.I):
+    if re.search(r"aus dem (?!jap)\w+", resp, re.I):          # 'Aus dem Japan.' is Japanese
         return False
     kw = {clean(v).lower() for v in subs(r, "653", "a")}
     return not kw & {"manhwa", "webtoon", "manhua", "k-comic", "korea", "korean"}
