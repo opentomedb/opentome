@@ -14,8 +14,9 @@
 #   3e. dnb            the German market from the Deutsche Nationalbibliothek (CC0): print
 #                      manga / light novels of Japanese origin, ISBN-merged into the German
 #                      Wikipedia lines, linked to works by title + author (high/medium ship,
-#                      low/ambiguous -> build/dnb-review.tsv). ~340 SRU requests at >= 3 s
-#                      on a cold cache (~22 min), zero on a warm one (tier0/build_dnb.py)
+#                      low/ambiguous -> build/dnb-review.tsv). ~390 SRU requests at >= 3 s
+#                      on a cold cache (~20 min), zero on a warm one, ~62 a week with
+#                      DNB_REFRESH_DAYS set (CI) (tier0/build_dnb.py)
 #   4b. covers         ISBN-keyed cover URLs from the cached openBD /
 #                      Open Library responses -- zero requests
 #   4. enrichment      openBD (JP) / Open Library (EN, FR) / BnF (FR)

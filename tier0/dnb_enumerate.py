@@ -66,13 +66,20 @@ CHANNELS = [
 
 
 def _page(q, refresh=False, force=False):
-    n, pages = S.search(q, refresh=refresh, force=force)
+    try:
+        n, pages = S.search(q, refresh=refresh, force=force)
+    except S.DnbUnavailable:
+        print("    WARNING DNB slice %r unavailable (refresh run fell back to the cache) -- skipped" % q, flush=True)
+        return 0, {}
     seen = {}
     for text in pages:
         for r in M.records(text):
             seen[M.idn(r)] = r
     if len(seen) != n:
-        raise RuntimeError("DNB slice %r announced %d records but paged %d distinct" % (q, n, len(seen)))
+        msg = "DNB slice %r announced %d records but paged %d distinct" % (q, n, len(seen))
+        if not S.REFRESH_DAYS:
+            raise RuntimeError(msg)
+        print("    WARNING " + msg + " (refresh run: kept what paged)", flush=True)
     return n, seen
 
 
@@ -109,18 +116,62 @@ def run_channel(name, base, fine_from, coarse, verbose=True):
     return got, whole - len(got), refreshed
 
 
+PARENT_INDEX = os.path.join(S.CACHE, "dnb-parents.json")
+
+
 def fetch_parents(have, want, verbose=True):
-    """Fetch the set records in `want` that are not in `have`, 30 idns per request."""
+    """The set records in `want` that are not in `have`. A parent is fetched ONCE: an index in
+    the cache (.cache/dnb-parents.json, idn -> the batch query that returned it) keeps each
+    batch's url stable, so a new parent costs one request for itself instead of shifting every
+    later batch of a sorted list. Parents are not refreshed -- a set record's title and
+    publisher do not change. The first run with the index adopts the batches already cached."""
+    import json
     todo = sorted(set(want) - set(have))
-    got = {}
+    try:
+        with open(PARENT_INDEX, encoding="utf8") as f:
+            index = json.load(f)
+    except (OSError, ValueError):
+        index = {}
+    cached = lambda q: os.path.exists(S.cache_path(S.url_for(q, 1)))
+    # adopt the legacy sorted-chunk batches that are already in the cache
     for i in range(0, len(todo), IDN_BATCH):
-        chunk = todo[i:i + IDN_BATCH]
-        n, pages = S.search(" or ".join("idn=" + x for x in chunk), refresh=True)
+        q = " or ".join("idn=" + x for x in todo[i:i + IDN_BATCH])
+        if cached(q):
+            for x in todo[i:i + IDN_BATCH]:
+                index.setdefault(x, q)
+    missing = [x for x in todo if x not in index or not cached(index[x])]
+    for i in range(0, len(missing), IDN_BATCH):
+        q = " or ".join("idn=" + x for x in missing[i:i + IDN_BATCH])
+        try:
+            S.search(q)
+        except S.DnbUnavailable:
+            continue
+        for x in missing[i:i + IDN_BATCH]:
+            index[x] = q
+    got = {}
+    for q in sorted({index[x] for x in todo if x in index}):
+        try:
+            n, pages = S.search(q)
+        except S.DnbUnavailable:
+            continue
         for text in pages:
             for r in M.records(text):
-                got[M.idn(r)] = r
+                if M.idn(r) in want:
+                    got[M.idn(r)] = r
+    old = None
+    try:
+        with open(PARENT_INDEX, encoding="utf8") as f:
+            old = json.load(f)
+    except (OSError, ValueError):
+        pass
+    if index != old:                      # written only when it changed (not a network response)
+        os.makedirs(S.CACHE, exist_ok=True)
+        tmp = PARENT_INDEX + ".part"
+        with open(tmp, "w", encoding="utf8") as f:
+            json.dump(index, f, sort_keys=True)
+        os.replace(tmp, PARENT_INDEX)
     if verbose:
-        print("    parents    %d wanted, %d fetched (%d not returned)" % (
+        print("    parents    %d wanted, %d found (%d not returned)" % (
             len(todo), len(got), len(set(todo) - set(got))), flush=True)
     return got
 
@@ -138,6 +189,7 @@ def enumerate_all(verbose=True):
     parents = fetch_parents(recs, want, verbose)
     tally["parents_fetched"] = len(parents)
     tally["live_requests"] = S.live_requests[0]
+    tally["degraded"] = S.DEGRADED[0]
     return recs, parents, tally
 
 

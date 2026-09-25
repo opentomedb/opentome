@@ -440,8 +440,15 @@ class _Resp:
         return False
 
 
+CLOCK, AT = [1_000_000.0], []
+
+
 def fake_urlopen(req, timeout=None):
     CALLS.append(req.full_url)
+    AT.append(CLOCK[0])
+    if SERVER.get("status"):
+        code, SERVER["status"] = SERVER["status"], None
+        raise urllib.error.HTTPError(req.full_url, code, "Server Error", email.message.Message(), None)
     if SERVER["refuse"]:
         SERVER["refuse"] -= 1
         h = email.message.Message()
@@ -451,8 +458,13 @@ def fake_urlopen(req, timeout=None):
     if SERVER["diagnostic"]:
         return _Resp('<searchRetrieveResponse><diag:diagnostic xmlns:diag="x"><diag:message>bad</diag:message>'
                      '</diag:diagnostic></searchRetrieveResponse>')
-    cond = q["query"][0][len("BASE"):].strip()
-    ids = sorted(i for y, xs in SERVER["years"].items() for i in xs if _matches(y, cond))
+    query = q["query"][0]
+    if query.startswith("idn="):
+        want = {x.strip()[4:] for x in query.split(" or ")}
+        ids = sorted(i for xs in SERVER["years"].values() for i in xs if i in want)
+    else:
+        cond = query[len("BASE"):].strip()
+        ids = sorted(i for y, xs in SERVER["years"].items() for i in xs if _matches(y, cond))
     start, maxr = int(q["startRecord"][0]), int(q["maximumRecords"][0])
     body = "".join('<record xmlns="http://www.loc.gov/MARC21/slim"><leader>00000pam a2200000 cc4500</leader>'
                    '<controlfield tag="001">%s</controlfield></record>' % i for i in ids[start - 1:start - 1 + maxr])
@@ -461,18 +473,26 @@ def fake_urlopen(req, timeout=None):
 
 
 saved = (S.CACHE, S.STAMP, S.NETLOG, S.OFFLINE, S.REFRESH_DAYS, S.urllib.request.urlopen, S.time.sleep,
-         E.CURRENT_YEAR)
+         E.CURRENT_YEAR, S.time.time, E.PARENT_INDEX)
 tmp = tempfile.mkdtemp(prefix="dnb-fetch-")
 S.CACHE, S.STAMP, S.NETLOG = tmp, os.path.join(tmp, ".stamp"), os.path.join(tmp, "netlog.tsv")
 S.OFFLINE, S.REFRESH_DAYS = False, 0
 S.urllib.request.urlopen = fake_urlopen
-S.time.sleep = lambda secs: SLEEPS.append(secs)
+def _sleep(secs):
+    SLEEPS.append(secs)
+    CLOCK[0] += secs
+
+
+S.time.sleep = _sleep
+S.time.time = lambda: CLOCK[0]
+E.PARENT_INDEX = os.path.join(tmp, "dnb-parents.json")
 try:
     SERVER["years"] = {2025: ["a1", "a2"], 2026: ["b1"], None: ["n1"]}
     E.CURRENT_YEAR = 2026
     got, gap, _ = E.run_channel("t", "BASE", 2025, (), verbose=False)
     eq("cold run: every record, no gap (incl. the no-year remainder)", (sorted(got), gap), (["a1", "a2", "b1", "n1"], 0))
-    eq("throttle: never less than 3 s between requests", S.INTERVAL >= 3.0 and all(x <= 3.0 for x in SLEEPS), True)
+    eq("throttle: consecutive requests are >= 3 s apart",
+       min(b - a for a, b in zip(AT, AT[1:])) >= 3.0 and len(AT) > 3, True)
     n = len(CALLS)
     E.run_channel("t", "BASE", 2025, (), verbose=False)
     eq("rerun: zero requests", len(CALLS) - n, 0)
@@ -526,9 +546,47 @@ try:
     E.run_channel("t", "BASE", 2025, (), verbose=False)
     eq("offline: a stale cached copy is served, not refetched", len(CALLS) - n, 0)
     eq("every live request is in the netlog", sum(1 for _ in open(S.NETLOG)), len(CALLS))
+
+    # refresh runs never fail the build over DNB: they fall back to the (stale) cache
+    S.OFFLINE, S.REFRESH_DAYS = False, 1
+    for f in os.listdir(tmp):
+        os.utime(os.path.join(tmp, f), (CLOCK[0] - 3 * 86400,) * 2)
+    SERVER["status"] = 500
+    got, gap, _ = E.run_channel("t", "BASE", 2025, (), verbose=False)
+    eq("refresh run + HTTP 500: falls back to the cache, no exception, same records",
+       (len(got), bool(S.DEGRADED[0])), (6, True))
+    S.DEGRADED[0] = None
+    for f in os.listdir(tmp):
+        os.utime(os.path.join(tmp, f), (CLOCK[0] - 3 * 86400,) * 2)
+    SERVER["refuse"], S._refusals[0] = 2, 0
+    got, gap, _ = E.run_channel("t", "BASE", 2025, (), verbose=False)
+    eq("refresh run + a second 429: falls back to the cache, no exception", (len(got), bool(S.DEGRADED[0])), (6, True))
+    n = len(CALLS)
+    E.CURRENT_YEAR = 2031                       # new slice urls, never cached, while degraded
+    got, gap, _ = E.run_channel("t", "BASE", 2025, (), verbose=False)
+    eq("degraded: an uncached slice is skipped with a warning, no request", len(CALLS) - n, 0)
+    SERVER["refuse"], S._refusals[0], S.DEGRADED[0], S.REFRESH_DAYS = 0, 0, None, 0
+    S.OFFLINE = False
+    try:
+        SERVER["status"] = 500
+        S.get(S.url_for("BASE and jhr=1977"))
+        eq("a first run (no refresh window) stays strict on a 500", "no exception", "HTTPError")
+    except urllib.error.HTTPError:
+        eq("a first run (no refresh window) stays strict on a 500", True, True)
+
+    # parents: one request per batch, stable batch urls through the cache index
+    SERVER["years"] = {2025: ["p1", "p2", "p3"]}
+    E.IDN_BATCH = 2
+    n = len(CALLS)
+    got = E.fetch_parents({}, {"p1", "p2"}, verbose=False)
+    eq("parents fetched once", (sorted(got), len(CALLS) - n), (["p1", "p2"], 1))
+    n = len(CALLS)
+    got = E.fetch_parents({}, {"p0", "p1", "p2"}, verbose=False)
+    eq("a new parent costs one request; the old batch url is kept", len(CALLS) - n, 1)
 finally:
     (S.CACHE, S.STAMP, S.NETLOG, S.OFFLINE, S.REFRESH_DAYS, S.urllib.request.urlopen, S.time.sleep,
-     E.CURRENT_YEAR) = saved
+     E.CURRENT_YEAR, S.time.time, E.PARENT_INDEX) = saved
+    S.DEGRADED[0], E.IDN_BATCH = None, 30
 
 print()
 if FAILS:

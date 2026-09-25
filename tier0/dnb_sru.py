@@ -53,6 +53,16 @@ class DnbDiagnostic(RuntimeError):
     """SRU answered with a diagnostic (bad query) -- never cached."""
 
 
+class DnbUnavailable(RuntimeError):
+    """A refresh run fell back to the cache after a DNB failure, and this url is not cached."""
+
+
+# A REFRESH run (DNB_REFRESH_DAYS set, the scheduled build) must never fail the catalogue over
+# DNB: on a second 429/503, a 5xx, a network error or a diagnostic it falls back to the stale
+# cache for the rest of the run (DEGRADED) and says so. Offline and first runs stay strict.
+DEGRADED = [None]            # the reason, once degraded
+
+
 _refusals = [0]                # 429/503 answers seen by this process
 live_requests = [0]            # requests that went to the network in this process
 
@@ -78,7 +88,8 @@ def _throttle():
             wait = INTERVAL - (time.time() - last)
             if wait > 0:
                 time.sleep(wait)
-            os.utime(STAMP, None)
+            now = time.time()
+            os.utime(STAMP, (now, now))
         finally:
             fcntl.flock(fh, fcntl.LOCK_UN)
 
@@ -104,14 +115,33 @@ def get(url, refresh=False, force=False):
     refetch a copy older than DNB_REFRESH_DAYS; force: refetch whatever its age. Offline, a
     cached copy is always served, stale or not."""
     key = cache_path(url)
-    if os.path.exists(key):
+    have = os.path.exists(key)
+    if have:
         stale = force or (refresh and REFRESH_DAYS and
                           time.time() - os.path.getmtime(key) > REFRESH_DAYS * 86400)
-        if not stale or OFFLINE:
+        if not stale or OFFLINE or DEGRADED[0]:
             with open(key, encoding="utf8") as f:
                 return f.read()
     if OFFLINE:
         raise DnbOfflineMiss("DNB_OFFLINE=1 and no cached response for " + url)
+    if DEGRADED[0]:
+        raise DnbUnavailable(url)
+    try:
+        return _live(url, key)
+    except (DnbThrottled, DnbDiagnostic, urllib.error.HTTPError, urllib.error.URLError,
+            TimeoutError, ConnectionError, RuntimeError) as e:
+        if not REFRESH_DAYS:
+            raise
+        DEGRADED[0] = "%s: %s" % (type(e).__name__, str(e)[:160])
+        print("    WARNING DNB refresh failed (%s) -- falling back to the cached responses for the "
+              "rest of this run" % DEGRADED[0], flush=True)
+        if have:
+            with open(key, encoding="utf8") as f:
+                return f.read()
+        raise DnbUnavailable(url)
+
+
+def _live(url, key):
     for attempt in range(3):
         _throttle()
         t0 = time.time()

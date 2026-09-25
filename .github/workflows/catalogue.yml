@@ -32,6 +32,12 @@ jobs:
     timeout-minutes: 180
     env:
       OPENTOME_CI: '1'
+      # DNB freshness window (tier0/dnb_sru.py): refetch last year, this year and later, the
+      # no-year remainder, when older than 6 days -- 6, not 7, so a weekly cron never lands a
+      # day short and skips a week. ~62 SRU requests a week at >= 3 s, plus a recount of the
+      # older years (up to 42 small requests) only when a total changed. A DNB failure in a
+      # refresh run falls back to the cache; it never fails this build.
+      DNB_REFRESH_DAYS: '6'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

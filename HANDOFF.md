@@ -31,16 +31,21 @@ Done (design: `docs/dnb-design.md`, results: `docs/german-market.md`):
   export; replay `--base main` 0 new / 0 changed / 0 lost.
 
 Next:
+- **Seeding trap:** regenerate the seed tarball from the FULL current `.cache` (`tar --zstd
+  -cf opentome-cache.tar.zst -C .cache .`), never append the DNB files to the old tarball --
+  an appended or partial seed silently drops whatever it lacks, and the next cold CI run
+  re-fetches it (or, for AniList, binds differently).
 - **CI's cache has no DNB responses -- seed it before the next CI build.** Unseeded, the
   first CI build makes ~390 SRU requests inside stage 3e; `actions/cache` saves only on a
   successful job, so a throttled (DnbThrottled) or otherwise failed run keeps nothing and
   repeats the burst every week. Seed: add the DNB `.cache/*.xml` files (the urls in
   `build/dnb-netlog.tsv`, key = sha256(url)[:32] + '.xml') to the opentome-cache seed tarball
   and re-run seed-cache.
-- Refreshing: nothing re-fetches by default, so German data never updates until
-  `DNB_REFRESH_DAYS=N` is set in the catalogue workflow (last year + current/future years, the
-  no-year remainder and parent batches older than N days; frozen slices re-paged only when
-  their count changed). Nick's call on N (7 = weekly with the Sunday build, ~60-90 requests).
+- Refreshing: `DNB_REFRESH_DAYS=6` is now set in `catalogue.yml` (last year, this year and
+  later, the no-year remainder, when older than 6 days: ~62 requests a week, plus up to 42
+  small recounts when a total moved). Parents are fetched once (stable batches via
+  `.cache/dnb-parents.json`), never refreshed. A DNB failure in a refresh run falls back to
+  the cache with a warning and never fails the build; offline and first runs stay strict.
 - Nick: `build/dnb-review.tsv` (217 low/ambiguous lines) -- confirmed ones could become
   corrections; the design has no correction type for "link this DNB line" yet.
 - Follow-ups: KR/CN round (decision 4); light novels are thin (19 lines) -- LN works are
