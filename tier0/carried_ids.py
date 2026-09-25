@@ -301,6 +301,24 @@ def merge_absorbed(db, carry, ambiguous=None):
 
 # ---- 7b. redirects -------------------------------------------------------------------------------
 
+def exported_volumes(db):
+    """{volume id: (line, str(int number), isbn13)} for the volumes the export writes to `volumes`:
+    a non-negative integer number (a '7.5' / 'SP' volume goes to volumes_special, which has no
+    tome_id), the first per (line, integer) by rowid (the export's INSERT OR IGNORE). Only these
+    ids are present to a consumer -- so only these are present, or a target, here."""
+    out, seen = {}, set()
+    for v, l, n, i in db.execute("SELECT id, release_line_id, number, isbn13 FROM volume ORDER BY rowid"):
+        try:
+            k = int(n)
+        except (TypeError, ValueError):
+            continue
+        if k < 0 or (l, k) in seen:
+            continue
+        seen.add((l, k))
+        out[v] = (l, str(k), i)
+    return out
+
+
 def redirects(db, carry, excluded=None):
     """Stage 7b. -> report dict (counts by entity / reason / market, orphans, exempt)."""
     C = read_carry(carry)
@@ -315,7 +333,7 @@ def redirects(db, carry, excluded=None):
         rep["carried_rows"] += db.execute("INSERT OR IGNORE INTO id_redirect VALUES(?,?,?,?,?)",
                                           (o, n, e or "release_line", r, NOW)).rowcount
     lines_now = {r: (w, m, d) for r, w, m, d in db.execute("SELECT id, work_id, market, medium FROM release_line")}
-    vols_now = {v: (l, n, i) for v, l, n, i in db.execute("SELECT id, release_line_id, number, isbn13 FROM volume")}
+    vols_now = exported_volumes(db)
     works_now = {w for w, _, _ in lines_now.values()}
     present = set(lines_now) | set(vols_now) | works_now
     # A redirect whose OLD id is present again (a re-key reverted: "s X" -> "Les X" -> "s X") is
@@ -353,7 +371,7 @@ def redirects(db, carry, excluded=None):
     vols_of = collections.defaultdict(list)          # carried line -> [(vid, number, isbn, date)]
     for v, (l, n, i, d) in C["vols"].items():
         vols_of[l].append((v, n, i, d))
-    num_in = {(l, n): v for v, (l, n, _) in vols_now.items()}
+    num_in = {(l, n): v for v, (l, n, _) in vols_now.items()}         # n: str(int), as exported
     dated_in = collections.defaultdict(set)
     for v, l, n, d in db.execute("SELECT id, release_line_id, number, release_date FROM volume WHERE release_date IS NOT NULL"):
         dated_in[l].add((n, d))

@@ -268,6 +268,22 @@ eq("I4: the paperback is a re-key -- redirected to its renamed line (correction)
 eq("I4: both EN lines are still there", db.execute("SELECT COUNT(*) FROM release_line WHERE market='EN'").fetchone()[0], 2)
 db.close()
 
+# ---- 7b sees what the export writes: a volumes_special row (non-integer number) is not present ----
+WS = "en:Special"
+sp1 = artifact(catalogue("sp1", [(WS, "Special", [("JP", "manga", "Special (Old)",
+                                                  [("1", "9784000000501", None), ("2", "9784000000502", None),
+                                                   ("3", "9784000000503", None)])])]))
+sp2 = catalogue("sp2", [(WS, "Special", [("JP", "manga", "Special (New)",
+                                          [("1", "9784000000501", None), ("2", "9784000000502", None),
+                                           ("2.5", "9784000000503", None)])])])
+db = sqlite3.connect(sp2)
+K.redirects(db, sp1, excluded=set())
+eq("a volume whose ISBN now sits only on a special ('2.5') retires to the line, never to the special",
+   db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (_id("v_", rl(WS, "JP", "Special (Old)"), "3"),)).fetchone(),
+   (rl(WS, "JP", "Special (New)"), "retired"))
+db.close()
+eq("... and the gate passes (a special target would have been dropped at export)", ids_ok(artifact(sp2, sp1), sp1), [])
+
 # ---- a DERIVED origin pin that disagrees with the origin market warns; a correction's raises ------
 WP = "en:Pinned"
 pin_db = catalogue("pin", [(WP, "Pinned", [("JP", "manga", "Pinned", vols(18, 2)), ("EN", "manga", "Pinned", vols(19, 2)),
