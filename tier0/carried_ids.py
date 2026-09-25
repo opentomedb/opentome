@@ -309,6 +309,24 @@ def merge_absorbed(db, carry, ambiguous=None):
 
 # ---- 7b. redirects -------------------------------------------------------------------------------
 
+def volume_successor(line_retired, line, in_market, in_line, by_number):
+    """Where a lost carried volume goes (7b here, and 3e's build_dnb.redirects). `line` is its
+    line's successor; `in_market` / `in_line` the present volumes of its market / of `line` that
+    carry its ISBN; `by_number` the volume of its number in `line` (or None).
+    -> (target, kind): kind 'line' (its line moved: a unique ISBN in the line, else the number),
+    'isbn' (a unique ISBN in the market), 'retired' (the target is the LINE).
+    A RETIRED line (it fell back to its work's main line) never matches by number -- that line's
+    vol N is another book (an arc's vol 1 is not the main series' vol 1): only a unique ISBN in
+    the market, else retired to the line."""
+    if not line_retired:
+        nv = (in_line[0] if len(in_line) == 1 else None) or by_number
+        if nv:
+            return nv, "line"
+    if len(in_market) == 1:
+        return in_market[0], "isbn"
+    return line, "retired"
+
+
 def exported_volumes(db):
     """{volume id: (line, str(int number), isbn13)} for the volumes the export writes to `volumes`:
     a non-negative integer number (a '7.5' / 'SP' volume goes to volumes_special, which has no
@@ -474,23 +492,11 @@ def redirects(db, carry, excluded=None):
             continue
         line_reason = reason_of.get(l) if l not in lines_now else "correction"
         in_market = by_isbn.get((market, i), ()) if i else ()
-        if line_reason == "retired":
-            # the line fell back to its work's main line: that line's volume N is a DIFFERENT book
-            # (an arc's vol 1 is not the main series' vol 1) -- only a unique ISBN may claim it
-            if len(in_market) == 1:
-                put(v, in_market[0], "volume", "correction", market)
-            else:
-                put(v, ls, "volume", "retired", market)
-            continue
-        vol_reason = "duplicate_merge" if line_reason == "duplicate_merge" else "correction"
-        in_line = [x for x in in_market if vols_now[x][0] == ls]
-        nv = (in_line[0] if len(in_line) == 1 else None) or num_in.get((ls, n))
-        if nv:
-            put(v, nv, "volume", vol_reason, market)
-        elif len(in_market) == 1:
-            put(v, in_market[0], "volume", "correction", market)
-        else:
-            put(v, ls, "volume", "retired", market)
+        target, kind = volume_successor(line_reason == "retired", ls, in_market,
+                                        [x for x in in_market if vols_now[x][0] == ls], num_in.get((ls, n)))
+        reason = {"line": "duplicate_merge" if line_reason == "duplicate_merge" else "correction",
+                  "isbn": "correction", "retired": "retired"}[kind]
+        put(v, target, "volume", reason, market)
 
     rep["excluded"] = sum(1 for t in C["lines"] if t in exempt_lines) + \
         sum(1 for v, (l, _, _, _) in C["vols"].items() if l in exempt_lines)

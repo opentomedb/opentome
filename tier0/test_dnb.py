@@ -415,6 +415,34 @@ B.redirects(cat2, art)
 eq("a redirect carried in the artifact is re-read (and chains: ancient -> old -> new)",
    cat2.execute("SELECT new_id FROM id_redirect WHERE old_id='rl_ancient'").fetchone(), (old_rl,))
 
+# review N2: a German line with no successor retires to its work's main German line -- and its
+# volumes must NOT land on that line's same-numbered books (another series' vol 1)
+cat4 = sqlite3.connect(":memory:")
+cat4.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+cat4.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_de','Main',?,?)", (T, T))
+cat4.execute("""INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at)
+                VALUES('rl_de_main','w_de','manga','DE','de',?,?)""", (T, T))
+for n in (1, 2, 3):
+    cat4.execute("""INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at)
+                    VALUES(?,'rl_de_main',?,?,?,?)""", ("v_main%d" % n, str(n), "978375390000%d" % n, T, T))
+art4 = os.path.join(tmp, "carry-n2.sqlite")
+A4 = sqlite3.connect(art4)
+A4.executescript("CREATE TABLE series (gcd_series_id INTEGER PRIMARY KEY, tome_id TEXT, tome_work_id TEXT, language TEXT);"
+                 "CREATE TABLE volumes (id INTEGER PRIMARY KEY, gcd_series_id INTEGER, volume_number INTEGER,"
+                 " tome_id TEXT, isbn13 TEXT);")
+A4.execute("INSERT INTO series VALUES(1, 'rl_de_main', 'w_de', 'de')")
+A4.execute("INSERT INTO series VALUES(2, 'rl_de_arc', 'w_de', 'de')")
+A4.executemany("INSERT INTO volumes VALUES(?, ?, ?, ?, ?)",
+               [(n, 1, n, "v_main%d" % n, "978375390000%d" % n) for n in (1, 2, 3)]
+               + [(10 + n, 2, n, "v_arc%d" % n, "978375391000%d" % n) for n in (1, 2)])
+A4.commit()
+moved, orphans = B.redirects(cat4, art4)
+eq("N2: the German arc line with no successor retires to the work's main German line",
+   cat4.execute("SELECT new_id, reason FROM id_redirect WHERE old_id='rl_de_arc'").fetchone(), ("rl_de_main", "retired"))
+eq("N2: its volumes retire to that LINE (reason retired) -- never to the main line's vol 1 / vol 2 by number",
+   cat4.execute("SELECT old_id, new_id, reason FROM id_redirect WHERE entity='volume' ORDER BY old_id").fetchall(),
+   [("v_arc1", "rl_de_main", "retired"), ("v_arc2", "rl_de_main", "retired")])
+
 # a published line the linker no longer links is kept, never silently dropped
 cat3 = sqlite3.connect(":memory:")
 cat3.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
