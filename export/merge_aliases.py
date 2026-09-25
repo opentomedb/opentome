@@ -113,7 +113,12 @@ def merge(new_path, old_path, verbose=True):
             "SELECT alias FROM series_alias WHERE gcd_series_id=?", (old_sid,))]
         for a in aliases:
             for v in variants(a):
-                cur = new.execute("INSERT OR IGNORE INTO series_alias VALUES(?,?)", (target, v))
+                # Preferred Edition (2026-09-24): series_alias grew language/kind columns.
+                # A carried-forward alias has no known work_title provenance -- closest of
+                # the fixed kinds is 'correction' (hand-curated, outside the automated
+                # derivation), same as corrections/aliases.json's language=NULL rows.
+                cur = new.execute("""INSERT OR IGNORE INTO series_alias (gcd_series_id, alias, language, kind)
+                                     VALUES(?,?,NULL,'correction')""", (target, v))
                 added += cur.rowcount
     # Stamp the artifact: an artifact carrying aliases merged from a GCD-derived
     # source is not clean-room and must never be published. export/publish.sh

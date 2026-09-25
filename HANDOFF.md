@@ -2,6 +2,24 @@
 
 _Last updated: 2026-09-24_
 
+## preferred-edition-v0 (2026-09-24, NOT published)
+
+Mangarr's Preferred Edition (spec: mangarr docs/superpowers/specs/2026-09-24-preferred-edition-design.md §6 a–d + plan A6)
+needs four additive artifact reads: `series.local_name`, `series.country` (market code verbatim), `series_alias.language/kind`,
+meta `markets`, plus `id_redirect` (entity `release_line`) for retired line ids. Tests: test_to_mangarr.py (local_title cases from the measured
+FR/DE/JP data), contract rules in test_artifact.py. Alias ORDER unchanged (diffed against the pre-change export). Next:
+review, merge, build-only CI green, then publish (standing OK) — Mangarr v1 reads these behind guards and works without them.
+
+Deferred (not fixed here): `tier0/build_corpus.py`'s `work_title()` still has the "de eats
+des" bug -- its STRIP regex (`d[eu\'’]\s*`) matches "de" as a prefix of "des", so a title
+like "Liste des tomes des Enquêtes de Kindaichi" strips only the first "des" and the alias
+that ships is "s Enquêtes de Kindaichi" instead of "Les Enquêtes de Kindaichi" (the shape
+`to_mangarr.local_title` already handles correctly for the Preferred Edition columns --
+this is a separate, older function used at ingest time). The fix is held because it re-keys
+13 lines and 247 volumes and merges `w_2e7699a81cd4` into `w_0153b28bb30b`, and no merge
+redirect writer exists yet. It needs a round that owns id-changing merges plus a non-DE
+carried-id gate.
+
 ## 2026-09-24 — branch `dnb-ingest`: the German market from DNB (stage 3e)
 
 **Review round (same day):** the independent review's ten items are fixed, one commit each

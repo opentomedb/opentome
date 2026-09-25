@@ -241,7 +241,9 @@ CREATE TABLE IF NOT EXISTS series (
     -- DISPLAY ONLY (2026-09-24): an AniList id for a cover/synopsis where anilist_id IS NULL,
     -- never a binding, never an alias source (export/resolve_anilist.py display())
     display_anilist_id INTEGER,
-    display_anilist_via TEXT);   -- parent | medium
+    display_anilist_via TEXT,    -- parent | medium
+    -- Preferred Edition (2026-09-24): the line's title in its own language (to_mangarr.local_name_for)
+    local_name TEXT);
 CREATE TABLE IF NOT EXISTS volumes (
     id INTEGER PRIMARY KEY, gcd_series_id INTEGER NOT NULL REFERENCES series(gcd_series_id),
     volume_number INTEGER NOT NULL, title TEXT, release_date TEXT,
@@ -255,7 +257,12 @@ CREATE TABLE IF NOT EXISTS volumes (
     UNIQUE (gcd_series_id, volume_number));
 CREATE TABLE IF NOT EXISTS series_alias (
     gcd_series_id INTEGER NOT NULL REFERENCES series(gcd_series_id),
-    alias TEXT NOT NULL, UNIQUE (gcd_series_id, alias));
+    alias TEXT NOT NULL,
+    -- Preferred Edition (2026-09-24): the title's language (work_title.language; NULL for the
+    -- line's own name and corrections) and kind: line | official | alias | abbreviation |
+    -- romanized | correction. First insertion wins (UNIQUE below), so the line's name is 'line'.
+    language TEXT, kind TEXT,
+    UNIQUE (gcd_series_id, alias));
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 -- Not read by the current C#. Preserves volumes whose number is not an int, so
 -- nothing is lost silently; a later Mangarr can promote these.
@@ -328,6 +335,63 @@ def _line_raw(lname, wtitle):
     if m and normalize(m.group(1)) == normalize(wtitle):
         return m.group(2).strip()
     return lname
+
+
+# Preferred Edition (2026-09-24). A French Wikipedia list article's title is the raw "Liste des
+# <kind> de <title>"; work_title() strips the common kinds but not every one ("Liste des volumes
+# dérivés de One Piece", "Liste des light novel de L'Odyssée de Kino" -- measured 2026-09-24), and
+# an article's disambiguator ("Radiant (bande dessinée)", "Shiki (roman)", "Wish (漫画)") is not
+# part of the title a reader sees. 'des' is tried before 'de' and every article needs a following
+# space, so 'de' never eats the start of 'des' ("... des Chevaliers du Zodiaque" -> "s Chevaliers").
+# 'des' and 'du' are contractions of de + les / de + le, so the title's own article comes back
+# ("Liste des chapitres des Gouttes de Dieu" -> "Les Gouttes de Dieu"); 'de' and "d'" carry none.
+_LIST_ARTICLE = re.compile(r"^(?:liste|chronologie)\s+des?\s+.+?\s+(?:(?P<art>des|du)\s+|de\s+|d['’]\s*)(?P<t>\S.*)$", re.I)
+_CONTRACTED_ARTICLE = {"des": "Les ", "du": "Le "}
+# A disambiguator is an ASCII "(...)" after a space. A full-width "（...）" is part of the title
+# itself -- every one measured was ("オトメン（乙男）", "神統記（テオゴニア）",
+# "男女の友情は成立する?（いや、しないっ!!）"), so it is never stripped.
+_TRAILING_QUALIFIER = re.compile(r"\s+\([^()]*\)\s*$")
+
+
+def local_title(raw):
+    """A work_title row cleaned to the title a reader of that language sees, or None."""
+    if not raw:
+        return None
+    # The list prefix is matched on the RAW title: work_title() alone turns "Liste des volumes
+    # dérivés de One Piece" into "dérivés de One Piece" (measured), which the prefix no longer matches.
+    m = _LIST_ARTICLE.match(raw.strip())
+    if m:
+        raw = _CONTRACTED_ARTICLE.get((m.group("art") or "").lower(), "") + m.group("t")
+    t = work_title(raw)
+    t = _TRAILING_QUALIFIER.sub("", t).strip()
+    if not t or MARKUP_TITLE_RE.search(t):
+        return None
+    return t
+
+
+def local_name_for(market, is_main, dnb_line_name, official_titles):
+    """The line's title in its own language (Mangarr names a new non-English series by it).
+    Measured rules (2026-09-24, build/opentome.db): EN lines need none (the name is English);
+    a DE line takes its DNB line_name -- the German publisher's series title (1,424 of 1,459 DE
+    lines have one, 668 differ from the English work title) -- else the main line's official de
+    title; FR/JP/other main lines take the work's official title in the line's language (1,491
+    of 1,493 FR lines have one; JP titles are native script); arcs and side lines take none,
+    because the FR line_name claims are English cross-parses ("Dream Eater Merry"), not French
+    titles."""
+    lang = MARKET_LANG.get(market, market.lower())
+    if lang == "en":
+        return None
+    if market == "DE" and dnb_line_name:
+        t = local_title(dnb_line_name)
+        if t:
+            return t
+    if not is_main:
+        return None
+    for raw in official_titles or []:
+        t = local_title(raw)
+        if t:
+            return t
+    return None
 
 
 def export(src_path, out_path, carry_ids_from=None):
@@ -408,6 +472,15 @@ def export(src_path, out_path, carry_ids_from=None):
         name = _first_author(val)
         if name:
             work_authors[wid] = name
+
+    # Preferred Edition (2026-09-24): inputs to local_name_for -- the work's official title per
+    # language, in stored order, and each line's DNB line_name (the German series title).
+    official_titles = {}
+    for wid, lang, title in src.execute("""SELECT work_id, language, title FROM work_title
+                                          WHERE kind='official' ORDER BY rowid"""):
+        official_titles.setdefault((wid, lang), []).append(title)
+    dnb_line_name = dict(src.execute("""SELECT entity_id, value FROM claim WHERE entity='release_line'
+                                        AND field='line_name' AND source='dnb' ORDER BY rowid"""))
 
     lines = src.execute("""
         SELECT rl.id, rl.work_id, rl.market, rl.medium, rl.publisher, rl.status, rl.parent_id,
@@ -609,13 +682,17 @@ def export(src_path, out_path, carry_ids_from=None):
             newly_stalled.append((lname or wtitle, MARKET_LANG.get(market, market.lower()),
                                   max(reach) if reach else None, int_max.get(orid),
                                   last_dated_of.get(rid), last_dated_of.get(orid)))
+        lang = MARKET_LANG.get(market, market.lower())
         out.execute("""INSERT OR REPLACE INTO series
             (gcd_series_id,name,year_began,publisher,language,is_omnibus,volume_count,status,
-             orig_series_id,medium,dated_count,is_main,tome_id,tome_work_id,parent_series_id,author)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             orig_series_id,medium,dated_count,is_main,tome_id,tome_work_id,parent_series_id,author,
+             country,local_name)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (sid, lname or wtitle, min(years) if years else w_year, publisher,
-             MARKET_LANG.get(market, market.lower()), is_omni, len(ints_written), mangarr_status,
-             orig_sid, medium, dated, is_main, rid, wid, parent_sid, work_authors.get(wid)))
+             lang, is_omni, len(ints_written), mangarr_status,
+             orig_sid, medium, dated, is_main, rid, wid, parent_sid, work_authors.get(wid),
+             market, local_name_for(market, is_main, dnb_line_name.get(rid),
+                                    official_titles.get((wid, lang)))))
         out.execute("INSERT OR REPLACE INTO id_map VALUES(?,?, 'release_line')", (rid, sid))
         n_series += 1
 
@@ -636,16 +713,18 @@ def export(src_path, out_path, carry_ids_from=None):
         # market's main line lost its arc alias and became unreachable by the
         # only name a folder ever uses -- Re:Zero's "The Sanctuary and the Witch
         # of Greed" resolved to nothing at all.
-        cands = [(lname or wtitle, False)]
+        cands = [(lname or wtitle, False, None, "line")]
         raw = _line_raw(lname, wtitle)
         if raw and raw != lname and len(normalize(raw).split()) >= 3 and not GENERIC.match(raw):
-            cands.append((raw, False))
+            cands.append((raw, False, None, "line"))
         if is_main:
-            for (alias,) in src.execute("SELECT title FROM work_title WHERE work_id=?", (wid,)):
+            # Same query, same order as before (the PK index orders it); only the columns grew.
+            for alias, alang, akind in src.execute(
+                    "SELECT title, language, kind FROM work_title WHERE work_id=?", (wid,)):
                 if alias:
-                    cands.append((alias, True))
-                    cands.append((work_title(alias), True))
-            cands.append((wtitle, True))
+                    cands.append((alias, True, alang, akind))
+                    cands.append((work_title(alias), True, alang, akind))
+            cands.append((wtitle, True, None, "line"))
 
         def owned_by_another_work(text):
             """True when this string is some OTHER work's own title -- the
@@ -654,7 +733,7 @@ def export(src_path, out_path, carry_ids_from=None):
             return bool(other_titles.get(normalize(text), set()) - {wid})
 
         seen = set()
-        for alias, work_level in cands:
+        for alias, work_level, alang, akind in cands:
             # A work-level alias is only as trustworthy as its uniqueness; a
             # line's own name is always kept, since that IS what it is called.
             if work_level and owned_by_another_work(alias):
@@ -662,7 +741,8 @@ def export(src_path, out_path, carry_ids_from=None):
             for a in variants(alias, with_heads=False):
                 if a.lower() not in seen:
                     seen.add(a.lower())
-                    out.execute("INSERT OR IGNORE INTO series_alias VALUES(?,?)", (sid, a))
+                    out.execute("""INSERT OR IGNORE INTO series_alias (gcd_series_id, alias, language, kind)
+                                   VALUES(?,?,?,?)""", (sid, a, alang, akind))
                     n_alias += 1
             if not work_level:
                 continue
@@ -672,7 +752,8 @@ def export(src_path, out_path, carry_ids_from=None):
                 for a in (head, normalize(head)):
                     if a and a.lower() not in seen:
                         seen.add(a.lower())
-                        out.execute("INSERT OR IGNORE INTO series_alias VALUES(?,?)", (sid, a))
+                        out.execute("""INSERT OR IGNORE INTO series_alias (gcd_series_id, alias, language, kind)
+                                       VALUES(?,?,?,?)""", (sid, a, alang, akind))
                         n_alias += 1
 
     # id_redirect, chains collapsed to ids present in this artifact; retired integers reserved
@@ -710,7 +791,8 @@ def export(src_path, out_path, carry_ids_from=None):
                 "fix or remove the entry (see corrections/README.md)" % line_id)
         for a in variants(alias, with_heads=False):
             n_corr += out.execute(
-                "INSERT OR IGNORE INTO series_alias VALUES(?,?)", (sid, a)).rowcount
+                """INSERT OR IGNORE INTO series_alias (gcd_series_id, alias, language, kind)
+                   VALUES(?,?,NULL,'correction')""", (sid, a)).rowcount
 
     # Curated alias REMOVALS (2026-09-23 cleanup, item 2): an exact string on an
     # exact line, not a rule. The automated version of this -- drop any alias
@@ -740,6 +822,10 @@ def export(src_path, out_path, carry_ids_from=None):
                 "corrections/aliases.json (remove): %r is not an alias of release line %s --\n"
                 "fix or remove the entry (see corrections/README.md)" % (alias, line_id))
         n_removed += gone
+
+    # Preferred Edition (2026-09-24): lines per language, for Mangarr's edition picker.
+    markets = dict(out.execute("""SELECT language, COUNT(*) FROM series
+                                  WHERE language IS NOT NULL GROUP BY language ORDER BY language"""))
 
     src_counts = dict(src.execute("SELECT source, COUNT(*) FROM claim GROUP BY source"))
     dnb_degraded = (src.execute("SELECT value FROM meta WHERE key='dnb:degraded'").fetchone() or [None])[0]
@@ -778,6 +864,8 @@ def export(src_path, out_path, carry_ids_from=None):
         # by omission. Fail-closed, not fail-open.
         ("alias_provenance", "opentome"),
         ("claim_sources", json.dumps(src_counts)),
+        # Preferred Edition (2026-09-24): lines per language, for Mangarr's edition picker
+        ("markets", json.dumps(markets, sort_keys=True)),
         # DNB line tally (tier0/build_dnb.py): the measure gate's link-rate floor reads it
         ("dnb_lines", json.dumps(dnb_lines)),
         ("composition_semantics", "volumes.composition = original-market volume numbers this "
