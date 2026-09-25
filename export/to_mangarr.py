@@ -404,8 +404,17 @@ def export(src_path, out_path, carry_ids_from=None):
 
     # reuse existing id assignments if a prior artifact is supplied
     mapping, taken, prev_status = {}, set(), {}
+    # meta.carried_from: which published artifact this build's ids were carried from.
+    # export/publish.sh refuses an artifact without it (unless OPENTOME_COLD_START=1).
+    carried_from = "cold-start" if os.environ.get("OPENTOME_COLD_START") == "1" else None
     if carry_ids_from and os.path.exists(carry_ids_from):
         old = sqlite3.connect(carry_ids_from)
+        try:
+            cm = dict(old.execute("SELECT key, value FROM meta WHERE key IN ('gcd_dump','generated_at')"))
+        except sqlite3.OperationalError:
+            cm = {}
+        carried_from = "%s (%s)" % (cm.get("gcd_dump") or os.path.basename(carry_ids_from),
+                                    cm.get("generated_at") or "no generated_at")
         try:
             for t, i, k in old.execute("SELECT opentome_id,int_id,kind FROM id_map"):
                 mapping[t] = i
@@ -877,7 +886,8 @@ def export(src_path, out_path, carry_ids_from=None):
         ("release_date_semantics", "release_date is day-precision only; coarser values are in "
                                    "release_date_raw with release_date_precision; release_date_type "
                                    "says which milestone (projected = a planned month, not a publication)."),
-    ] + ([("dnb_degraded", dnb_degraded)] if dnb_degraded else []):
+    ] + ([("dnb_degraded", dnb_degraded)] if dnb_degraded else []) \
+      + ([("carried_from", carried_from)] if carried_from else []):
         # dnb_degraded: DNB failed during this build's refresh -- export/publish.sh refuses it
         out.execute("INSERT OR REPLACE INTO meta VALUES(?,?)", (k, v))
 

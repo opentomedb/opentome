@@ -26,6 +26,19 @@ carry they do nothing.
 - **7b. redirects** — `carried_ids.py redirect`, after the audit, before the export, so the
   export's integer carry sees the rows.
 
+## No carry: fail in CI, unless the cold start is deliberate
+
+Without a carry every integer is re-issued and nothing is redirected, so a missed download must
+never ship. In CI (`OPENTOME_CI=1`, set by `catalogue.yml`, or `CI=true`) a missing carry fails
+`catalogue.yml`'s "restore id carry" step, `tier0/rebuild_all.sh` (before stage 0) and both
+`carried_ids.py` stages. **`OPENTOME_COLD_START=1`** (the workflow's `cold_start` dispatch input)
+is the one exception: the very first build, or a rebuild after the published artifact itself is
+gone. Outside CI a missing carry only warns.
+
+The export writes `meta.carried_from` = the carry's `gcd_dump (generated_at)` (`cold-start` under
+the flag). `export/publish.sh` refuses to publish an artifact without it unless
+`OPENTOME_COLD_START=1`; its dry run only says so.
+
 ## 4c. An absorbed work's duplicate lines
 
 A work the carry published that is now part of another work brings its lines along, re-keyed
@@ -93,6 +106,8 @@ reserved in `id_map` (kind `retired`).
   fails — retired = no longer resolving to a volume (redirected to its line, or not at all); ids a
   re-key or a merge moved to volumes do not count;
 - every `id_redirect` target is in the artifact (works included).
+- every carried integer (`series.gcd_series_id`, and the carry's own `id_redirect.old_series_id`) is
+  still a series or an `id_redirect.old_series_id` here (excluded works exempt).
 
 ## Measured (offline rebuild of the branch against the published `opentome-2026-09-25`)
 

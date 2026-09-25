@@ -420,6 +420,22 @@ def run_ids(path, carry):
          0 if len(retired) <= MAX_RETIRED_VOLUMES else len(retired), str(retired[:5]))
     rule("id_redirect rows whose target is not in the artifact",
          sum(1 for t in red.values() if t not in present))
+    # Integers are a contract too (Mangarr stores gcd_series_id): every carried integer is still a
+    # series here, or an id_redirect.old_series_id that resolves it -- and one the carry already
+    # resolved keeps resolving.
+    def ints(d, q):
+        try:
+            return {r[0]: r[1] for r in d.execute(q) if r[0] is not None}
+        except sqlite3.OperationalError:
+            return {}
+    carried_ints = ints(C, "SELECT gcd_series_id, tome_id FROM series")
+    carried_ints.update({i: t for i, t in ints(C, "SELECT old_series_id, old_tome_id FROM id_redirect").items()
+                         if i not in carried_ints})
+    have_ints = set(ints(db, "SELECT gcd_series_id, tome_id FROM series")) | \
+        set(ints(db, "SELECT old_series_id, old_tome_id FROM id_redirect"))
+    lost_ints = [i for i, t in carried_ints.items() if i not in have_ints and t not in exempt]
+    rule("carried series integers neither a series nor an id_redirect.old_series_id", len(lost_ints),
+         str(lost_ints[:5]))
     moved = [t for t in old if t not in present and t not in exempt]
     print("  info  carried ids: %s works / %s lines / %s volumes / %s already redirected; not present here: %s "
           "(redirected %s, retired volumes %s, excluded works' ids %s)" % (

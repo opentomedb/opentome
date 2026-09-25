@@ -130,6 +130,22 @@ if [ -n "$DEGRADED" ]; then
   fi
 fi
 
+# Ids are a public contract: a build that did not carry them from the last published artifact
+# (meta.carried_from absent) re-issued every integer and redirected nothing. Only a deliberate
+# cold start (OPENTOME_COLD_START=1 at build and here) may publish one. Same shape as above: the
+# dry run says so, a real publish refuses.
+CARRIED="$(q carried_from)"
+if [ -z "$CARRIED" ]; then
+  echo
+  echo "NO ID CARRY: meta.carried_from is absent" >&2
+  if [ "${PUBLISH:-0}" = "1" ] && [ "${OPENTOME_COLD_START:-0}" != "1" ]; then
+    echo "refusing: this build did not carry ids from the published artifact (set OPENTOME_COLD_START=1 only for a deliberate cold start)." >&2
+    exit 1
+  fi
+else
+  echo "carried     $CARRIED"
+fi
+
 if [ "${PUBLISH:-0}" != "1" ]; then
   echo
   echo "DRY RUN. Nothing was uploaded. This publishes a dataset PUBLICLY:"

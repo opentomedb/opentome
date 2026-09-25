@@ -81,6 +81,18 @@ ART="$PWD/build/manga-metadata.sqlite"
 #                    whatever alias fan-out that export had.
 ID_CARRY=""
 if [ -f "$ART" ]; then ID_CARRY="$ART"; fi
+# No carry = every id assigned cold: integers re-issued, nothing redirected. In CI (OPENTOME_CI=1,
+# set by catalogue.yml, or CI=true) that fails the build -- a missed download must never ship.
+# OPENTOME_COLD_START=1 is the one deliberate exception: the very first build, or a rebuild after
+# the published artifact itself was lost (docs/carried-ids.md).
+if [ -z "$ID_CARRY" ]; then
+  if { [ "${OPENTOME_CI:-0}" = "1" ] || [ "${CI:-}" = "true" ]; } && [ "${OPENTOME_COLD_START:-0}" != "1" ]; then
+    echo "FAILED: no carried artifact at $ART -- CI must start from the last published artifact" >&2
+    echo "(set OPENTOME_COLD_START=1 only for a deliberate cold start)" >&2
+    exit 1
+  fi
+  echo "   WARNING: no carried artifact at $ART -- cold id assignment, nothing redirected"
+fi
 PREV="${PREV_ARTIFACT:-}"
 
 echo "== 0. unit tests ==";        python3 tier0/test_parser.py >/dev/null || { echo "   parser FAILED"; exit 1; }; echo "   parser ok"

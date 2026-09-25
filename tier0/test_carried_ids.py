@@ -384,6 +384,65 @@ eq("gate: ... while 150 volumes redirected to volumes (a re-key) do not count as
                redirects=[("rl_fr", "rl_fr2")] + [("v_fr%03d" % i, "v_fr2%03d" % i) for i in range(150)],
                excluded=["w_x"]), gate_carry), [])
 
+eq("gate: a carried integer that is neither a series nor an old_series_id fails",
+   "carried series integers neither a series nor an id_redirect.old_series_id" in ids_ok(
+       tiny("g6", [(7, "rl_fr", "w_a", "fr"), (2, "rl_ja", "w_a", "ja")],
+            [(7, "v_fr%03d" % i) for i in range(150)] + [(2, "v_ja1")], excluded=["w_x"]), gate_carry), True)
+
+# ---- C1: a missing carry fails CI unless the cold start is deliberate -----------------------------
+import subprocess
+nocarry = catalogue("nocarry", [(WN, "Undated", [("JP", "manga", "Undated", vols(11, 2))])])
+env0 = {k: v for k, v in os.environ.items() if k not in ("CI", "OPENTOME_CI", "OPENTOME_COLD_START")}
+run = lambda stage, **env: subprocess.run(
+    [sys.executable, os.path.join(HERE, "carried_ids.py"), stage, nocarry, os.path.join(TMP, "missing.sqlite")],
+    env=dict(env0, **env), capture_output=True, text=True).returncode
+for stage in ("merge", "redirect"):
+    eq("no carry, OPENTOME_CI=1: %s fails" % stage, run(stage, OPENTOME_CI="1") != 0, True)
+    eq("no carry, CI=true: %s fails" % stage, run(stage, CI="true") != 0, True)
+    eq("no carry, OPENTOME_CI=1 + OPENTOME_COLD_START=1: %s passes" % stage,
+       run(stage, OPENTOME_CI="1", OPENTOME_COLD_START="1"), 0)
+    eq("no carry outside CI: %s warns and passes" % stage, run(stage), 0)
+# rebuild_all.sh: the same check, before stage 0 (a copy in a scratch tree, so no real build/ is touched)
+scratch = tempfile.mkdtemp(prefix="opentome-rebuild-")
+os.makedirs(os.path.join(scratch, "tier0"))
+__import__("shutil").copy(os.path.join(HERE, "rebuild_all.sh"), os.path.join(scratch, "tier0", "rebuild_all.sh"))
+for d in ("tier2", "export"):
+    os.makedirs(os.path.join(scratch, d))
+rb = lambda **env: subprocess.run(["bash", os.path.join(scratch, "tier0", "rebuild_all.sh")], env=dict(env0, **env),
+                                  capture_output=True, text=True)
+r = rb(OPENTOME_CI="1")
+eq("rebuild_all.sh in CI without a carry stops before stage 0", (r.returncode, "no carried artifact" in r.stderr,
+                                                                  "== 0." in r.stdout), (1, True, False))
+r = rb(OPENTOME_CI="1", OPENTOME_COLD_START="1")
+eq("... with OPENTOME_COLD_START=1 it goes on (and stage 0 then fails here: no suites in the scratch copy)",
+   ("cold id assignment" in r.stdout, "== 0." in r.stdout), (True, True))
+
+# meta.carried_from: the export names its carry; publish.sh refuses an artifact without one
+eq("the export records the carry it took ids from",
+   sqlite3.connect(art).execute("SELECT value FROM meta WHERE key='carried_from'").fetchone()[0].startswith("opentome-"),
+   True)
+cold = os.path.join(TMP, "cold.sqlite")
+export(nocarry, cold, None)
+eq("an export without a carry has no carried_from",
+   sqlite3.connect(cold).execute("SELECT value FROM meta WHERE key='carried_from'").fetchone(), None)
+pub = tempfile.mkdtemp(prefix="opentome-pub-")
+os.makedirs(os.path.join(pub, "export")); os.makedirs(os.path.join(pub, "build"))
+__import__("shutil").copy(os.path.join(ROOT, "export", "publish.sh"), os.path.join(pub, "export", "publish.sh"))
+P = lambda a, **env: subprocess.run(["bash", os.path.join(pub, "export", "publish.sh"), a], cwd=pub,
+                                    env=dict(env0, **env), capture_output=True, text=True)
+r = P(cold, PUBLISH="1")
+eq("publish.sh refuses an artifact without carried_from", (r.returncode, "carried_from" in r.stderr), (1, True))
+r = P(cold)
+eq("... its dry run passes and says so", (r.returncode, "NO ID CARRY" in r.stderr), (0, True))
+# a stub gh that refuses everything: the test can never reach a real release
+fake = tempfile.mkdtemp(prefix="opentome-fakegh-")
+with open(os.path.join(fake, "gh"), "w") as f:
+    f.write("#!/bin/sh\necho FAKE-GH >&2\nexit 1\n")
+os.chmod(os.path.join(fake, "gh"), 0o755)
+r = P(cold, PUBLISH="1", OPENTOME_COLD_START="1", GH_TOKEN="x", PATH=fake + ":/usr/bin:/bin")
+eq("... a deliberate cold start gets past the refusal (and stops at the stub gh)",
+   ("refusing: this build did not carry ids" in r.stderr, "FAKE-GH" in r.stderr, r.returncode), (False, True, 1))
+
 # ---- no carry: nothing to do ---------------------------------------------------------------------
 db = sqlite3.connect(after)
 eq("no carried artifact: an empty report", K.redirects(db, None, excluded=set())["orphans"], [])

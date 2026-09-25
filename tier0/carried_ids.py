@@ -409,13 +409,23 @@ def redirects(db, carry, excluded=None):
     return rep
 
 
+def carry_required():
+    """In CI (OPENTOME_CI=1 or CI=true) a build without a carried artifact must fail, unless
+    OPENTOME_COLD_START=1 says the cold start is deliberate (docs/carried-ids.md)."""
+    ci = os.environ.get("OPENTOME_CI") == "1" or os.environ.get("CI", "").lower() == "true"
+    return ci and os.environ.get("OPENTOME_COLD_START") != "1"
+
+
 def main(argv):
     if len(argv) < 3 or argv[1] not in ("merge", "redirect"):
         raise SystemExit(__doc__)
     db = sqlite3.connect(argv[2], timeout=60)
     carry = argv[3] if len(argv) > 3 and argv[3] else None
     if not read_carry(carry):
-        print("  no carried artifact -- nothing to keep resolving")
+        if carry_required():
+            raise SystemExit("FAILED: no carried artifact (%r) in CI -- every published id would go "
+                             "unredirected. Set OPENTOME_COLD_START=1 only for a deliberate cold start." % carry)
+        print("  WARNING: no carried artifact -- nothing to keep resolving (cold id assignment)")
         return
     if argv[1] == "merge":
         done = merge_absorbed(db, carry)
