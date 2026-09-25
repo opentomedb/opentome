@@ -28,7 +28,9 @@ resolve forever through id_redirect. Two stages keep it, for any market, any ent
 
   redirect (7b, after the audit, before the export)
       1. the carried artifact's own id_redirect rows are re-read, so a redirect survives
-         every later build (chains collapse at export);
+         every later build (chains collapse at export, stopping at the first id present in
+         this build); a row whose OLD id is present again (a reverted re-key) is dropped and
+         reported -- it would point a live id away, and close a cycle with the new redirect;
       2. a carried WORK this build lost -> the work now holding a strict majority of its
          volumes' ISBNs (reason duplicate_merge when that work was published, else
          correction), else the work its lines went to;
@@ -259,7 +261,7 @@ def redirects(db, carry, excluded=None):
     """Stage 7b. -> report dict (counts by entity / reason / market, orphans, exempt)."""
     C = read_carry(carry)
     rep = {"rows": collections.Counter(), "by_market": collections.Counter(), "orphans": [],
-           "excluded": 0, "carried_rows": 0, "written": []}
+           "excluded": 0, "carried_rows": 0, "written": [], "stale": []}
     if not C:
         return rep
     if excluded is None:
@@ -272,12 +274,18 @@ def redirects(db, carry, excluded=None):
     vols_now = {v: (l, n, i) for v, l, n, i in db.execute("SELECT id, release_line_id, number, isbn13 FROM volume")}
     works_now = {w for w, _, _ in lines_now.values()}
     present = set(lines_now) | set(vols_now) | works_now
+    # A redirect whose OLD id is present again (a re-key reverted: "s X" -> "Les X" -> "s X") is
+    # stale: kept, it would point a live id elsewhere and, with the new redirect, close a cycle.
+    stale = [o for (o,) in db.execute("SELECT old_id FROM id_redirect") if o in present]
+    db.executemany("DELETE FROM id_redirect WHERE old_id=?", [(o,) for o in stale])
+    rep["stale"] = sorted(stale)
     red = dict(db.execute("SELECT old_id, new_id FROM id_redirect"))
     reason_of = dict(db.execute("SELECT old_id, reason FROM id_redirect"))
 
     def final(i):
+        """Follow redirects until an id present in THIS build (or a dead end / a cycle)."""
         seen = set()
-        while i in red and i not in seen:
+        while i in red and i not in present and i not in seen:
             seen.add(i)
             i = red[i]
         return i
@@ -451,6 +459,9 @@ def main(argv):
         return
     rep = redirects(db, carry)
     print("  carried id_redirect rows re-read: %d new" % rep["carried_rows"])
+    if rep["stale"]:
+        print("  dropped %d redirect(s) whose old id is present again (a reverted re-key): %s"
+              % (len(rep["stale"]), rep["stale"][:10]))
     print("  redirects written: %d  (%s)" % (sum(rep["rows"].values()), ", ".join(
         "%s/%s %d" % (e, r, n) for (e, r), n in sorted(rep["rows"].items()))))
     if rep["by_market"]:
@@ -462,7 +473,7 @@ def main(argv):
               % (len(rep["orphans"]), rep["orphans"][:10]))
     db.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('carried:redirects',?)", (json.dumps({
         "rows": {"%s/%s" % k: v for k, v in rep["rows"].items()}, "orphans": rep["orphans"],
-        "excluded": rep["excluded"]}),))
+        "excluded": rep["excluded"], "stale": rep["stale"]}),))
     db.commit()
 
 

@@ -434,8 +434,19 @@ def export(src_path, out_path, carry_ids_from=None):
     redirect = dict(src.execute("SELECT old_id, new_id FROM id_redirect"))
     redirect_meta = {o: (e, r) for o, e, r in src.execute("SELECT old_id, entity, reason FROM id_redirect")}
 
+    # Chains stop at the first id present in THIS catalogue: a stale row (a re-key reverted, its
+    # old id live again) must never carry a live id onward or close a cycle. Volumes the export
+    # does not write (volumes_special: a non-integer number) are not present.
+    cat_present = {r[0] for r in src.execute("SELECT id FROM release_line UNION SELECT work_id FROM release_line")}
+    for vid, num in src.execute("SELECT id, number FROM volume"):
+        try:
+            if int(num) >= 0:
+                cat_present.add(vid)
+        except (TypeError, ValueError):
+            pass
+
     def final(i, seen=()):
-        while i in redirect and i not in seen:
+        while i in redirect and i not in cat_present and i not in seen:
             seen += (i,)
             i = redirect[i]
         return i
@@ -774,10 +785,13 @@ def export(src_path, out_path, carry_ids_from=None):
               {r[0] for r in out.execute("SELECT DISTINCT tome_work_id FROM series")}
     series_of_vol = dict(out.execute("SELECT v.tome_id, s.tome_id FROM volumes v JOIN series s USING(gcd_series_id)"))
     int_of = dict(out.execute("SELECT tome_id, gcd_series_id FROM series"))
-    n_redirect = 0
+    n_redirect = n_stale = 0
     for old_id in sorted(redirect):
         new_id = final(old_id)
-        if old_id in present or new_id not in present:
+        if old_id in present:
+            n_stale += 1             # its id is live again: the row is stale, never exported
+            continue
+        if new_id not in present:
             continue
         entity, reason = redirect_meta[old_id]
         old_int = mapping.get(old_id) if entity == "release_line" else None
@@ -785,6 +799,8 @@ def export(src_path, out_path, carry_ids_from=None):
         out.execute("INSERT OR REPLACE INTO id_redirect VALUES(?,?,?,?,?,?)",
                     (old_id, new_id, entity, reason, old_int if old_int != new_int else None, new_int))
         n_redirect += 1
+    print("  id_redirect: %d rows%s" % (n_redirect, "; %d stale (old id present again) not exported" % n_stale
+                                        if n_stale else ""))
     used = {r[0] for r in out.execute("SELECT int_id FROM id_map")}
     for old_id, i in mapping.items():
         if i not in used and old_id not in int_of:

@@ -71,7 +71,10 @@ burst. After the enrichment the batches see the same ISBN set.
 ## 7b. Redirects
 
 1. The carry's own `id_redirect` rows are re-read (stage 3e already re-reads them too), so a
-   redirect survives every later build; the export collapses chains.
+   redirect survives every later build; the export collapses chains. A chain stops at the first
+   id present in this build (7b and the export alike), and a row whose **old** id is present
+   again -- a re-key reverted ("s X" -> "Les X" -> "s X") -- is stale: 7b drops and reports it,
+   the export never writes it. Kept, it would send a live id elsewhere and close a cycle.
 2. A carried **work** this build lost → the present work holding a strict majority of its
    volumes' ISBNs; else the work its lines' successors belong to. Reason `duplicate_merge` when
    that work was published, else `correction`.

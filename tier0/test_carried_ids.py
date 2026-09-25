@@ -134,6 +134,68 @@ eq("chain: the first id resolves to the newest line in the artifact",
 eq("chain: the gate passes", ids_ok(art4, carry2), [])
 db.close()
 
+# ---- review I1 (repro2): a re-key reverted -- "s X" -> "Les X" -> "s X" -- makes no cycle -------
+def cycles(pairs):
+    d, n = dict(pairs), 0
+    for start in d:
+        seen, i = set(), start
+        while i in d and i not in seen:
+            seen.add(i)
+            i = d[i]
+        n += i in seen
+    return n
+
+
+KR = "fr:X"
+c1 = artifact(catalogue("rev1", [(KR, "s X", [("JP", "manga", "s X (FILE)", vols(13, 3))])]))
+p2 = catalogue("rev2", [(KR, "Les X", [("JP", "manga", "Les X (FILE)", vols(13, 3))])])
+db = sqlite3.connect(p2); K.redirects(db, c1, excluded=set()); db.close()
+c2 = artifact(p2, c1)
+p3 = catalogue("rev3", [(KR, "s X", [("JP", "manga", "s X (FILE)", vols(13, 3))])])
+db = sqlite3.connect(p3)
+rep = K.redirects(db, c2, excluded=set())
+X, Y = rl(KR, "JP", "s X (FILE)"), rl(KR, "JP", "Les X (FILE)")
+eq("revert: the stale carried rows (their old ids are live again) are dropped and reported",
+   (sorted(rep["stale"]), rep["orphans"]), (sorted([X] + [_id("v_", X, str(n)) for n in (1, 2, 3)]), []))
+eq("revert: the catalogue's redirects are Les X -> s X only, no cycle",
+   (db.execute("SELECT new_id FROM id_redirect WHERE old_id=?", (Y,)).fetchone(),
+    cycles(db.execute("SELECT old_id, new_id FROM id_redirect"))), ((X,), 0))
+db.close()
+a3 = artifact(p3, c2)
+A3 = sqlite3.connect(a3)
+eq("revert: the artifact has 0 cycles and the reverted line is back on its first integer",
+   (cycles(A3.execute("SELECT old_tome_id, new_tome_id FROM id_redirect")),
+    A3.execute("SELECT gcd_series_id FROM series WHERE tome_id=?", (X,)).fetchone()[0]),
+   (0, sqlite3.connect(c1).execute("SELECT gcd_series_id FROM series WHERE tome_id=?", (X,)).fetchone()[0]))
+eq("revert: the gate passes", ids_ok(a3, c2), [])
+
+# stale X -> Y next to Z -> X: X is live again, so Z stops at X (not X's stale successor)
+Z = rl(KR, "JP", "X (FILE) old")
+c4 = os.path.join(TMP, "stale-carry.sqlite")
+__import__("shutil").copy(c2, c4)
+S4 = sqlite3.connect(c4)
+S4.execute("DELETE FROM id_redirect")
+S4.execute("INSERT INTO id_redirect VALUES(?,?,'release_line','correction',NULL,NULL)", (X, Y))
+S4.execute("INSERT INTO id_redirect VALUES(?,?,'release_line','correction',NULL,NULL)", (Z, X))
+S4.commit(); S4.close()
+p5 = catalogue("rev5", [(KR, "s X", [("JP", "manga", "s X (FILE)", vols(13, 3)), ("JP", "manga", "Les X (FILE)", vols(14, 2))])])
+db = sqlite3.connect(p5)
+rep = K.redirects(db, c4, excluded=set())
+eq("stale X -> Y dropped; Z -> X kept", (rep["stale"], db.execute("SELECT new_id FROM id_redirect WHERE old_id=?", (Z,)).fetchone()),
+   ([X], (X,)))
+db.close()
+a5 = artifact(p5, c4)
+eq("... and the artifact sends Z to X", sqlite3.connect(a5).execute(
+    "SELECT new_tome_id FROM id_redirect WHERE old_tome_id=?", (Z,)).fetchone(), (X,))
+# the exporter alone (a catalogue that still holds the stale row): Z stops at the live X
+db = sqlite3.connect(p5)
+db.execute("INSERT OR REPLACE INTO id_redirect VALUES(?,?,'release_line','correction','x')", (X, Y))
+db.commit(); db.close()
+a6 = artifact(p5, c4)
+eq("exporter: a stale row is never exported and Z stops at the live X",
+   sqlite3.connect(a6).execute("""SELECT old_tome_id, new_tome_id FROM id_redirect WHERE entity='release_line'
+                                   ORDER BY 1""").fetchall(), [(Z, X)])
+
 # ---- a merged work: its lines re-key under the survivor; the work id is redirected ---------------
 WA, WB = "en:Drops of God", "fr:Liste des chapitres des Gouttes de Dieu"
 jp = vols(3, 4)
