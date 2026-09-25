@@ -32,12 +32,6 @@ jobs:
     timeout-minutes: 180
     env:
       OPENTOME_CI: '1'
-      # DNB freshness window (tier0/dnb_sru.py): refetch last year, this year and later, the
-      # no-year remainder, when older than 6 days -- 6, not 7, so a weekly cron never lands a
-      # day short and skips a week. ~62 SRU requests a week at >= 3 s, plus a recount of the
-      # older years (up to 42 small requests) only when a total changed. A DNB failure in a
-      # refresh run falls back to the cache; it never fails this build.
-      DNB_REFRESH_DAYS: '6'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -70,12 +64,15 @@ jobs:
             || { echo "::warning::no published artifact to carry ids from — cold id assignment"; rm -f build/manga-metadata.sqlite; }
       # Runs every stage including the measure gate (8d, writes build/measure.log)
       # and exits non-zero on any test, audit, contract or coverage failure.
-      # DNB_REFRESH_DAYS=7 (Nick 2026-09-24): the weekly build re-reads DNB's current/last-year
-      # slices (~60-90 polite requests) so German announcements and new volumes arrive with no
-      # manual step; older slices are re-paged only when their totals change.
+      # DNB freshness window (Nick 2026-09-24: a weekly refresh, no manual step): the build
+      # re-reads last year, this year and later and the no-year remainder when older than 6
+      # days -- 6, not 7: the cache files are ~7 days old at the next Sunday run, and a 7-day
+      # window on a 7-day cron is not reliably "older", so alternate weeks would be skipped.
+      # ~62 SRU requests a week at >= 3 s, plus up to 42 small recounts when a total moved.
+      # A DNB failure in a refresh run falls back to the cache and never fails this build.
       - name: rebuild (every gate)
         env:
-          DNB_REFRESH_DAYS: "7"
+          DNB_REFRESH_DAYS: "6"
         run: bash tier0/rebuild_all.sh
       # Without PUBLISH=1 publish.sh only writes build/version.json and prints the
       # per-build tag; it also runs the two clean-room refusals.
