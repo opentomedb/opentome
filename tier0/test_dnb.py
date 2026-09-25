@@ -99,6 +99,8 @@ eq("no 041, 'aus dem Japanischen'", M.origin_in_scope(
     rec("1", ("245", [("a", "X"), ("c", "Autor ; aus dem Japanischen von Y")]))), True)
 eq("no 041, 'aus dem Koreanischen'", M.origin_in_scope(
     rec("1", ("245", [("a", "X"), ("c", "Text: A ; aus dem Koreanischen von Y")]))), False)
+eq("no 041, abbreviated 'Aus dem Japan.' is Japanese", M.origin_in_scope(
+    rec("1", ("245", [("a", "Beck"), ("c", "Harold Sakuishi. [Aus dem Japan. von Claudia Peter]")]))), True)
 eq("no 041, keyword Manhwa", M.origin_in_scope(rec("1", ("653", [("a", "Manhwa")]))), False)
 eq("no 041, nothing said: unknown origin stays in scope (the linker decides)",
    M.origin_in_scope(rec("1", ("245", [("a", "X")]))), True)
@@ -291,6 +293,7 @@ eq("creators: 100 with a translator $e and no $4 is out; 245$c names count",
    M.creators(rec("1", ("700", [("a", "Konparu, Tomoko"), ("e", "Übers.")]),
                   ("245", [("a", "Beck"), ("c", "Harold Sakuishi. [Aus dem Japan. von Claudia Peter]")]))),
    ["Harold Sakuishi"])
+eq("a leading 'The' does not matter", L.fold("The Snowball Earth", False), L.fold("Snowball earth", False))
 eq("low: alias only", L.link(idx, ["Priestess"], [])[0], "low")
 eq("low: official title is the START of the DNB title (spin-off shape)",
    L.link(idx, ["Goblin Slayer! Year one"], ["Kagyu, Kumo"])[:2], ("low", "w_gs"))

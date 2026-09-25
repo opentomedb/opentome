@@ -64,7 +64,8 @@ CREATE TABLE IF NOT EXISTS dnb_line (       -- one row per DNB line, exported or
     n_volumes INTEGER,
     tier TEXT, via TEXT,                    -- the linker's verdict, whatever the role
     link_work TEXT, candidates TEXT,
-    role TEXT NOT NULL,                     -- merged | sibling | linked | kept | review | unlinked | absorbed
+    role TEXT NOT NULL,                     -- merged | sibling | linked | kept | review | unlinked
+                                            -- | out_of_scope (a Korean/Chinese work) | absorbed
     wiki_line TEXT, truth_work TEXT,        -- merged / sibling: the Wikipedia line and its work
     exported INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS dnb_member (     -- one row per DNB volume record kept
@@ -447,6 +448,8 @@ def build(recs, parents, idx, W, w_isbn, carried=None):
             ln["role"] = {"high": "linked", "medium": "linked", "low": "review",
                           "ambiguous": "review"}.get(ln["tier"], "unlinked")
             ln["work"] = ln["link_work"] if ln["role"] == "linked" else None
+            if ln["role"] == "linked" and ln["work"] in idx.non_japanese:
+                ln["role"], ln["work"] = "out_of_scope", None      # Korean / Chinese origin: next round
             if ln["role"] != "linked" and (carried or {}).get(ln["rl_id"]) in idx.name:
                 ln["role"], ln["work"] = "kept", carried[ln["rl_id"]]
     stats = {"records": len(recs), "parents_known": len(allparents), "kept_records": len(vols),

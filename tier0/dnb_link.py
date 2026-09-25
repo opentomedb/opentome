@@ -49,7 +49,8 @@ def fold(s, strip_vol=True):
     s = unicodedata.normalize("NFKC", s)
     s = s.replace("×", "x").replace("&", " and ")
     s = "".join(c for c in unicodedata.normalize("NFD", s) if not unicodedata.combining(c))
-    s = s.lower()
+    s = s.lower().strip()
+    s = re.sub(r"^the\s+", "", s)                  # 'The Dungeon of Black Company' = 'Dungeon of ...'
     if strip_vol:
         s = re.sub(r"\b(vol(ume)?|band|bd|tome|nr)\.?\s*\d+.*$", "", s)
         s = re.sub(r"[\s,.:;\-–]*\d{1,3}\.?\s*$", "", s)
@@ -115,6 +116,11 @@ class Index:
                                     AND c.field='line_name' AND c.source='wikipedia'"""):
             self._add(self.official, LIST_PREFIX.sub("", v), wid)
         self.official_keys = sorted(self.official)
+        # works OpenTome already knows as Korean / Chinese (a manhwa, manhua or webtoon line):
+        # a German edition catalogued as 'from the Japanese' is a relay translation (Ultramarine
+        # Magmell, from its Japanese edition) and waits for the KR/CN round (decision 4)
+        self.non_japanese = {w for (w,) in db.execute(
+            "SELECT DISTINCT work_id FROM release_line WHERE medium IN ('manhwa','manhua','webtoon')")}
 
     @staticmethod
     def _add(table, title, wid):
