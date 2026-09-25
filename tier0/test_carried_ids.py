@@ -331,6 +331,45 @@ load(db, "Drops of God", [{"volume": "1", "line": "Drops of God (Reprint)", "med
 eq("scope: no absorbed work, no merge", K.merge_absorbed(db, carry), [])
 db.close()
 
+# ---- the gate (export/test_artifact.py run_ids), every market ------------------------------------
+def tiny(name, series, volumes, redirects=(), excluded=()):
+    path = os.path.join(TMP, "gate-" + name + ".sqlite")
+    A = sqlite3.connect(path)
+    A.executescript("""CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+        CREATE TABLE series (gcd_series_id INTEGER, tome_id TEXT, tome_work_id TEXT, language TEXT);
+        CREATE TABLE volumes (gcd_series_id INTEGER, tome_id TEXT);
+        CREATE TABLE id_redirect (old_tome_id TEXT, new_tome_id TEXT);""")
+    A.executemany("INSERT INTO series VALUES(?,?,?,?)", series)
+    A.executemany("INSERT INTO volumes VALUES(?,?)", volumes)
+    A.executemany("INSERT INTO id_redirect VALUES(?,?)", redirects)
+    A.execute("INSERT INTO meta VALUES('excluded_works', ?)", (__import__("json").dumps(list(excluded)),))
+    A.commit()
+    return path
+
+
+gate_carry = tiny("gc", [(1, "rl_fr", "w_a", "fr"), (2, "rl_ja", "w_a", "ja"), (3, "rl_x", "w_x", "en")],
+                  [(1, "v_fr%03d" % i) for i in range(150)] + [(2, "v_ja1",), (3, "v_x1")])
+keep = [(1, "rl_fr", "w_a", "fr"), (2, "rl_ja", "w_a", "ja")]
+eq("gate: a French line id gone without a redirect fails (not only German ids count now)",
+   ids_ok(tiny("g1", keep[1:], [(2, "v_ja1")]), gate_carry)[:1],
+   ["carried ids (every market: works, lines, volumes) neither present nor redirected"])
+eq("gate: a work id gone without a redirect fails",
+   "carried ids (every market: works, lines, volumes) neither present nor redirected" in ids_ok(
+       tiny("g2", [(1, "rl_fr", "w_b", "fr"), (2, "rl_ja", "w_b", "ja")], [(1, "v_fr%03d" % i) for i in range(150)]
+            + [(2, "v_ja1")], redirects=[("rl_x", "rl_ja"), ("v_x1", "rl_ja")]), gate_carry), True)
+eq("gate: an excluded work takes its line and volumes with it",
+   ids_ok(tiny("g3", keep, [(1, "v_fr%03d" % i) for i in range(150)] + [(2, "v_ja1")], excluded=["w_x"]),
+          gate_carry), [])
+eq("gate: 150 French volumes retired to their line in one build fails the every-market cap",
+   ids_ok(tiny("g4", keep, [(2, "v_ja1")], redirects=[("v_fr%03d" % i, "rl_fr") for i in range(150)],
+               excluded=["w_x"]), gate_carry),
+   ["more than %d carried volumes retired in one build (every market)" % TA.MAX_RETIRED_VOLUMES])
+eq("gate: ... while 150 volumes redirected to volumes (a re-key) do not count as retired",
+   ids_ok(tiny("g5", [(1, "rl_fr2", "w_a", "fr"), (2, "rl_ja", "w_a", "ja")],
+               [(1, "v_fr2%03d" % i) for i in range(150)] + [(2, "v_ja1")],
+               redirects=[("rl_fr", "rl_fr2")] + [("v_fr%03d" % i, "v_fr2%03d" % i) for i in range(150)],
+               excluded=["w_x"]), gate_carry), [])
+
 # ---- no carry: nothing to do ---------------------------------------------------------------------
 db = sqlite3.connect(after)
 eq("no carried artifact: an empty report", K.redirects(db, None, excluded=set())["orphans"], [])
