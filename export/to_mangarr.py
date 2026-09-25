@@ -41,7 +41,7 @@ import collections, hashlib, json, os, re, sqlite3, sys, datetime
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tier0"))
 sys.path.insert(0, os.path.join(ROOT, "tier2"))
-from build_corpus import work_title
+from build_corpus import work_title, FR_LIST_ARTICLE, CONTRACTED_ARTICLE
 from release_lines import GENERIC
 from corrections import load_aliases, load_alias_removals, load_exclusions
 from line_status import line_status
@@ -345,8 +345,9 @@ def _line_raw(lname, wtitle):
 # space, so 'de' never eats the start of 'des' ("... des Chevaliers du Zodiaque" -> "s Chevaliers").
 # 'des' and 'du' are contractions of de + les / de + le, so the title's own article comes back
 # ("Liste des chapitres des Gouttes de Dieu" -> "Les Gouttes de Dieu"); 'de' and "d'" carry none.
-_LIST_ARTICLE = re.compile(r"^(?:liste|chronologie)\s+des?\s+.+?\s+(?:(?P<art>des|du)\s+|de\s+|d['’]\s*)(?P<t>\S.*)$", re.I)
-_CONTRACTED_ARTICLE = {"des": "Les ", "du": "Le "}
+# The article fragment and the contraction map are build_corpus's (work_title uses them too).
+_LIST_ARTICLE = re.compile(r"^(?:liste|chronologie)\s+des?\s+.+?\s+" + FR_LIST_ARTICLE + r"(?P<t>\S.*)$", re.I)
+_CONTRACTED_ARTICLE = CONTRACTED_ARTICLE
 # A disambiguator is an ASCII "(...)" after a space. A full-width "（...）" is part of the title
 # itself -- every one measured was ("オトメン（乙男）", "神統記（テオゴニア）",
 # "男女の友情は成立する?（いや、しないっ!!）"), so it is never stripped.

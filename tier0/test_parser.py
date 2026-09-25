@@ -242,6 +242,24 @@ for r in w:
 eq("arc: stem containing (not starting with) the work is qualified",
    RL.split_arcs(w, "W.I.T.C.H.")[2]["line"], "W.I.T.C.H. (Part IX. 100% W.I.T.C.H.)")
 
+# ---- work_title: French list articles (2026-09-25, alias-fix) -----------
+# 'de' ate the start of 'des' ("s Enquêtes de Kindaichi" shipped as an alias); des/du now restore
+# the title's own article, as to_mangarr.local_title does (the fragment is shared).
+from build_corpus import work_title
+eq("work_title: des restores Les (Kindaichi)", work_title("Liste des tomes des Enquêtes de Kindaichi"),
+   "Les Enquêtes de Kindaichi")
+eq("work_title: des restores Les (the measured Gouttes article)",
+   work_title("Liste des chapitres des Gouttes de Dieu"), "Les Gouttes de Dieu")
+eq("work_title: du restores Le", work_title("Liste des chapitres du Prince du tennis"), "Le Prince du tennis")
+eq("work_title: a split part keeps its qualifier",
+   work_title("Liste des chapitres des Enquêtes de Kindaichi (1re partie)"), "Les Enquêtes de Kindaichi (1re partie)")
+eq("work_title: de unchanged", work_title("Liste des chapitres de L'Attaque des Titans"), "L'Attaque des Titans")
+eq("work_title: d' unchanged", work_title("Liste des chapitres d'Ushio et Tora"), "Ushio et Tora")
+eq("work_title: d’ unchanged", work_title("Liste des chapitres d’Ushio et Tora"), "Ushio et Tora")
+eq("work_title: 'de la' unchanged (the article stays, as before)",
+   work_title("Liste des volumes de la Rose de Versailles"), "la Rose de Versailles")
+eq("work_title: English lists unchanged", work_title("List of One Piece chapters (1–186)"), "One Piece")
+
 # ---- main-article detection -------------------------------------------
 import main_titles as MT
 eq("lead: first italic link when it names the work",

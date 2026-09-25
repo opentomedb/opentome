@@ -125,6 +125,14 @@ def run():
        "Les Gouttes de Dieu")
     eq("fr du form restores Le", local_title("Liste des chapitres du Prince du tennis"),
        "Le Prince du tennis")
+    # work_title (ingest, tier0/build_corpus.py) and local_title (export) share the article
+    # fragment; on every list article both read, they must give the same title (alias-fix).
+    from build_corpus import work_title
+    for art in ("Liste des chapitres des Gouttes de Dieu", "Liste des tomes des Enquêtes de Kindaichi",
+                "Liste des chapitres du Prince du tennis", "Liste des chapitres de L'Attaque des Titans",
+                "Liste des chapitres d'Ushio et Tora", "Liste des chapitres d’Ushio et Tora",
+                "Liste des light novels des Enquêtes de Kindaichi", "Liste des volumes de One Piece"):
+        eq("work_title agrees with local_title: " + art, work_title(art), local_title(art))
     eq("fr chronologie branch", local_title("Chronologie des volumes de Dragon Ball"), "Dragon Ball")
     eq("fr chronologie branch, des form", local_title("Chronologie des tomes des Enquêtes de Kindaichi"),
        "Les Enquêtes de Kindaichi")
