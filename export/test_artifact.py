@@ -369,6 +369,10 @@ def run_ids(path, carry):
     except sqlite3.OperationalError:
         old = []
     present = {r[0] for r in db.execute("SELECT tome_id FROM series UNION SELECT tome_id FROM volumes")}
+    try:    # a merged work's redirect targets a work id (tier0/carried_ids.py)
+        present |= {r[0] for r in db.execute("SELECT DISTINCT tome_work_id FROM series")}
+    except sqlite3.OperationalError:
+        pass
     try:
         red = dict(db.execute("SELECT old_tome_id, new_tome_id FROM id_redirect"))
     except sqlite3.OperationalError:

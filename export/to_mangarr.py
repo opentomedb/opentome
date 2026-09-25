@@ -756,9 +756,12 @@ def export(src_path, out_path, carry_ids_from=None):
                                        VALUES(?,?,?,?)""", (sid, a, alang, akind))
                         n_alias += 1
 
-    # id_redirect, chains collapsed to ids present in this artifact; retired integers reserved
+    # id_redirect, chains collapsed to ids present in this artifact; retired integers reserved.
+    # Work ids are present too (series.tome_work_id): a merged work's redirect
+    # (tier0/carried_ids.py) must reach the artifact like a line's.
     present = {r[0] for r in out.execute("SELECT tome_id FROM series")} | \
-              {r[0] for r in out.execute("SELECT tome_id FROM volumes")}
+              {r[0] for r in out.execute("SELECT tome_id FROM volumes")} | \
+              {r[0] for r in out.execute("SELECT DISTINCT tome_work_id FROM series")}
     series_of_vol = dict(out.execute("SELECT v.tome_id, s.tome_id FROM volumes v JOIN series s USING(gcd_series_id)"))
     int_of = dict(out.execute("SELECT tome_id, gcd_series_id FROM series"))
     n_redirect = 0

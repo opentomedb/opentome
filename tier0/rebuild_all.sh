@@ -26,6 +26,10 @@
 #                      confidence layer reports them as manual_override
 #   6. resolve         claims -> values + confidence
 #   7. audit           report remaining defects -- EXITS NON-ZERO on any defect
+#   7b. redirects      every id of the carried (last published) artifact this build no longer
+#                      has -> id_redirect to its successor, any market, work / line / volume
+#                      (tier0/carried_ids.py; docs/carried-ids.md); the export collapses chains
+#                      and 8c fails on any carried id left without a present target
 #   8. export          Mangarr-shaped artifact (+ curated aliases, + id carry)
 #   8a. anilist ids   series.anilist_id for English lines (export/resolve_anilist.py, cached), then
 #                      corrections/anilist.json's hand-checked ids over the resolver's pick, then
@@ -78,6 +82,7 @@ echo "== 0. unit tests ==";        python3 tier0/test_parser.py >/dev/null && ec
                                    python3 export/test_line_status.py >/dev/null && echo "   line_status ok"
                                    python3 export/test_to_mangarr.py >/dev/null && echo "   to_mangarr ok"
                                    python3 tier0/test_dnb.py >/dev/null && echo "   dnb ok"
+                                   python3 tier0/test_carried_ids.py >/dev/null && echo "   carried ids ok"
 echo "== 1. work identity ==";     python3 tier0/work_identity.py
 echo "== 2. corpus en+fr ==";      python3 tier0/build_corpus.py "$DB"
 echo "== 3. corpus de ==";         python3 tier0/build_corpus_de.py "$DB"
@@ -97,6 +102,7 @@ echo "== 5. clean ==";             python3 tier2/clean.py "$DB"
 echo "== 5b. corrections ==";      python3 tier2/corrections.py "$DB"
 echo "== 6. resolve ==";           python3 tier2/resolve.py "$DB"
 echo "== 7. audit ==";             python3 tier2/audit.py "$DB"
+echo "== 7b. redirects ==";        python3 tier0/carried_ids.py redirect "$DB" "$ID_CARRY"
 if [ "$DB" != "$FINAL" ]; then
   mv -f "$DB" "$FINAL"
   echo "   catalogue -> $FINAL"
