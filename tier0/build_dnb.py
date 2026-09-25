@@ -71,7 +71,8 @@ CREATE TABLE IF NOT EXISTS dnb_member (     -- one row per DNB volume record kep
     idn TEXT PRIMARY KEY, line_key TEXT, number TEXT, isbn13 TEXT,
     volume_id TEXT,                         -- NULL when the volume did not reach `volume`
     fate TEXT NOT NULL,                     -- created | attached | held_future | dropped_* | line_*
-    filled TEXT);                           -- attached: the empty Wikipedia columns it filled (JSON)
+    filled TEXT,                            -- attached: the empty Wikipedia columns it filled (JSON)
+    announced_only INTEGER);                -- 1 when no record of its volume was deposited yet
 """
 
 
@@ -210,7 +211,21 @@ def group_date(ms):
         ys.append(int(planned[:4]))
     if ys and max(ys) > CURRENT_YEAR:
         return ("HELD", None, None)
+    # A planned month more than PROJECTED_MAX_AGE months past on a record DNB never received
+    # (legal deposit lags a median 120 days, p90 293) is no longer a plan -- most likely a
+    # cancellation or a changed ISBN. The volume stays; its date is dropped, never shipped as
+    # if it had happened.
+    if planned and _months_ago(planned) > PROJECTED_MAX_AGE:
+        return None
     return (planned, "month", "projected") if planned else None
+
+
+PROJECTED_MAX_AGE = 12          # months
+
+
+def _months_ago(ym):
+    t = datetime.date.today()
+    return (t.year - int(ym[:4])) * 12 + t.month - int(ym[5:7])
 
 
 # ---- 4. lines ----------------------------------------------------------------------
@@ -488,6 +503,7 @@ def load(db, lines, lost, W, w_isbn):
     c = db.cursor()
     c.executescript(STAGING_DDL)
     unload(c)
+    c.executescript("DROP TABLE dnb_line; DROP TABLE dnb_member;" + STAGING_DDL)
     st = collections.Counter()
     for ln in lines:
         exported = ln["role"] in ("merged", "sibling", "linked", "kept")
@@ -537,9 +553,10 @@ def load(db, lines, lost, W, w_isbn):
                     filled = json.dumps(done) if done else None
                 n_out += fate == "created"
             st[fate] += 1
+            ann = int(all(v["ann"] for v in g["members"]))
             for m in g["members"]:
-                c.execute("INSERT OR REPLACE INTO dnb_member VALUES(?,?,?,?,?,?,?)",
-                          (m["idn"], ln["key"], g["number"], g["isbn"], vid, fate, filled))
+                c.execute("INSERT OR REPLACE INTO dnb_member VALUES(?,?,?,?,?,?,?,?)",
+                          (m["idn"], ln["key"], g["number"], g["isbn"], vid, fate, filled, ann))
         if exported and ln["role"] != "merged" and not n_out and not c.execute(
                 "SELECT 1 FROM volume WHERE release_line_id=?", (rid,)).fetchone():
             # every volume was attached elsewhere or held back: no empty line
@@ -554,8 +571,8 @@ def load(db, lines, lost, W, w_isbn):
                    int(exported)))
     for g, fate, key in lost:
         for m in g["members"]:
-            c.execute("INSERT OR REPLACE INTO dnb_member VALUES(?,?,?,?,NULL,?,NULL)",
-                      (m["idn"], key, g["num"], g["isbn"], fate))
+            c.execute("INSERT OR REPLACE INTO dnb_member VALUES(?,?,?,?,NULL,?,NULL,?)",
+                      (m["idn"], key, g["num"], g["isbn"], fate, int(all(v["ann"] for v in g["members"]))))
             st[fate] += 1
     db.commit()
     return st

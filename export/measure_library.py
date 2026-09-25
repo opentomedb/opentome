@@ -172,7 +172,7 @@ def measure(art_path, readarr, old_path=None, verbose=True):
 # DNB lines fails the build instead of shipping quietly. The coverage floors are the design's.
 DE_MIN_LINES = 1300
 DE_MIN_VOLUMES = 10500
-DE_MIN_YEAR_COVERAGE = 0.95      # German volumes with a date of any precision
+DE_MIN_YEAR_COVERAGE = 0.95      # DEPOSITED German volumes with a date (announced-only reported apart)
 DE_MIN_PAGE_COVERAGE = 0.90      # German volumes with a page count
 DE_MIN_LINK_RATE = 0.30          # exported DNB lines / all DNB lines
 
@@ -196,9 +196,26 @@ def measure_de(art_path, catalogue=None):
     print("\nGerman market (DNB):")
     gate("DE lines", lines >= DE_MIN_LINES, "%s (floor %s)" % (format(lines, ","), format(DE_MIN_LINES, ",")))
     gate("DE volumes", vols >= DE_MIN_VOLUMES, "%s (floor %s)" % (format(vols, ","), format(DE_MIN_VOLUMES, ",")))
-    gate("DE date coverage", vols and dated / vols >= DE_MIN_YEAR_COVERAGE,
-         "%.1f%% (%s/%s; floor %.0f%%)" % (100 * dated / max(vols, 1), format(dated, ","), format(vols, ","),
-                                          100 * DE_MIN_YEAR_COVERAGE))
+    # The date floor is measured on DEPOSITED volumes -- the ones legal deposit has a record of,
+    # which always carry a publication year. Announced-only volumes (a planned month, or none
+    # yet) come and go with the publishers' schedules and are reported, not gated.
+    announced = set()
+    if catalogue:
+        C = sqlite3.connect(catalogue)
+        announced = {r[0] for r in C.execute("""SELECT DISTINCT volume_id FROM dnb_member WHERE volume_id IS NOT NULL
+                                                GROUP BY volume_id HAVING MIN(announced_only)=1""")}
+    rows = A.execute("""SELECT v.tome_id, v.release_date_raw, v.release_date_type FROM volumes v
+                        JOIN series s USING(gcd_series_id) WHERE s.language='de'""").fetchall()
+    dep = [r for r in rows if r[0] not in announced]
+    dep_dated = sum(1 for r in dep if r[1])
+    ann = [r for r in rows if r[0] in announced]
+    gate("DE date coverage (deposited volumes)", dep and dep_dated / len(dep) >= DE_MIN_YEAR_COVERAGE,
+         "%.1f%% (%s/%s; floor %.0f%%)" % (100 * dep_dated / max(len(dep), 1), format(dep_dated, ","),
+                                          format(len(dep), ","), 100 * DE_MIN_YEAR_COVERAGE))
+    print("  info  DE announced-only volumes: %s -- %s with a projected month, %s undated; all DE volumes "
+          "dated %.1f%% (%s/%s)" % (format(len(ann), ","), format(sum(1 for r in ann if r[2] == "projected"), ","),
+                                   format(sum(1 for r in ann if not r[1]), ","), 100 * dated / max(vols, 1),
+                                   format(dated, ","), format(vols, ",")))
     gate("DE page-count coverage", vols and paged / vols >= DE_MIN_PAGE_COVERAGE,
          "%.1f%% (%s/%s; floor %.0f%%)" % (100 * paged / max(vols, 1), format(paged, ","), format(vols, ","),
                                           100 * DE_MIN_PAGE_COVERAGE))

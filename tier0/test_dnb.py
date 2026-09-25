@@ -187,6 +187,9 @@ eq("announcement-only, 263 this year -> projected month",
    B.group_date([m(rec("1", ("263", [("a", "%d03" % Y)]), ann=True, year=str(Y)))]), ("%d-03" % Y, "month", "projected"))
 eq("announcement-only, future year -> held back",
    B.group_date([m(rec("1", ("263", [("a", "%d02" % (Y + 1))]), ann=True, year=str(Y + 1)))])[0], "HELD")
+old = datetime.date.today().replace(day=1) - datetime.timedelta(days=500)
+eq("announcement-only, 263 more than 12 months past -> the date is dropped",
+   B.group_date([m(rec("1", ("263", [("a", old.strftime("%Y%m"))]), ann=True, year=str(old.year)))]), None)
 eq("announcement-only, no 263 -> undated",
    B.group_date([m(rec("1", ann=True, year=str(Y - 1)))]), None)
 

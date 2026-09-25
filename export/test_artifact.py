@@ -409,6 +409,9 @@ def run_dnb(path, catalogue):
     rule("projected volumes that also have a release_date claim (projected outranked a real date)",
          c("""SELECT COUNT(*) FROM volume v WHERE v.release_date_type='projected' AND EXISTS
               (SELECT 1 FROM claim x WHERE x.entity='volume' AND x.entity_id=v.id AND x.field='release_date')"""))
+    rule("projected dates more than 12 months past (a plan that never arrived is dropped)",
+         c("""SELECT COUNT(*) FROM volume WHERE release_date_type='projected'
+              AND release_date < strftime('%Y-%m', 'now', '-12 months')"""))
     rule("projected volumes not month precision (catalogue)",
          c("""SELECT COUNT(*) FROM volume WHERE release_date_type='projected'
               AND (release_date_precision<>'month' OR LENGTH(release_date)<>7)"""))
