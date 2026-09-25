@@ -707,12 +707,20 @@ def run(dbpath, carry=None):
     print("  enumerating (cached; live requests are logged to build/dnb-netlog.tsv)", flush=True)
     recs, parents, tally = E.enumerate_all(verbose=False)
     gaps = {k: v for k, v in tally.items() if k.endswith("_slice_gap") and v}
-    if gaps and not S.REFRESH_DAYS:
+    degraded = tally.get("degraded")
+    if gaps and not degraded:
         raise SystemExit("DNB enumeration incomplete -- year slices miss records: %s" % gaps)
-    if gaps or tally.get("degraded"):
-        # a refresh run never fails the catalogue over DNB: it builds from what it has
-        print("  WARNING DNB refresh incomplete (%s; gaps %s) -- built from the cached responses"
-              % (tally.get("degraded"), gaps), flush=True)
+    # A degraded refresh (DNB failed; every affected slice kept its previous COMPLETE page set)
+    # is built and gated like any other, and recorded: meta 'dnb:degraded' reaches the artifact
+    # as meta.dnb_degraded, and export/publish.sh refuses to publish it.
+    db.execute("DELETE FROM meta WHERE key='dnb:degraded'")
+    if degraded:
+        db.execute("INSERT INTO meta(key,value) VALUES('dnb:degraded',?)", (json.dumps(
+            {"reason": degraded, "kept_previous": tally.get("degraded_queries", []), "gaps": gaps}),))
+        print("  WARNING DNB refresh degraded (%s): %d result set(s) kept their previous complete page "
+              "set; gaps %s -- this build will not publish" % (degraded, len(tally.get("degraded_queries", [])), gaps),
+              flush=True)
+    db.commit()
     # a rerun on a populated catalogue first takes back what the last run wrote, so the
     # Wikipedia side and the linker's index are read exactly as the first run read them
     db.executescript(STAGING_DDL)

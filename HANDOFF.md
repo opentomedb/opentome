@@ -54,8 +54,13 @@ Next:
 - Refreshing: `DNB_REFRESH_DAYS=6` is now set in `catalogue.yml` (last year, this year and
   later, the no-year remainder, when older than 6 days: ~62 requests a week, plus up to 42
   small recounts when a total moved). Parents are fetched once (stable batches via
-  `.cache/dnb-parents.json`), never refreshed. A DNB failure in a refresh run falls back to
-  the cache with a warning and never fails the build; offline and first runs stay strict.
+  `.cache/dnb-parents.json`), never refreshed. A result set is cached whole or not at all. When
+  DNB fails during a refresh, a result set with a previous COMPLETE page set keeps that set
+  (never a partial or empty one), the build continues, and it is marked degraded
+  (`meta.dnb_degraded`): `export/publish.sh` refuses to publish it. A result set with NO complete
+  earlier set -- a first run, an unseeded cache, a new slice -- fails the build loudly, refresh
+  window or not (CI always sets one). The contract also fails when more than 25 carried German
+  volumes are retired in one build.
 - Nick: `build/dnb-review.tsv` (217 low/ambiguous lines) -- confirmed ones could become
   corrections; the design has no correction type for "link this DNB line" yet.
 - Follow-ups: KR/CN round (decision 4); light novels are thin (19 lines) -- LN works are

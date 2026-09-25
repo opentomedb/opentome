@@ -66,22 +66,15 @@ CHANNELS = [
 
 
 def _page(q, refresh=False, force=False):
-    try:
-        n, pages = S.search(q, refresh=refresh, force=force)
-    except (S.DnbUnavailable, S.DnbOfflineMiss) if S.REFRESH_DAYS else S.DnbUnavailable:
-        # a refresh run that degraded skipped this url; an offline re-read of the same cache
-        # (the measure gate's reload check) must skip it the same way, not fail
-        print("    WARNING DNB slice %r unavailable (refresh run fell back to the cache) -- skipped" % q, flush=True)
-        return 0, {}
+    """A slice, whole: S.search() returns a complete page set (fresh, or the previous complete
+    one when a refresh run degraded) or raises -- a slice is never partly there."""
+    n, pages = S.search(q, refresh=refresh, force=force)
     seen = {}
     for text in pages:
         for r in M.records(text):
             seen[M.idn(r)] = r
     if len(seen) != n:
-        msg = "DNB slice %r announced %d records but paged %d distinct" % (q, n, len(seen))
-        if not S.REFRESH_DAYS:
-            raise RuntimeError(msg)
-        print("    WARNING " + msg + " (refresh run: kept what paged)", flush=True)
+        raise RuntimeError("DNB slice %r announced %d records but paged %d distinct" % (q, n, len(seen)))
     return n, seen
 
 
@@ -102,7 +95,7 @@ def run_channel(name, base, fine_from, coarse, verbose=True):
     # record out of the union, so a plain run keeps the cached total and stays consistent.)
     refreshed = bool(S.REFRESH_DAYS) and S.live_requests[0] > live0
     got = {k: r for seen in by_slice.values() for k, r in seen.items()}
-    if refreshed:
+    if refreshed and not S.DEGRADED[0]:     # a degraded run recounts nothing: DNB is failing
         whole = S.total(base, force=True)
         if len(got) != whole:
             for q, suffix, refresh in slices:
@@ -146,7 +139,12 @@ def fetch_parents(have, want, verbose=True):
         q = " or ".join("idn=" + x for x in missing[i:i + IDN_BATCH])
         try:
             S.search(q)
-        except (S.DnbUnavailable, S.DnbOfflineMiss) if S.REFRESH_DAYS else S.DnbUnavailable:
+        except S.DnbIncomplete if S.REFRESH_DAYS else ():
+            # a NEW parent batch in a refresh run DNB is failing: the parent's volumes still
+            # cluster under its IDN, only its title is missing. The run is marked degraded, so
+            # it is built and gated but never published.
+            S.DEGRADED[0] = S.DEGRADED[0] or "parent batch unavailable"
+            S.DEGRADED_QUERIES.append("parents: " + q[:60])
             continue
         for x in missing[i:i + IDN_BATCH]:
             index[x] = q
@@ -154,8 +152,8 @@ def fetch_parents(have, want, verbose=True):
     for q in sorted({index[x] for x in todo if x in index}):
         try:
             n, pages = S.search(q)
-        except (S.DnbUnavailable, S.DnbOfflineMiss) if S.REFRESH_DAYS else S.DnbUnavailable:
-            continue
+        except (S.DnbIncomplete, S.DnbOfflineMiss) if S.REFRESH_DAYS else ():
+            continue                     # the degraded parent batch above (or its offline re-read)
         for text in pages:
             for r in M.records(text):
                 if M.idn(r) in want:
@@ -192,6 +190,7 @@ def enumerate_all(verbose=True):
     tally["parents_fetched"] = len(parents)
     tally["live_requests"] = S.live_requests[0]
     tally["degraded"] = S.DEGRADED[0]
+    tally["degraded_queries"] = list(S.DEGRADED_QUERIES)
     return recs, parents, tally
 
 

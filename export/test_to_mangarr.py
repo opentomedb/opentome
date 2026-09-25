@@ -98,6 +98,8 @@ def run():
     eq("a successor that already had an integer keeps it; the retired integer resolves through id_redirect",
        red.get("rl_twin"), ("rl_new", "release_line", 555555))
     eq("a retired integer stays reserved in id_map", idmap.get("rl_twin"), (555555, "retired"))
+    eq("a degraded DNB refresh reaches the artifact as meta.dnb_degraded (publish.sh refuses it)",
+       FIX_META.get("dnb_degraded"), '{"reason": "HTTP 502"}')
 
     if FAILS:
         print("FAILED: " + ", ".join(FAILS))
@@ -119,6 +121,7 @@ def fixture_redirect_carry():
     db.execute("INSERT INTO id_redirect VALUES('rl_old','rl_new','release_line','correction','x')")
     db.execute("INSERT INTO id_redirect VALUES('rl_older','rl_old','release_line','correction','x')")
     db.execute("INSERT INTO id_redirect VALUES('rl_twin','rl_new','release_line','duplicate_merge','x')")
+    db.execute("""INSERT INTO meta VALUES('dnb:degraded','{"reason": "HTTP 502"}')""")
     db.commit()
     c = sqlite3.connect(carry)
     c.execute("CREATE TABLE id_map (opentome_id TEXT PRIMARY KEY, int_id INTEGER UNIQUE NOT NULL, kind TEXT NOT NULL)")
@@ -137,7 +140,11 @@ def fixture_redirect_carry():
     red = {o: (n, e, oi) for o, n, e, oi in out.execute(
         "SELECT old_tome_id, new_tome_id, entity, old_series_id FROM id_redirect")}
     idmap = {o: (i, k) for o, i, k in out.execute("SELECT opentome_id, int_id, kind FROM id_map")}
+    FIX_META["dnb_degraded"] = (out.execute("SELECT value FROM meta WHERE key='dnb_degraded'").fetchone() or [None])[0]
     return sid, rtype, red, idmap
+
+
+FIX_META = {}
 
 
 def fixture_origin_line_pin():

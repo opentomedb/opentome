@@ -69,7 +69,9 @@ jobs:
       # days -- 6, not 7: the cache files are ~7 days old at the next Sunday run, and a 7-day
       # window on a 7-day cron is not reliably "older", so alternate weeks would be skipped.
       # ~62 SRU requests a week at >= 3 s, plus up to 42 small recounts when a total moved.
-      # A DNB failure in a refresh run falls back to the cache and never fails this build.
+      # A DNB failure in a refresh run keeps each affected result set's previous complete page
+      # set and marks the build degraded (built and gated, never published); a result set with
+      # no complete earlier set fails the build (an unseeded cache is not a refresh).
       - name: rebuild (every gate)
         env:
           DNB_REFRESH_DAYS: "6"

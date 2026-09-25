@@ -461,6 +461,8 @@ def fake_urlopen(req, timeout=None):
     if SERVER.get("status"):
         code, SERVER["status"] = SERVER["status"], None
         raise urllib.error.HTTPError(req.full_url, code, "Server Error", email.message.Message(), None)
+    if SERVER.get("fail_later_pages") and "startRecord=1&" not in req.full_url + "&":
+        raise urllib.error.HTTPError(req.full_url, 502, "Bad Gateway", email.message.Message(), None)
     if SERVER["refuse"]:
         SERVER["refuse"] -= 1
         h = email.message.Message()
@@ -559,36 +561,58 @@ try:
     eq("offline: a stale cached copy is served, not refetched", len(CALLS) - n, 0)
     eq("every live request is in the netlog", sum(1 for _ in open(S.NETLOG)), len(CALLS))
 
-    # refresh runs never fail the build over DNB: they fall back to the (stale) cache
+    # a refresh run that DNB fails: every result set keeps its previous COMPLETE page set, whole
+    def age_all():
+        for f in os.listdir(tmp):
+            os.utime(os.path.join(tmp, f), (CLOCK[0] - 3 * 86400,) * 2)
     S.OFFLINE, S.REFRESH_DAYS = False, 1
-    for f in os.listdir(tmp):
-        os.utime(os.path.join(tmp, f), (CLOCK[0] - 3 * 86400,) * 2)
-    SERVER["status"] = 500
-    got, gap, _ = E.run_channel("t", "BASE", 2025, (), verbose=False)
-    eq("refresh run + HTTP 500: falls back to the cache, no exception, same records",
-       (len(got), bool(S.DEGRADED[0])), (6, True))
-    S.DEGRADED[0] = None
-    for f in os.listdir(tmp):
-        os.utime(os.path.join(tmp, f), (CLOCK[0] - 3 * 86400,) * 2)
+    SERVER["years"][2026] = ["b%03d" % i for i in range(150)]      # a two-page slice
+    S.REFRESH_DAYS = 0
+    E.CURRENT_YEAR = 2027
+    S.search("BASE and jhr=2026", force=True)                       # cache it complete: 150
+    S.REFRESH_DAYS = 1
+    age_all()
+    SERVER["years"][2026] = ["b%03d" % i for i in range(160)]      # DNB has 10 more now ...
+    SERVER["fail_later_pages"] = True                               # ... and fails on page 2
+    k1 = S.cache_path(S.url_for("BASE and jhr=2026", 1))
+    before = open(k1).read()
+    n, pages = S.search("BASE and jhr=2026", refresh=True)
+    eq("page 2 fails in a refresh: the slice keeps its previous complete set (150), not a partial "
+       "or an empty one", (n, S._distinct(pages)), (150, 150))
+    eq("... the fresh page 1 was staged, never written to the cache", open(k1).read() == before, True)
+    eq("... the run is degraded and names the slice",
+       (bool(S.DEGRADED[0]), "BASE and jhr=2026" in S.DEGRADED_QUERIES), (True, True))
+    SERVER["fail_later_pages"] = False
+    try:
+        S.search("BASE and jhr=2035", refresh=True)                # never cached, run degraded
+        eq("degraded + a result set with no complete earlier set: fails loudly", "no exception", "DnbIncomplete")
+    except S.DnbIncomplete:
+        eq("degraded + a result set with no complete earlier set: fails loudly", True, True)
+    S.DEGRADED[0], S.DEGRADED_QUERIES[:] = None, []
+    age_all()
     SERVER["refuse"], S._refusals[0] = 2, 0
     got, gap, _ = E.run_channel("t", "BASE", 2025, (), verbose=False)
-    eq("refresh run + a second 429: falls back to the cache, no exception", (len(got), bool(S.DEGRADED[0])), (6, True))
-    n = len(CALLS)
-    E.CURRENT_YEAR = 2031                       # new slice urls, never cached, while degraded
-    got, gap, _ = E.run_channel("t", "BASE", 2025, (), verbose=False)
-    eq("degraded: an uncached slice is skipped with a warning, no request", len(CALLS) - n, 0)
+    eq("refresh run + a second 429: every slice whole from the cache, no exception",
+       (len(got) >= 150, bool(S.DEGRADED[0])), (True, True))
     S.OFFLINE, S.DEGRADED[0] = True, None      # the measure gate's offline reload of that cache
-    got, gap, _ = E.run_channel("t", "BASE", 2025, (), verbose=False)
-    eq("offline re-read of a degraded refresh run's cache skips the same urls, no exception", len(got), 6)
-    S.OFFLINE = False
-    SERVER["refuse"], S._refusals[0], S.DEGRADED[0], S.REFRESH_DAYS = 0, 0, None, 0
-    S.OFFLINE = False
-    try:
+    got2, _, _ = E.run_channel("t", "BASE", 2025, (), verbose=False)
+    eq("an offline re-read of a degraded run's cache sees the same records", sorted(got2) == sorted(got), True)
+    S.OFFLINE, S.DEGRADED_QUERIES[:] = False, []
+    SERVER["refuse"], S._refusals[0], S.DEGRADED[0] = 0, 0, None
+
+    # first runs stay strict, refresh window or not (CI always sets one)
+    fresh = tempfile.mkdtemp(prefix="dnb-cold-")
+    S.CACHE = fresh
+    for days in (0, 6):
+        S.REFRESH_DAYS = days
         SERVER["status"] = 500
-        S.get(S.url_for("BASE and jhr=1977"))
-        eq("a first run (no refresh window) stays strict on a 500", "no exception", "HTTPError")
-    except urllib.error.HTTPError:
-        eq("a first run (no refresh window) stays strict on a 500", True, True)
+        try:
+            S.search("BASE and jhr=2026", refresh=True)
+            eq("cold cache + HTTP 500 (DNB_REFRESH_DAYS=%d): fails loudly" % days, "no exception", "DnbIncomplete")
+        except S.DnbIncomplete:
+            eq("cold cache + HTTP 500 (DNB_REFRESH_DAYS=%d): fails loudly" % days, True, True)
+        S.DEGRADED[0] = None
+    S.CACHE, S.REFRESH_DAYS, SERVER["status"] = tmp, 0, None
 
     # parents: one request per batch, stable batch urls through the cache index
     SERVER["years"] = {2025: ["p1", "p2", "p3"]}
@@ -602,7 +626,58 @@ try:
 finally:
     (S.CACHE, S.STAMP, S.NETLOG, S.OFFLINE, S.REFRESH_DAYS, S.urllib.request.urlopen, S.time.sleep,
      E.CURRENT_YEAR, S.time.time, E.PARENT_INDEX) = saved
-    S.DEGRADED[0], E.IDN_BATCH = None, 30
+    S.DEGRADED[0], S.DEGRADED_QUERIES[:], E.IDN_BATCH = None, [], 30
+
+# ---- a degraded build never publishes; too many retired German volumes fail the contract ----
+import subprocess
+pub = tempfile.mkdtemp(prefix="dnb-publish-")
+os.makedirs(os.path.join(pub, "build"))
+os.makedirs(os.path.join(pub, "export"))
+# publish.sh cd's to its own repo root and writes build/version.json there: run a copy, so the
+# test never touches the real build/
+import shutil
+shutil.copy(os.path.join(ROOT, "export", "publish.sh"), os.path.join(pub, "export", "publish.sh"))
+art = os.path.join(pub, "build", "a.sqlite")
+A = sqlite3.connect(art)
+A.executescript("""CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+    CREATE TABLE series (gcd_series_id INTEGER, tome_id TEXT, language TEXT);
+    CREATE TABLE volumes (gcd_series_id INTEGER, tome_id TEXT);
+    INSERT INTO meta VALUES('gcd_dump','opentome-2026-09-24'), ('alias_provenance','opentome'),
+                           ('licence','x'), ('dnb_degraded','{"reason": "HTTP 502"}');""")
+A.commit()
+env = dict(os.environ, PUBLISH="1")
+r = subprocess.run(["bash", os.path.join(pub, "export", "publish.sh"), art], cwd=pub, env=env,
+                   capture_output=True, text=True)
+eq("publish.sh refuses a build with meta.dnb_degraded", (r.returncode, "dnb_degraded" in r.stderr), (1, True))
+env["PUBLISH"] = "0"
+r = subprocess.run(["bash", os.path.join(pub, "export", "publish.sh"), art], cwd=pub, env=env,
+                   capture_output=True, text=True)
+eq("... but its dry run (the weekly build's manifest step) still passes and says so",
+   (r.returncode, "DNB DEGRADED" in r.stderr), (0, True))
+
+sys.path.insert(0, os.path.join(ROOT, "export"))
+import importlib
+TA = importlib.import_module("test_artifact")
+carry = os.path.join(pub, "carry.sqlite")
+C = sqlite3.connect(carry)
+C.executescript("CREATE TABLE series (gcd_series_id INTEGER, tome_id TEXT, language TEXT);"
+                "CREATE TABLE volumes (gcd_series_id INTEGER, tome_id TEXT);"
+                "INSERT INTO series VALUES(1, 'rl_x', 'de');")
+C.executemany("INSERT INTO volumes VALUES(1, ?)", [("v_%03d" % i,) for i in range(30)])
+C.commit()
+A.executescript("INSERT INTO series VALUES(1, 'rl_x', 'de');"
+                "CREATE TABLE id_redirect (old_tome_id TEXT, new_tome_id TEXT);")
+A.executemany("INSERT INTO id_redirect VALUES(?, 'rl_x')", [("v_%03d" % i,) for i in range(30)])
+A.commit()
+TA.FAILS[:] = []
+TA.run_ids(art, carry)
+eq("30 carried German volumes redirected away in one build: the contract fails",
+   any("retired in one build" in f for f in TA.FAILS), True)
+A.executemany("INSERT INTO volumes VALUES(1, ?)", [("v_%03d" % i,) for i in range(10)])
+A.commit()
+TA.FAILS[:] = []
+TA.run_ids(art, carry)
+eq("20 retired: within the allowance", TA.FAILS, [])
 
 print()
 if FAILS:

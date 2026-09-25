@@ -20,9 +20,10 @@ Politeness (docs/dnb-design.md "Access"): DNB documents no rate limit, but the
 
 DNB_OFFLINE=1 makes a cache miss an error instead of a request (tests, and proving a
 rebuild is offline). DNB_REFRESH_DAYS=N is the opt-in freshness window: callers pass
-`refresh=True` for slices that can still change (current / future years, parent
-batches), and those are refetched when their cached copy is older than N days.
-Default off: a rebuild is reproducible from the cache.
+`refresh=True` for slices that can still change (last year and later, the no-year
+remainder), and those are refetched when their cached set is older than N days. Default
+off: a rebuild is reproducible from the cache. A result set is cached whole or not at all
+(search()); see DEGRADED below for what a refresh run does when DNB fails.
 """
 import fcntl, hashlib, os, re, time, urllib.error, urllib.parse, urllib.request
 
@@ -53,14 +54,20 @@ class DnbDiagnostic(RuntimeError):
     """SRU answered with a diagnostic (bad query) -- never cached."""
 
 
-class DnbUnavailable(RuntimeError):
-    """A refresh run fell back to the cache after a DNB failure, and this url is not cached."""
+class DnbIncomplete(RuntimeError):
+    """DNB failed and there is no complete earlier page set of this result set to fall back
+    on (a first run, an unseeded cache, a new slice) -- the build must stop, loudly."""
 
 
-# A REFRESH run (DNB_REFRESH_DAYS set, the scheduled build) must never fail the catalogue over
-# DNB: on a second 429/503, a 5xx, a network error or a diagnostic it falls back to the stale
-# cache for the rest of the run (DEGRADED) and says so. Offline and first runs stay strict.
+# A REFRESH run (DNB_REFRESH_DAYS set, the scheduled build) does not fail the catalogue over a
+# DNB outage it can ride out: on a second 429/503, a 5xx, a network error, a diagnostic or a
+# paging mismatch, a result set whose previous COMPLETE page set is cached keeps that set,
+# whole (DEGRADED; the affected queries in DEGRADED_QUERIES). A result set with no complete
+# earlier set fails the run (DnbIncomplete) -- a first run and an unseeded cache stay strict,
+# refresh window or not. A degraded build is recorded in meta and never published
+# (export/publish.sh refuses it).
 DEGRADED = [None]            # the reason, once degraded
+DEGRADED_QUERIES = []        # result sets that kept their previous page set
 
 
 _refusals = [0]                # 429/503 answers seen by this process
@@ -111,9 +118,9 @@ def _check(text, url):
 
 
 def get(url, refresh=False, force=False):
-    """The response text for url: from the cache, else one polite live request. refresh:
-    refetch a copy older than DNB_REFRESH_DAYS; force: refetch whatever its age. Offline, a
-    cached copy is always served, stale or not."""
+    """One response (a numberOfRecords count): from the cache, else one polite live request.
+    refresh: refetch a copy older than DNB_REFRESH_DAYS; force: refetch whatever its age.
+    Offline -- or once a refresh run has degraded -- a cached copy is served, stale or not."""
     key = cache_path(url)
     have = os.path.exists(key)
     if have:
@@ -125,23 +132,23 @@ def get(url, refresh=False, force=False):
     if OFFLINE:
         raise DnbOfflineMiss("DNB_OFFLINE=1 and no cached response for " + url)
     if DEGRADED[0]:
-        raise DnbUnavailable(url)
+        raise DnbIncomplete("DNB is failing this run (%s) and %s is not cached" % (DEGRADED[0], url))
     try:
-        return _live(url, key)
+        text = _live(url)
     except (DnbThrottled, DnbDiagnostic, urllib.error.HTTPError, urllib.error.URLError,
             TimeoutError, ConnectionError, RuntimeError) as e:
-        if not REFRESH_DAYS:
+        if not (REFRESH_DAYS and have):
             raise
         DEGRADED[0] = "%s: %s" % (type(e).__name__, str(e)[:160])
-        print("    WARNING DNB refresh failed (%s) -- falling back to the cached responses for the "
-              "rest of this run" % DEGRADED[0], flush=True)
-        if have:
-            with open(key, encoding="utf8") as f:
-                return f.read()
-        raise DnbUnavailable(url)
+        print("    WARNING DNB refresh failed (%s) -- the cached count is kept" % DEGRADED[0], flush=True)
+        with open(key, encoding="utf8") as f:
+            return f.read()
+    _store(key, text)
+    return text
 
 
-def _live(url, key):
+def _live(url):
+    """One polite live request -> the response text (checked, NOT cached: callers store)."""
     for attempt in range(3):
         _throttle()
         t0 = time.time()
@@ -163,7 +170,7 @@ def _live(url, key):
             print("    DNB HTTP %d, Retry-After=%s -> waiting %ds" % (e.code, ra, wait), flush=True)
             time.sleep(wait)
             continue
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
             _log(t0, "ERR", 0, url)
             if attempt == 2:
                 raise
@@ -171,10 +178,6 @@ def _live(url, key):
             continue
         _log(t0, "200", len(text), url)
         _check(text, url)
-        tmp = key + ".part"
-        with open(tmp, "w", encoding="utf8") as f:
-            f.write(text)
-        os.replace(tmp, key)
         return text
     raise RuntimeError("DNB: retries exhausted for " + url)
 
@@ -184,17 +187,84 @@ def count(text):
     return int(m.group(1)) if m else 0
 
 
-def search(query, refresh=False, force=False):
-    """Every record of a CQL query, paged 100 at a time -> list of response texts.
-    A result set must stay below DNB's 99,000 paging ceiling; callers slice by jhr."""
-    first = get(url_for(query, 1), refresh, force)
+def _cached_set(query):
+    """The complete cached page set of a result set, or None: page 1 and every page its
+    numberOfRecords implies must be cached."""
+    k1 = cache_path(url_for(query, 1))
+    if not os.path.exists(k1):
+        return None
+    with open(k1, encoding="utf8") as f:
+        first = f.read()
     n = count(first)
-    if n > 99000:
-        raise ValueError("DNB result set too large to page (%d): %s" % (n, query))
     pages = [first]
     for start in range(1 + PAGE, n + 1, PAGE):
-        pages.append(get(url_for(query, start), refresh, force))
-    return n, pages
+        k = cache_path(url_for(query, start))
+        if not os.path.exists(k):
+            return None
+        with open(k, encoding="utf8") as f:
+            pages.append(f.read())
+    return n, pages, os.path.getmtime(k1)
+
+
+def _distinct(pages):
+    return len({m for t in pages for m in re.findall(r'tag="001">([^<]+)<', t)})
+
+
+def search(query, refresh=False, force=False):
+    """Every record of a CQL query, paged 100 at a time -> (numberOfRecords, response texts).
+
+    A result set is fetched and cached as a WHOLE: a live refetch is staged in memory and
+    written to the cache only when every page arrived and the pages hold as many distinct
+    records as announced. So the cache only ever holds complete sets, and a refresh that fails
+    halfway keeps the previous set intact. A result set must stay below DNB's 99,000 paging
+    ceiling; callers slice by jhr."""
+    have = _cached_set(query)
+    if have:
+        n, pages, mtime = have
+        stale = force or (refresh and REFRESH_DAYS and time.time() - mtime > REFRESH_DAYS * 86400)
+        if not stale or OFFLINE or DEGRADED[0]:
+            if stale and DEGRADED[0] and query not in DEGRADED_QUERIES:
+                DEGRADED_QUERIES.append(query)
+            return n, pages
+    if OFFLINE:
+        raise DnbOfflineMiss("DNB_OFFLINE=1 and no complete cached result set for " + query)
+    if DEGRADED[0]:
+        raise DnbIncomplete("DNB is failing this run (%s) and %r has no complete cached result set"
+                            % (DEGRADED[0], query))
+    try:
+        first = _live(url_for(query, 1))
+        n = count(first)
+        if n > 99000:
+            raise ValueError("DNB result set too large to page (%d): %s" % (n, query))
+        staged = [(url_for(query, 1), first)]
+        for start in range(1 + PAGE, n + 1, PAGE):
+            u = url_for(query, start)
+            staged.append((u, _live(u)))
+        got = _distinct([t for _, t in staged])
+        if got != n:
+            raise DnbDiagnostic("DNB result set %r announced %d records, paged %d distinct" % (query, n, got))
+    except (DnbThrottled, DnbDiagnostic, urllib.error.HTTPError, urllib.error.URLError,
+            TimeoutError, ConnectionError, RuntimeError) as e:
+        if not have:
+            raise DnbIncomplete("%s: %s -- no complete earlier result set of %r to fall back on"
+                                % (type(e).__name__, e, query)) from e
+        if not REFRESH_DAYS:
+            raise
+        DEGRADED[0] = "%s: %s" % (type(e).__name__, str(e)[:160])
+        DEGRADED_QUERIES.append(query)
+        print("    WARNING DNB refresh failed (%s) -- %r keeps its previous complete page set, and "
+              "every later refresh this run is skipped" % (DEGRADED[0], query), flush=True)
+        return have[0], have[1]
+    for u, t in staged:
+        _store(cache_path(u), t)
+    return n, [t for _, t in staged]
+
+
+def _store(key, text):
+    tmp = key + ".part"
+    with open(tmp, "w", encoding="utf8") as f:
+        f.write(text)
+    os.replace(tmp, key)
 
 
 def total(query, force=False):

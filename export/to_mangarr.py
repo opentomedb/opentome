@@ -742,6 +742,7 @@ def export(src_path, out_path, carry_ids_from=None):
         n_removed += gone
 
     src_counts = dict(src.execute("SELECT source, COUNT(*) FROM claim GROUP BY source"))
+    dnb_degraded = (src.execute("SELECT value FROM meta WHERE key='dnb:degraded'").fetchone() or [None])[0]
     try:
         dnb_lines = {"roles": dict(src.execute("SELECT role, COUNT(*) FROM dnb_line GROUP BY 1")),
                      "exported_tiers": dict(src.execute("""SELECT tier, COUNT(*) FROM dnb_line
@@ -784,7 +785,8 @@ def export(src_path, out_path, carry_ids_from=None):
         ("release_date_semantics", "release_date is day-precision only; coarser values are in "
                                    "release_date_raw with release_date_precision; release_date_type "
                                    "says which milestone (projected = a planned month, not a publication)."),
-    ]:
+    ] + ([("dnb_degraded", dnb_degraded)] if dnb_degraded else []):
+        # dnb_degraded: DNB failed during this build's refresh -- export/publish.sh refuses it
         out.execute("INSERT OR REPLACE INTO meta VALUES(?,?)", (k, v))
 
     # Read before publishing: what title_for_export kept vs rejected, and why (fix

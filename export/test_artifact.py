@@ -336,6 +336,9 @@ def run(path):
 DNB_FIELDS = ("isbn13", "release_date", "projected_date", "page_count", "volume_number", "line_name", "publisher")
 
 
+MAX_RETIRED_DE_VOLUMES = 25
+
+
 def run_ids(path, carry):
     """IDs are a public contract: every German line and volume id of the carried (last
     published) artifact is still present here, or resolves through this artifact's id_redirect
@@ -354,6 +357,12 @@ def run_ids(path, carry):
         red = {}
     lost = [t for t in old if t and t not in present and red.get(t) not in present]
     rule("German ids of the carried artifact neither present nor redirected", len(lost), str(lost[:5]))
+    # A redirect keeps an id resolvable; it does not make losing the volume right. More than a
+    # handful of carried German volumes gone in one build is a DNB outage, a clustering change or
+    # a linker change -- stop and look before it ships (N1, 2026-09-24 re-review).
+    gone = [t for t in old if t and t.startswith("v_") and t not in present]
+    rule("more than %d carried German volumes retired in one build" % MAX_RETIRED_DE_VOLUMES,
+         0 if len(gone) <= MAX_RETIRED_DE_VOLUMES else len(gone), str(gone[:5]))
     rule("id_redirect rows whose target is not in the artifact",
          sum(1 for t in red.values() if t not in present))
     print("  info  carried German ids: %s, redirected: %s" % (
