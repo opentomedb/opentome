@@ -85,8 +85,9 @@ reserved in `id_map` (kind `retired`).
 
 ## The gate (`export/test_artifact.py` `run_ids`, stage 8c)
 
-- every work, line and volume id of the carry, **every market**, is present or resolves through
-  the artifact's `id_redirect` to an id that is; ids of works in `meta.excluded_works` are exempt;
+- every work, line and volume id of the carry, **every market** -- and every id the carry's own
+  `id_redirect` already resolved -- is present or resolves through the artifact's `id_redirect`
+  to an id that is; ids of works in `meta.excluded_works` are exempt;
 - unchanged: more than `MAX_RETIRED_DE_VOLUMES` = 25 carried German volumes gone fails;
 - new: more than `MAX_RETIRED_VOLUMES` = 100 carried volumes **retired** in one build, any market,
   fails — retired = no longer resolving to a volume (redirected to its line, or not at all); ids a
@@ -104,5 +105,5 @@ number); its 2 FR lines (70 volumes) re-key under Drops of God (`correction`, sa
 Nothing else moved: every id present in both builds has identical series and volume columns;
 the only other change is 3 Kindaichi Case Files main lines trading the alias "s Enquêtes de
 Kindaichi" for "Les Enquêtes de Kindaichi". A second build against the new artifact: 0 new ids,
-0 changed, the 261 rows identical. The same stages on the unfixed corpus: 0 merges, 0 redirects,
+0 changed, the 261 rows identical, and the gate re-checks those 261 old ids (0 lost). The same stages on the unfixed corpus: 0 merges, 0 redirects,
 an artifact identical to main's.

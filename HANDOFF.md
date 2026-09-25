@@ -18,8 +18,9 @@ Done (one commit per step; design + numbers: `docs/carried-ids.md`):
   survivor (same market + medium, most ISBNs) merges into it -- the published line untouched, its
   name partners pinned to it (`origin_line`, source `opentome`). Scoped to absorbing works and
   unpublished lines: the 496 published same-edition pairs in today's catalogue are not touched.
-- `export/test_artifact.py run_ids`: every market, works included; excluded works exempt; DE cap
-  (25) unchanged; new cap: > 100 carried volumes RETIRED (not resolving to a volume) fails.
+- `export/test_artifact.py run_ids`: every market, works included, plus every id the carry's own
+  `id_redirect` already resolved; excluded works exempt; DE cap (25) unchanged; new cap: > 100
+  carried volumes RETIRED (not resolving to a volume) fails.
 - `work_title()`: des/du restore Les/Le; the article fragment is shared with `local_title`.
 - Measured offline against the published `opentome-2026-09-25` (downloaded once, as CI's "restore
   id carry" does; zero other network): 4 of 9,668 names change; 13 lines / 247 volumes / 1 work
@@ -29,7 +30,8 @@ Done (one commit per step; design + numbers: `docs/carried-ids.md`):
   builds: identical columns; only other change: 3 Kindaichi Case Files lines' alias "s Enquêtes de
   Kindaichi" -> "Les Enquêtes de Kindaichi". Contract: only the two AniList rules (8a not run);
   measure 49/49, 0 coverage failures, DE floors unchanged. Second build on the new artifact: 0 new
-  / 0 changed; the unfixed corpus through the new stages: identical to main.
+  / 0 changed, and the gate re-checks the 261 redirected ids (0 lost); `volumes_special` identical;
+  the unfixed corpus through the new stages: identical to main.
 
 Next:
 - Merge, CI build-only, then publish. Mangarr reads `id_redirect` for `release_line` rows; the
@@ -45,7 +47,8 @@ Gotchas:
   under `set -e` only skips the echo (bash exempts non-final `&&` members). Seen this round: with
   the fix reverted, test_parser / test_to_mangarr / test_carried_ids failed and the build ran on.
   A missing "... ok" line is the only sign. Not fixed here (out of scope) -- a one-line change per
-  test (`|| exit 1`).
+  test (`|| exit 1`). So the `narrow-fold` "BLOCKER for CI" below rests on a wrong premise: a
+  failing `test_resolve_anilist.py` does not abort the build, it only drops its "anilist ok" line.
 - openBD is cached by whole 80-ISBN batches of the sorted JP ISBNs: anything that changes the JP
   ISBN set before stage 4 re-keys every later batch (the merge moved from 3a to 4c for that).
   Offline, a missed batch drops dates silently (`_fetch` returns an error dict); locally 217 of
