@@ -73,6 +73,15 @@ def run(path):
          g("""SELECT COUNT(*) FROM series_alias WHERE alias LIKE '%{{%' OR alias LIKE '%[[%'
               OR alias LIKE '%<%'"""))
     rule("empty series names", g("SELECT COUNT(*) FROM series WHERE TRIM(name)=''"))
+    # Preferred Edition (2026-09-24): every line says its market; a local name is a clean title.
+    rule("series without a country (the market code)",
+         g("SELECT COUNT(*) FROM series WHERE country IS NULL OR TRIM(country)=''"))
+    rule("local_name with markup or a list-article prefix",
+         g("""SELECT COUNT(*) FROM series WHERE local_name LIKE '%{{%' OR local_name LIKE '%[[%'
+              OR local_name LIKE 'Liste %' OR local_name LIKE 'Chronologie %' OR TRIM(local_name)=''"""))
+    print("  info  local_name by language: %s" % ", ".join(
+        "%s %s/%s" % (l, format(n, ","), format(t, ",")) for l, n, t in db.execute(
+            "SELECT language, SUM(local_name IS NOT NULL), COUNT(*) FROM series GROUP BY 1 ORDER BY 3 DESC")))
     # a lone "<上>" / "<First>" is text, not markup -- flag exactly the exporter's drop
     # set (MARKUP_TITLE_RE in to_mangarr.py), never a bare '<'.
     rule("volume titles with wiki markup",

@@ -9,7 +9,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "tier2"))
 sys.path.insert(0, os.path.join(ROOT, "schema"))
 sys.path.insert(0, os.path.join(ROOT, "tier0"))
-from to_mangarr import title_for_export, pick_origin, export
+from to_mangarr import title_for_export, pick_origin, export, local_title, local_name_for
 import corrections as corr
 
 FAILS = []
@@ -101,6 +101,51 @@ def run():
     eq("a degraded DNB refresh reaches the artifact as meta.dnb_degraded (publish.sh refuses it)",
        FIX_META.get("dnb_degraded"), '{"reason": "HTTP 502"}')
 
+    # ---- local_title / local_name_for (2026-09-24, Preferred Edition v0) -------------
+    # Measured on build/opentome.db: FR official work titles are raw Wikipedia article
+    # names; work_title() strips the common list kinds but not every one, and article
+    # disambiguators ride along.
+    eq("fr list article -> the title", local_title("Liste des chapitres de L'Attaque des Titans"),
+       "L'Attaque des Titans")
+    eq("fr list of spin-off volumes -> the work", local_title("Liste des volumes dérivés de One Piece"),
+       "One Piece")
+    eq("fr light-novel list -> the title", local_title("Liste des light novel de L'Odyssée de Kino"),
+       "L'Odyssée de Kino")
+    eq("fr d' form", local_title("Liste des chapitres d'Ushio et Tora"), "Ushio et Tora")
+    # 'de' must not eat the start of 'des' (review ruling, 2026-09-24): the old
+    # alternation turned this into "s Chevaliers du Zodiaque".
+    eq("fr des form", local_title("Liste des chapitres des Chevaliers du Zodiaque"),
+       "Chevaliers du Zodiaque")
+    eq("trailing disambiguator dropped", local_title("Radiant (bande dessinée)"), "Radiant")
+    eq("trailing disambiguator with a year dropped", local_title("Gestalt (manga, 1992)"), "Gestalt")
+    eq("ja qualifier dropped", local_title("Wish (漫画)"), "Wish")
+    # A full-width bracket is part of a Japanese title, not a disambiguator (measured).
+    eq("full-width reading kept", local_title("オトメン（乙男）"), "オトメン（乙男）")
+    eq("full-width subtitle kept", local_title("男女の友情は成立する?（いや、しないっ!!）"),
+       "男女の友情は成立する?（いや、しないっ!!）")
+    eq("plain title unchanged", local_title("Princesse Mononoké"), "Princesse Mononoké")
+    eq("markup is not a title", local_title("{{nihongo|X}}"), None)
+    eq("empty is None", local_title(""), None)
+
+    eq("EN lines carry no local name", local_name_for("EN", True, None, ["Attack on Titan"]), None)
+    eq("FR main line: the cleaned official title",
+       local_name_for("FR", True, None, ["Liste des chapitres de L'Attaque des Titans"]), "L'Attaque des Titans")
+    eq("FR arc (not main): none", local_name_for("FR", False, None, ["Liste des chapitres de L'Attaque des Titans"]), None)
+    eq("DE: the DNB line name wins", local_name_for("DE", False, "Die rothaarige Schneeprinzessin", ["X"]),
+       "Die rothaarige Schneeprinzessin")
+    eq("DE main line without a DNB name: the official title", local_name_for("DE", True, None, ["Nah bei dir"]),
+       "Nah bei dir")
+    eq("JP main line: the native official title", local_name_for("JP", True, None, ["天空のエスカフローネ"]),
+       "天空のエスカフローネ")
+    eq("first usable official title wins", local_name_for("FR", True, None, ["{{x}}", "Naruto"]), "Naruto")
+
+    # ---- end to end: country + local_name land in the artifact --------------------
+    got = fixture_local_names()
+    eq("FR line: country is the market code", got["rl_fr"][0], "FR")
+    eq("FR line: local_name from the fr official title", got["rl_fr"][1], "L'Attaque des Titans")
+    eq("DE line: local_name from the DNB line name", got["rl_de"][1], "Angriff der Titanen")
+    eq("EN line: country EN, no local_name", got["rl_en"], ("EN", None))
+
     if FAILS:
         print("FAILED: " + ", ".join(FAILS))
         sys.exit(1)
@@ -142,6 +187,35 @@ def fixture_redirect_carry():
     idmap = {o: (i, k) for o, i, k in out.execute("SELECT opentome_id, int_id, kind FROM id_map")}
     FIX_META["dnb_degraded"] = (out.execute("SELECT value FROM meta WHERE key='dnb_degraded'").fetchone() or [None])[0]
     return sid, rtype, red, idmap
+
+
+def fixture_local_names():
+    """One work with an EN, a FR and a DE line; a fr official work title and a DNB line
+    name. Returns {tome_id: (country, local_name)}."""
+    tmp = tempfile.mkdtemp(prefix="opentome-localname-")
+    src_path, out_path = (os.path.join(tmp, n) for n in ("pipeline.db", "artifact.sqlite"))
+    db = sqlite3.connect(src_path)
+    db.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+    db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_aot','Attack on Titan','x','x')")
+    for rid, market, lang in (("rl_en", "EN", "en"), ("rl_fr", "FR", "fr"), ("rl_de", "DE", "de")):
+        db.execute("""INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at)
+                      VALUES(?,?,'manga',?,?,'x','x')""", (rid, "w_aot", market, lang))
+        db.execute("""INSERT INTO volume(id,release_line_id,number,release_date,release_date_precision,
+                      release_date_type,created_at,updated_at) VALUES(?,?,'1','2019-01-02','day','published','x','x')""",
+                   ("v_" + rid, rid))
+    db.execute("INSERT INTO work_title(work_id,language,title,kind) VALUES('w_aot','fr','Liste des chapitres de L''Attaque des Titans','official')")
+    db.execute("""INSERT INTO claim(entity,entity_id,field,value,source,source_url,licence,retrieved_at)
+                  VALUES('release_line','rl_de','line_name','Angriff der Titanen','dnb','https://d-nb.info/1','cc0','x')""")
+    db.commit(); db.close()
+    real_dir, corr.DIR = corr.DIR, tempfile.mkdtemp(prefix="opentome-nocorr-")
+    try:
+        export(src_path, out_path)
+    finally:
+        corr.DIR = real_dir
+    out = sqlite3.connect(out_path)
+    rows = {t: (c, n) for t, c, n in out.execute("SELECT tome_id, country, local_name FROM series")}
+    out.close()
+    return rows
 
 
 FIX_META = {}

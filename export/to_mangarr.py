@@ -241,7 +241,9 @@ CREATE TABLE IF NOT EXISTS series (
     -- DISPLAY ONLY (2026-09-24): an AniList id for a cover/synopsis where anilist_id IS NULL,
     -- never a binding, never an alias source (export/resolve_anilist.py display())
     display_anilist_id INTEGER,
-    display_anilist_via TEXT);   -- parent | medium
+    display_anilist_via TEXT,    -- parent | medium
+    -- Preferred Edition (2026-09-24): the line's title in its own language (to_mangarr.local_name_for)
+    local_name TEXT);
 CREATE TABLE IF NOT EXISTS volumes (
     id INTEGER PRIMARY KEY, gcd_series_id INTEGER NOT NULL REFERENCES series(gcd_series_id),
     volume_number INTEGER NOT NULL, title TEXT, release_date TEXT,
@@ -330,6 +332,58 @@ def _line_raw(lname, wtitle):
     return lname
 
 
+# Preferred Edition (2026-09-24). A French Wikipedia list article's title is the raw "Liste des
+# <kind> de <title>"; work_title() strips the common kinds but not every one ("Liste des volumes
+# dérivés de One Piece", "Liste des light novel de L'Odyssée de Kino" -- measured 2026-09-24), and
+# an article's disambiguator ("Radiant (bande dessinée)", "Shiki (roman)", "Wish (漫画)") is not
+# part of the title a reader sees. 'des' is tried before 'de' and every article needs a following
+# space, so 'de' never eats the start of 'des' ("... des Chevaliers du Zodiaque" -> "s Chevaliers").
+_LIST_ARTICLE = re.compile(r"^(?:liste|chronologie)\s+des?\s+.+?\s+(?:(?:des|de|du)\s+|d['’]\s*)(?P<t>\S.*)$", re.I)
+# A disambiguator is an ASCII "(...)" after a space. A full-width "（...）" is part of the title
+# itself -- every one measured was ("オトメン（乙男）", "神統記（テオゴニア）",
+# "男女の友情は成立する?（いや、しないっ!!）"), so it is never stripped.
+_TRAILING_QUALIFIER = re.compile(r"\s+\([^()]*\)\s*$")
+
+
+def local_title(raw):
+    """A work_title row cleaned to the title a reader of that language sees, or None."""
+    if not raw:
+        return None
+    # The list prefix is matched on the RAW title: work_title() alone turns "Liste des volumes
+    # dérivés de One Piece" into "dérivés de One Piece" (measured), which the prefix no longer matches.
+    m = _LIST_ARTICLE.match(raw.strip())
+    t = work_title(m.group("t") if m else raw)
+    t = _TRAILING_QUALIFIER.sub("", t).strip()
+    if not t or MARKUP_TITLE_RE.search(t):
+        return None
+    return t
+
+
+def local_name_for(market, is_main, dnb_line_name, official_titles):
+    """The line's title in its own language (Mangarr names a new non-English series by it).
+    Measured rules (2026-09-24, build/opentome.db): EN lines need none (the name is English);
+    a DE line takes its DNB line_name -- the German publisher's series title (1,424 of 1,459 DE
+    lines have one, 668 differ from the English work title) -- else the main line's official de
+    title; FR/JP/other main lines take the work's official title in the line's language (1,491
+    of 1,493 FR lines have one; JP titles are native script); arcs and side lines take none,
+    because the FR line_name claims are English cross-parses ("Dream Eater Merry"), not French
+    titles."""
+    lang = MARKET_LANG.get(market, market.lower())
+    if lang == "en":
+        return None
+    if market == "DE" and dnb_line_name:
+        t = local_title(dnb_line_name)
+        if t:
+            return t
+    if not is_main:
+        return None
+    for raw in official_titles or []:
+        t = local_title(raw)
+        if t:
+            return t
+    return None
+
+
 def export(src_path, out_path, carry_ids_from=None):
     src = sqlite3.connect(src_path, timeout=60)
     if os.path.exists(out_path):
@@ -408,6 +462,15 @@ def export(src_path, out_path, carry_ids_from=None):
         name = _first_author(val)
         if name:
             work_authors[wid] = name
+
+    # Preferred Edition (2026-09-24): inputs to local_name_for -- the work's official title per
+    # language, in stored order, and each line's DNB line_name (the German series title).
+    official_titles = {}
+    for wid, lang, title in src.execute("""SELECT work_id, language, title FROM work_title
+                                          WHERE kind='official' ORDER BY rowid"""):
+        official_titles.setdefault((wid, lang), []).append(title)
+    dnb_line_name = dict(src.execute("""SELECT entity_id, value FROM claim WHERE entity='release_line'
+                                        AND field='line_name' AND source='dnb'"""))
 
     lines = src.execute("""
         SELECT rl.id, rl.work_id, rl.market, rl.medium, rl.publisher, rl.status, rl.parent_id,
@@ -609,13 +672,17 @@ def export(src_path, out_path, carry_ids_from=None):
             newly_stalled.append((lname or wtitle, MARKET_LANG.get(market, market.lower()),
                                   max(reach) if reach else None, int_max.get(orid),
                                   last_dated_of.get(rid), last_dated_of.get(orid)))
+        lang = MARKET_LANG.get(market, market.lower())
         out.execute("""INSERT OR REPLACE INTO series
             (gcd_series_id,name,year_began,publisher,language,is_omnibus,volume_count,status,
-             orig_series_id,medium,dated_count,is_main,tome_id,tome_work_id,parent_series_id,author)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             orig_series_id,medium,dated_count,is_main,tome_id,tome_work_id,parent_series_id,author,
+             country,local_name)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (sid, lname or wtitle, min(years) if years else w_year, publisher,
-             MARKET_LANG.get(market, market.lower()), is_omni, len(ints_written), mangarr_status,
-             orig_sid, medium, dated, is_main, rid, wid, parent_sid, work_authors.get(wid)))
+             lang, is_omni, len(ints_written), mangarr_status,
+             orig_sid, medium, dated, is_main, rid, wid, parent_sid, work_authors.get(wid),
+             market, local_name_for(market, is_main, dnb_line_name.get(rid),
+                                    official_titles.get((wid, lang)))))
         out.execute("INSERT OR REPLACE INTO id_map VALUES(?,?, 'release_line')", (rid, sid))
         n_series += 1
 
