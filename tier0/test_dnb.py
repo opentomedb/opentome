@@ -111,6 +111,25 @@ eq("XAM alone -> manga", M.classify(rec("1", ("926", [("a", "XAMH")]))), "manga"
 eq("VLB-WN 2182 -> manga", M.classify(rec("1", ("653", [("a", "(VLB-WN)2182: Taschenbuch / Manga")]))), "manga")
 eq("Malbuch -> extra", M.classify(rec("1", MANGA, ("245", [("a", "Kleine Katze Chi – Das Malbuch")]))), "extra")
 eq("Bundle -> bundle", M.classify(rec("1", MANGA, ("245", [("a", "Naruto Bundle 1-3")]))), "bundle")
+for t in ("Colette beschließt zu sterben Double Pack 01 & 02", "Kakegurui Doppelpack", "Naruto 3er-Pack",
+          "Sailor Moon Schmuckbox", "DuskMaiden of Amnesia - Einsteigerset", "Frieren mit Dekorama",
+          "Spy x Family 10 mit Acryl-Aufsteller"):
+    eq("bundle: %s" % t, M.classify(rec("1", MANGA, ("245", [("a", t)]))), "bundle")
+eq("bundle: 'Schuber' inside a word (250 Schuberauflage)",
+   M.classify(rec("1", MANGA, ("250", [("a", "1. Schuberauflage")]))), "bundle")
+for t in ("Card captor Sakura Tarot-Buch", "One Piece Guidebook"):
+    eq("extra: %s" % t, M.classify(rec("1", MANGA, ("245", [("a", t)]))), "extra")
+BOXI, OWN = "9783755504245", "9783770498574"
+boxchild = rec("1", MANGA, ("020", [("a", BOXI), ("c", "Broschur in Behältnis")]), ("020", [("a", "3755504243")]))
+eq("a record whose only ISBN is the box's (13 and 10 digit) is a box, not a volume",
+   (M.isbns(boxchild), M.boxed(boxchild), M.classify(boxchild)), ([], True, "bundle"))
+sold_in_box = rec("1", MANGA, ("020", [("a", BOXI), ("q", "Kassette 1"), ("c", ", in Schuber, kart.")]),
+                  ("020", [("a", OWN), ("c", "kart.")]))
+eq("a volume with its own ISBN that was also sold in a box keeps its own ISBN and is a volume",
+   (M.isbns(sold_in_box), M.classify(sold_in_box)), ([OWN], "manga"))
+eq("a set record with 'N Bände' alone is not a box", M.box_parent(rec("1", ("300", [("a", "9 Bände")]), parent=True)), False)
+eq("a set record 'in Behältnis' is a box",
+   M.box_parent(rec("1", ("300", [("a", "9 Bände"), ("c", "18 cm, Behältnis 19 x 14 x 13 cm")]), parent=True)), True)
 eq("no signal -> other", M.classify(rec("1", ("245", [("a", "Naokos Lächeln")]))), "other")
 eq("250 Massiv -> edition", M.edition_marker(rec("1", ("250", [("a", "Massiv")]))), "massiv")
 eq("no edition marker", M.edition_marker(rec("1", ("250", [("a", "1. Auflage")]))), None)

@@ -91,11 +91,19 @@ def pubkey(p):
 
 # ---- 2. select --------------------------------------------------------------------
 
-def select(recs):
-    """-> (kept volume dicts, Counter of drop reasons)."""
+def select(recs, parents=None):
+    """-> (kept volume dicts, Counter of drop reasons). A volume of a boxed set (the parent
+    is a box: 'Behältnis', 'Kassette', 'Schuber', a bundle title) with no ISBN of its own is
+    part of the box, not a volume, in v1; one with its own ISBN is a book, but the box never
+    becomes its line."""
+    boxes = {k for k, p in (parents or {}).items() if M.box_parent(p)}
     kept, drop = [], collections.Counter()
     for r in recs.values():
         if M.is_parent(r):
+            continue
+        in_box = bool(boxes & set(M.parent_idns(r)))
+        if in_box and not M.isbns(r):
+            drop["in_boxed_set"] += 1          # a volume of a box with no ISBN of its own
             continue
         if not M.origin_in_scope(r):
             drop["origin_out_of_scope"] += 1
@@ -110,7 +118,9 @@ def select(recs):
             continue
         kept.append({"r": r, "idn": M.idn(r), "medium": cls, "num": num, "numsrc": numsrc,
                      "isbns": M.isbns(r), "ann": M.is_announcement(r),
-                     "parent": (M.parent_idns(r) or [None])[0]})
+                     # a box never keys a line: a book that was also sold in a box (its own
+                     # ISBN) clusters by its series / title instead
+                     "parent": None if in_box else (M.parent_idns(r) or [None])[0]})
     return kept, drop
 
 
@@ -248,10 +258,11 @@ def shape_line(key, gs, parents):
     -> (line dict, [(group, fate)] for the groups that did not make it)"""
     out, lost, seen = [], [], set()
     # the regular edition beats a limited / special one; a deposited volume an announcement;
-    # then the first catalogued (a later record of the same number is usually a reprint)
+    # a volume with its own ISBN one without; then the first catalogued (a later record of
+    # the same number is usually a reprint)
     gs = sorted(gs, key=lambda g: (g["date"] is not None and g["date"][0] == "HELD",
                                    all(v["ann"] for v in g["members"]), g["edition"] is not None,
-                                   idn_key(g["primary"])))
+                                   not g["isbns"], idn_key(g["primary"])))
     for g in gs:
         num = g["num"]
         if num is None:
@@ -353,7 +364,7 @@ def build(recs, parents, idx, W, w_isbn):
     """-> (lines, stats, lost [(group, fate, line key)])."""
     allparents = dict(parents)
     allparents.update({k: r for k, r in recs.items() if M.is_parent(r)})
-    vols, drop = select(recs)
+    vols, drop = select(recs, allparents)
     groups, boxset = twins(vols)
     clusters = cluster(groups, allparents)
     lines, lost = [], []

@@ -227,7 +227,7 @@ def same_ids(catalogue):
     recs, parents, _ = E.enumerate_all(verbose=False)
     allparents = dict(parents)
     allparents.update({k: r for k, r in recs.items() if B.M.is_parent(r)})
-    kept, _ = B.select(recs)
+    kept, _ = B.select(recs, allparents)
     groups, _ = B.twins(kept)
     now = {m["idn"]: key for key, gs in B.cluster(groups, allparents).items() for g in gs for m in g["members"]}
     C = sqlite3.connect(catalogue)

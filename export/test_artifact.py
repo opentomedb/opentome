@@ -350,6 +350,15 @@ def run_dnb(path, catalogue):
     have = {r[0] for r in db.execute("SELECT tome_id FROM series WHERE language='de'")}
     rule("pre-DNB German line ids missing from the artifact", sum(1 for t in pre if t not in have),
          str([t for t in pre if t not in have][:5]))
+    lost = []
+    for l in json.load(open(os.path.join(fx, "de_lines_pre_dnb.json"), encoding="utf8"))["lines"]:
+        row = db.execute("SELECT gcd_series_id, is_main FROM series WHERE tome_id=?", (l["tome_id"],)).fetchone()
+        if row is None:
+            continue
+        isbns = {r[0] for r in db.execute("SELECT isbn13 FROM volumes WHERE gcd_series_id=?", (row[0],))}
+        if row[1] != l.get("is_main", row[1]) or set(l.get("isbns", [])) - isbns:
+            lost.append(l["name"])
+    rule("pre-DNB German lines that lost is_main or one of their ISBNs (a DNB line took over)", len(lost), str(lost))
 
     # DNB delivers NFD; everything German that ships must be NFC (review 2026-09-24)
     import unicodedata

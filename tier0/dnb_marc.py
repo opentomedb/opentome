@@ -97,14 +97,27 @@ def parent_idns(r):
 
 # ---- identifiers -----------------------------------------------------------------
 
-def isbns(r):
-    """Valid ISBN-13s from 020$a, in record order, ISBN-10s converted. 020$z (cancelled /
-    invalid) is deliberately not read."""
+def _isbn13(v):
     from isbn import normalise_isbn, isbn13_check
+    i13, _ = normalise_isbn((v or "").split(" ")[0])
+    return i13 if i13 and isbn13_check(i13) else None
+
+
+def box_isbns(r):
+    """ISBN-13s of 020 fields qualified as a box ('Kassette 1', ', in Schuber', 'Broschur in
+    Behältnis')."""
+    return {i for f in fields(r, "020") if _box_020(f) for c, v in f if c == "a" for i in [_isbn13(v)] if i}
+
+
+def isbns(r):
+    """The record's own valid ISBN-13s from 020$a, in record order, ISBN-10s converted. 020$z
+    (cancelled / invalid) is deliberately not read, nor a box's ISBN: a volume sold in a box
+    carries the box's ISBN too -- once qualified, and often again unqualified as an ISBN-10."""
+    box = box_isbns(r)
     out = []
     for v in subs(r, "020", "a"):
-        i13, _ = normalise_isbn(v.split(" ")[0])
-        if i13 and isbn13_check(i13) and i13 not in out:
+        i13 = _isbn13(v)
+        if i13 and i13 not in box and i13 not in out:
             out.append(i13)
     return out
 
@@ -246,14 +259,38 @@ LN_TEXT = re.compile(r"light[\s-]?novel|ranobe", re.I)
 EXTRA_TEXT = re.compile(r"artbook|art book|artworks?\b|malbuch|kochbuch|kalender|postkarten|sticker|"
                         r"fanbook|fan book|character ?book|making[- ]of|\bguide\b|zeichnen lernen|"
                         r"zeichenkurs|how to draw|rätselbuch|notizbuch|tagebuch zum|poster|"
-                        r"illustrations?\b|visual ?book|databook|data book|anthology book", re.I)
-BUNDLE_TEXT = re.compile(r"bundle|doppelband|sammelschuber|komplettpack|komplettbox|\bim schuber\b|"
-                         r"\bschuber\b|\bbox\b|\bboxset\b|box-set|starter[\s-]?pack|\bset\b.*\d+\s*b[äa]nde", re.I)
+                        r"illustrations?\b|visual ?book|databook|data book|anthology book|tarot[\s-]?buch|guidebook", re.I)
+BUNDLE_TEXT = re.compile(r"bundle|doppelband|sammelschuber|komplettpack|komplettbox|schuber|"
+                         r"\bbox\b|\bboxset\b|box-set|schmuckbox|starter[\s-]?pack|double[\s-]?pack|doppel[\s-]?pack|"
+                         r"\d+er[\s-]?pack|einsteiger[\s-]?set|\bset\b.*\d+\s*b[äa]nde|mit dekorama|"
+                         r"mit acryl[\s-]?aufsteller", re.I)
+# the record describes a box or a set in a case: 020$c / 300 "in Behältnis", "Kassette", "Schuber"
+BOXED = re.compile(r"behältnis|kassette|schuber|\bbox\b", re.I)
 
 
 def _title_text(r):
     return " ".join(clean(x) for x in subs(r, "245", "a") + subs(r, "245", "n") + subs(r, "245", "p")
                     + subs(r, "250", "a") + subs(r, "490", "a"))
+
+
+def _box_020(f):
+    """An 020 field that names a box or a case ($q 'Kassette 1', $c ', in Schuber, kart.')."""
+    return any(BOXED.search(v) for c, v in f if c in ("q", "c"))
+
+
+def boxed(r):
+    """The record IS a box or a set in a case: its extent or edition says so (300 'Behältnis
+    19 x 14 x 13 cm', 250 'Schuberauflage'), or every ISBN it has is a box's. A volume that
+    also carries its own ISBN is a book that was sold in a box as well -- not boxed. A parent's
+    bare '9 Bände' is NOT a signal: every multi-part set record states its extent that way."""
+    if BOXED.search(" ".join(subs(r, "300", "a") + subs(r, "300", "c") + subs(r, "250", "a"))):
+        return True
+    return bool(box_isbns(r)) and not isbns(r)
+
+
+def box_parent(p):
+    """A set record that is a box: boxed(), a box ISBN among its ISBNs, or a bundle title."""
+    return boxed(p) or any(_box_020(f) for f in fields(p, "020")) or classify(p) == "bundle"
 
 
 def comic_signal(r):
@@ -286,7 +323,7 @@ def classify(r):
     light novel (publishers also stamp Thema XAM on light novels -- XAM != manga); the weak
     manga signals alone are manga; nothing at all is 'other' (Japanese literature, non-fiction)."""
     t = _title_text(r)
-    if BUNDLE_TEXT.search(t):
+    if BUNDLE_TEXT.search(t) or boxed(r):
         return "bundle"
     if EXTRA_TEXT.search(t):
         return "extra"
