@@ -68,7 +68,9 @@ CHANNELS = [
 def _page(q, refresh=False, force=False):
     try:
         n, pages = S.search(q, refresh=refresh, force=force)
-    except S.DnbUnavailable:
+    except (S.DnbUnavailable, S.DnbOfflineMiss) if S.REFRESH_DAYS else S.DnbUnavailable:
+        # a refresh run that degraded skipped this url; an offline re-read of the same cache
+        # (the measure gate's reload check) must skip it the same way, not fail
         print("    WARNING DNB slice %r unavailable (refresh run fell back to the cache) -- skipped" % q, flush=True)
         return 0, {}
     seen = {}
@@ -144,7 +146,7 @@ def fetch_parents(have, want, verbose=True):
         q = " or ".join("idn=" + x for x in missing[i:i + IDN_BATCH])
         try:
             S.search(q)
-        except S.DnbUnavailable:
+        except (S.DnbUnavailable, S.DnbOfflineMiss) if S.REFRESH_DAYS else S.DnbUnavailable:
             continue
         for x in missing[i:i + IDN_BATCH]:
             index[x] = q
@@ -152,7 +154,7 @@ def fetch_parents(have, want, verbose=True):
     for q in sorted({index[x] for x in todo if x in index}):
         try:
             n, pages = S.search(q)
-        except S.DnbUnavailable:
+        except (S.DnbUnavailable, S.DnbOfflineMiss) if S.REFRESH_DAYS else S.DnbUnavailable:
             continue
         for text in pages:
             for r in M.records(text):

@@ -66,19 +66,26 @@ def keys(titles):
 
 
 def name_key(n):
-    """'Oda, Eiichirō' / 'Eiichiro Oda' -> frozenset({'eiichiro', 'oda'}); a pen name of one
-    token counts when it has 4+ letters ('Okayado'); shorter single tokens say too little."""
+    """'Oda, Eiichirō' / 'Eiichiro Oda' -> ('oda', frozenset({'eiichiro', 'oda'})): the family
+    name and every token. The family name is the part before a comma ('Last, First', DNB's
+    100/700), else the last token ('First Last', 245$c and OpenTome's English names). A pen
+    name of one token counts when it has 4+ letters ('Okayado'); shorter ones say too little."""
     n = (n or "").replace("\x98", "").replace("\x9c", "")
     n = re.sub(r"\(.*?\)", " ", n)
     n = re.sub(r"(?<=\w)['’ʼ`-](?=\w)", "", n)          # Shin'ichi = Shinichi, Jean-Luc = JeanLuc
+
+    def toks(x):
+        x = "".join(c for c in unicodedata.normalize("NFD", x) if not unicodedata.combining(c)).lower()
+        x = x.replace("ou", "o").replace("uu", "u")
+        return [t for t in re.split(r"[^a-z]+", x) if t]
     if "," in n:
         last, first_ = n.split(",", 1)
-        n = first_ + " " + last
-    s = "".join(c for c in unicodedata.normalize("NFD", n) if not unicodedata.combining(c)).lower()
-    s = s.replace("ou", "o").replace("uu", "u")
-    toks = [t for t in re.split(r"[^a-z]+", s) if t]
-    if len(toks) >= 2 or (len(toks) == 1 and len(toks[0]) >= 4):
-        return frozenset(toks)
+        fam, all_ = toks(last), toks(first_) + toks(last)
+    else:
+        all_ = toks(n)
+        fam = all_[-1:]
+    if len(all_) >= 2 or (len(all_) == 1 and len(all_[0]) >= 4):
+        return ("".join(fam), frozenset(all_))
     return None
 
 
@@ -104,8 +111,10 @@ class Index:
                 except ValueError:
                     vals = [v]
                 for a in vals if isinstance(vals, list) else [vals]:
-                    # "Jitakukeibihei (Natsume Akatsuki)": the pen name AND the bracketed name
-                    for n in [str(a)] + re.findall(r"\(([^()]*)\)", str(a)):
+                    # "Jitakukeibihei (Natsume Akatsuki)": the pen name AND the bracketed name;
+                    # "Kunihiko Ikuhara & Seinosuke Ito": two people
+                    for n in [x for part in [re.sub(r"\([^()]*\)", " ", str(a))] + re.findall(r"\(([^()]*)\)", str(a))
+                              for x in re.split(r"\s*(?:&|;|\band\b|\bund\b|,(?=\s*\S+\s+\S))\s*", part) if x.strip()]:
                         nk = name_key(n)
                         if nk:
                             self.authors[wid].add(nk)
@@ -139,11 +148,11 @@ def _romaji(t):
     return re.sub(r"(.)\1", r"\1", t)
 
 
-def _near(a, b):
-    """Equal, or one edit apart when both have 5+ letters."""
+def _near(a, b, min_len=5):
+    """Equal, or one edit apart when both have min_len+ letters."""
     if a == b:
         return True
-    if min(len(a), len(b)) < 5 or abs(len(a) - len(b)) > 1:
+    if min(len(a), len(b)) < min_len or abs(len(a) - len(b)) > 1:
         return False
     d = list(range(len(b) + 1))
     for i, ca in enumerate(a, 1):
@@ -154,15 +163,21 @@ def _near(a, b):
 
 
 def same_person(p, q):
-    """Two name keys (token sets) plausibly name the same person: the joined names agree in
-    either order ('Yayoisō' = 'Sō Yayoi'), or some token of 4+ letters agrees within one edit
-    after romanisation folding -- in practice the family name ('Hayashida, Kyū' = 'Q
-    Hayashida', 'Sakuishi, Harorudo' = 'Harold Sakuishi'). Loose on purpose: it only ever
-    confirms or questions a TITLE match, it never links on its own."""
-    P, Q = [_romaji(t) for t in p], [_romaji(t) for t in q]
+    """Two names (family, tokens) plausibly name the same person: the joined names agree in
+    either order ('Yayoisō' = 'Sō Yayoi', 'Oda Eiichiro' = 'Eiichiro Oda'), or one side's FAMILY
+    name (4+ letters) agrees within one edit with a token of the other after romanisation folding
+    ('Hayashida, Kyū' = 'Q Hayashida', 'Umino, Chika' = 'Chica Umino', 'Kōsuke' = 'Kohske').
+    A shared GIVEN name is not enough: 'Sakamoto, Akira' is not Akira Toriyama."""
+    (pf, pt), (qf, qt) = p, q
+    P, Q = [_romaji(t) for t in sorted(pt)], [_romaji(t) for t in sorted(qt)]
     if "".join(sorted(P)) == "".join(sorted(Q)) or "".join(P) in ("".join(Q), "".join(reversed(Q))):
         return True
-    return any(len(a) >= 4 and len(b) >= 4 and _near(a, b) for a in P for b in Q)
+
+    def fam_in(f, toks):             # the length gates read the UNfolded spelling ('Umezz')
+        return len(f) >= 4 and any(_romaji(f) == _romaji(t) or
+                                   (min(len(f), len(t)) >= 5 and _near(_romaji(f), _romaji(t), 0))
+                                   for t in toks)
+    return fam_in(pf, qt) or fam_in(qf, pt)
 
 
 def _shared(idx, w, auth):

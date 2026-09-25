@@ -184,23 +184,32 @@ def title_number(r):
 
 
 def volume_number(r):
-    """-> (number, kind, source): 245$n, else the number in 245$a, else 490/830 $v.
-
-    245$a before the series statement: where both state a number and disagree, the title is
-    right -- Record of Ragnarok 11 and 12 carry $v 23 / 24 (a continuous count across two
-    series), and shipped as 23 / 24."""
+    """-> (number, kind, source): 245$n, else 490/830 $v, else the number in 245$a -- except
+    that where the title is exactly '<series name> <N>' and N disagrees with $v, N wins:
+    Record of Ragnarok 11 and 12 carry $v 23 / 24 (a continuous count across two series)."""
     for n in reversed(subs(r, "245", "n")):
         num, kind = canon_number(n)
         if kind != "none":
             return num, kind, "245n"
-    tnum, _ = title_number(r)
+    tnum, before = title_number(r)
+    for name, v in series_statements(r):
+        num, kind = canon_number(v)
+        if kind == "none":
+            continue
+        # the title's number wins only when the title minus that number IS the series name
+        # ("Record of Ragnarok 11" in series "Record of Ragnarok" $v 23). A chapter title
+        # ("Auf in die Zone 7", Toriko $v 33), a title that is a number ("No. 6" $v 3) or a
+        # sub-series ("JoJo ... Part 4 11", $v 28) keeps the series count.
+        if tnum and tnum != num and _fold_name(before) == _fold_name(name):
+            return tnum, "int", "title"
+        return num, kind, "series_v"
     if tnum:
         return tnum, "int", "title"
-    for _, v in series_statements(r):
-        num, kind = canon_number(v)
-        if kind != "none":
-            return num, kind, "series_v"
     return None, "none", None
+
+
+def _fold_name(s):
+    return re.sub(r"[^0-9a-z]", "", unicodedata.normalize("NFKD", clean(s)).encode("ascii", "ignore").decode().lower())
 
 
 def bare_title(r):

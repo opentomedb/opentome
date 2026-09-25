@@ -70,7 +70,11 @@ eq("bare title strips it", M.bare_title(r), "Car Crush")
 r = rec("1", ("245", [("a", "Kaiju No. 8 – Band 16 (Finale)")]))
 eq("'Band N' inside 245$a", (M.volume_number(r)[:2], M.bare_title(r)), (("16", "int"), "Kaiju No. 8"))
 r = rec("1", ("245", [("a", "Record of Ragnarok 11")]), ("490", [("a", "Record of Ragnarok"), ("v", "23")]))
-eq("245$a number and 490$v disagree: the title wins", M.volume_number(r)[:2], ("11", "int"))
+eq("245$a is '<series> N' and 490$v disagrees: the title wins", M.volume_number(r)[:2], ("11", "int"))
+r = rec("1", ("245", [("a", "No. 6")]), ("490", [("a", "No. 6"), ("v", "3")]))
+eq("a title that ends in a number ('No. 6', $v 3): the series count", M.volume_number(r)[:2], ("3", "int"))
+r = rec("1", ("245", [("a", "Auf in die Zone 7")]), ("490", [("a", "Toriko"), ("v", "33")]))
+eq("a chapter title with a number (Toriko $v 33): the series count", M.volume_number(r)[:2], ("33", "int"))
 r = rec("1", ("245", [("a", "Traum und Realität")]), ("490", [("a", "Action")]))
 eq("490 without $v is an imprint, not a series", (M.series_statements(r), M.volume_number(r)[1]), ([], "none"))
 
@@ -281,7 +285,9 @@ eq("several works answer: the line's own title proper decides",
    ("medium", "w_opher", ["w_op", "w_opher"]))
 for x, y, want in (("Kōsuke", "Kohske", True), ("Hayashida, Kyū", "Q Hayashida", True),
                    ("Sakuishi, Harorudo", "Harold Sakuishi", True), ("Yayoisō", "Sō Yayoi", True),
-                   ("Shin'ichi Sakamoto", "Shinichi Sakamoto", True), ("Kishimoto, Masashi", "Junji Ito", False)):
+                   ("Shin'ichi Sakamoto", "Shinichi Sakamoto", True), ("Kishimoto, Masashi", "Junji Ito", False),
+                   ("Sakamoto, Akira", "Akira Toriyama", False), ("Umino, Chika", "Chica Umino", True),
+                   ("Oda Eiichiro", "Eiichiro Oda", True), ("Umezz, Kazuo", "Kazuo Umezu", True)):
     eq("same person: %s = %s" % (x, y), L.same_person(L.name_key(x), L.name_key(y)), want)
 eq("title matches one work but the authors disagree -> low (a title collision, not a missing credit)",
    L.link(idx, ["Snowball earth"], ["Kishimoto, Masashi"])[:2], ("low", "w_se"))
@@ -571,6 +577,10 @@ try:
     E.CURRENT_YEAR = 2031                       # new slice urls, never cached, while degraded
     got, gap, _ = E.run_channel("t", "BASE", 2025, (), verbose=False)
     eq("degraded: an uncached slice is skipped with a warning, no request", len(CALLS) - n, 0)
+    S.OFFLINE, S.DEGRADED[0] = True, None      # the measure gate's offline reload of that cache
+    got, gap, _ = E.run_channel("t", "BASE", 2025, (), verbose=False)
+    eq("offline re-read of a degraded refresh run's cache skips the same urls, no exception", len(got), 6)
+    S.OFFLINE = False
     SERVER["refuse"], S._refusals[0], S.DEGRADED[0], S.REFRESH_DAYS = 0, 0, None, 0
     S.OFFLINE = False
     try:
