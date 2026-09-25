@@ -112,6 +112,12 @@ art3 = artifact(again, carry2)
 eq("next build: the redirects are still in the artifact",
    sqlite3.connect(art3).execute("SELECT COUNT(*) FROM id_redirect").fetchone()[0], 7)
 eq("next build: the gate passes against the re-keyed carry", ids_ok(art3, carry2), [])
+TA.FAILS[:] = []
+buf = __import__("io").StringIO()
+with __import__("contextlib").redirect_stdout(buf):
+    TA.run_ids(art3, carry2)
+eq("next build: the carry's own redirects are not counted as moved again (the cap is per build)",
+   "moved 0 of" in buf.getvalue(), True)
 lost_rows = os.path.join(TMP, "rekey3-lost.sqlite")
 __import__("shutil").copy(art3, lost_rows)
 L = sqlite3.connect(lost_rows)

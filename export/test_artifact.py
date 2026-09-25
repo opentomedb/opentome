@@ -434,7 +434,10 @@ def run_ids(path, carry):
                      and (red.get(t) not in line_now or reason.get(t) == "retired")]
     rule("more than %d carried lines retired in one build (every market)" % MAX_RETIRED_LINES,
          0 if len(retired_lines) <= MAX_RETIRED_LINES else len(retired_lines), str(retired_lines[:5]))
-    moved_ids = [t for t in old if t not in present and t not in exempt and red.get(t) in present]
+    # moved in THIS build: an id the carry had already redirected is not a new move (else the
+    # cap would count every redirect ever written, and trip once history passed 500)
+    moved_ids = [t for t in old if t not in present and t not in exempt and t not in carried_red
+                 and red.get(t) in present]
     rule("more than %d carried ids moved (re-keyed or merged) in one build" % MAX_MOVED_IDS,
          0 if len(moved_ids) <= MAX_MOVED_IDS else len(moved_ids), str(moved_ids[:5]))
     rule("id_redirect rows whose target is not in the artifact",
