@@ -18,6 +18,7 @@ from to_mangarr import export
 import test_artifact as TA
 
 FAILS = []
+os.environ.pop("OPENTOME_COLD_START", None)      # the export reads it; a CI cold-start run must not skew these
 TMP = tempfile.mkdtemp(prefix="opentome-carried-")
 corr.DIR = tempfile.mkdtemp(prefix="opentome-nocorr-")          # no corrections in play
 
