@@ -11,6 +11,10 @@ rule was. Verification COVERAGE, not the rule, was the limiting factor.
 Library of Congress was rejected here once: its SRU answered "zero records" even for control
 queries. That was SRU diagnostic 61 ("First record position out of range", HTTP 200), which
 the KR/CN round's LoC client pages through (tier0/loc_sru.py, docs/krcn-design.md §3).
+
+    python3 tier1/enrich_more.py <db> plan
+        Zero network: prints the EN and FR Open Library plan dicts (enrich_openlibrary(plan=True)),
+        after deriving whatever new per-ISBN entries `ol_adopt` can from cached batches on disk.
 """
 import datetime, json, os, re, sqlite3, sys, time
 import urllib.parse, urllib.request, urllib.error
@@ -144,7 +148,9 @@ OL_NEG_REFRESH_DAYS = 60
 def ol_needs_fetch(isbn):
     """True when there's no per-ISBN entry yet, or the entry is a negative older than
     OL_NEG_REFRESH_DAYS days (mtime). A positive entry is never stale. Used for both the live
-    fetch loop and `plan` (so the plan dict reflects what a live run would actually request)."""
+    fetch loop and `plan` (so the plan dict reflects what a live run would actually request).
+    Cost: once entries start aging past the window, at most ceil(negative count / batch) extra
+    requests every OL_NEG_REFRESH_DAYS -- a recurring cost, not the one-time ceil(new/50)."""
     p = ol_isbn_path(isbn)
     if not os.path.exists(p):
         return True
@@ -264,6 +270,12 @@ def legacy_isbns(db, market):
 
 
 def enrich_openlibrary(db, batch=50, limit=None, market="EN", plan=False):
+    """Claims release_date/page_count for `market`'s undated volumes from their per-ISBN entries
+    (`ol_entry`), deriving new ones offline first (`ol_adopt` -- writes into .cache/, zero
+    network) and then live-fetching only what's still missing (`ol_needs_fetch`). `plan=True`
+    makes NO live request at all (still runs `ol_adopt`, which is offline) and returns
+    {isbns, have, missing, requests} instead of writing claims -- the CLI's `plan` mode prints
+    this for EN and FR (`python3 tier1/enrich_more.py <db> plan`)."""
     rows = db.execute("""SELECT v.id, v.isbn13 FROM volume v
         JOIN release_line rl ON rl.id=v.release_line_id
         WHERE rl.market=? AND v.isbn13 IS NOT NULL
