@@ -145,6 +145,68 @@ def jp_diff(a, b):
     print("jp-diff ok: 0 changed keys, tiers, roles, exported flags, rl_ids, link_works")
 
 
+def _ol_v1(db, market, batch=50):
+    """enrich_openlibrary as of ebe4368, frozen (the sorted-batch loop) -- the gate's reference."""
+    sys.path.insert(0, os.path.join(ROOT, "tier1"))
+    import enrich_more as EM
+    from verify import _fetch
+    rows = db.execute("""SELECT v.id, v.isbn13 FROM volume v JOIN release_line rl ON rl.id=v.release_line_id
+        WHERE rl.market=? AND v.isbn13 IS NOT NULL AND NOT EXISTS (SELECT 1 FROM claim c WHERE
+        c.entity='volume' AND c.entity_id=v.id AND c.source='openlibrary')""", (market,)).fetchall()
+    by = {}
+    for vid, isbn in rows:
+        by.setdefault(isbn, []).append(vid)
+    isbns = sorted(by)
+    for i in range(0, len(isbns), batch):
+        chunk = isbns[i:i + batch]
+        d = _fetch(EM.ol_url(chunk), interval=0.6)
+        if not isinstance(d, dict) or "_error" in d or "_http_error" in d:
+            continue
+        for key, rec in d.items():
+            isbn = key.split(":", 1)[1]
+            iso, _ = EM.parse_ol_date(rec.get("publish_date"), market)
+            for vid in by.get(isbn, []):
+                if iso:
+                    EM._claim(db, vid, "release_date", iso, "openlibrary", f"https://openlibrary.org/isbn/{isbn}")
+                if rec.get("number_of_pages"):
+                    EM._claim(db, vid, "page_count", str(rec["number_of_pages"]), "openlibrary",
+                              f"https://openlibrary.org/isbn/{isbn}")
+    db.commit()
+
+
+def ol_gate(cat=CAT):
+    """Offline, network BLOCKED: the old and new Open Library code on two copies of the catalogue
+    (openlibrary claims removed first). Every old claim must be reproduced with the same value;
+    the new code may add claims (records found in other cached batches) -- reported. Writes the
+    per-ISBN entries it derives into .cache/ (derived from cached responses; zero requests)."""
+    import urllib.request
+    sys.path.insert(0, os.path.join(ROOT, "tier1"))
+    import enrich_more as EM
+
+    def blocked(*a, **k):
+        raise OSError("ol-gate: network blocked")
+    urllib.request.urlopen = blocked
+    os.makedirs(WORK, exist_ok=True)
+    got = {}
+    for tag in ("v1", "v2"):
+        p = os.path.join(WORK, "ol-%s.db" % tag)
+        shutil.copyfile(cat, p)
+        db = sqlite3.connect(p)
+        db.execute("DELETE FROM claim WHERE source='openlibrary'")
+        for m in ("EN", "FR"):
+            (_ol_v1 if tag == "v1" else lambda d, mk: EM.enrich_openlibrary(d, market=mk))(db, m)
+        got[tag] = {(e, f): v for e, f, v in db.execute(
+            "SELECT entity_id, field, value FROM claim WHERE source='openlibrary'")}
+    lost = [k for k in got["v1"] if k not in got["v2"]]
+    diff = [k for k in got["v1"] if k in got["v2"] and got["v1"][k] != got["v2"][k]]
+    extra = len(set(got["v2"]) - set(got["v1"]))
+    print("  old claims %d, new claims %d: lost %d, changed %d, added %d" % (
+        len(got["v1"]), len(got["v2"]), len(lost), len(diff), extra))
+    if lost or diff:
+        raise SystemExit("ol-gate FAILED: %s" % (lost + diff)[:10])
+    print("ol-gate ok: every old Open Library claim reproduced")
+
+
 if __name__ == "__main__":
     a = sys.argv[1:]
     if not a:
@@ -155,5 +217,7 @@ if __name__ == "__main__":
         jp_snapshot(*a[1:4])
     elif a[0] == "jp-diff":
         jp_diff(a[1], a[2])
+    elif a[0] == "ol-gate":
+        ol_gate(*a[1:2])
     else:
         raise SystemExit(__doc__)
