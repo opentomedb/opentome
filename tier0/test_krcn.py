@@ -954,6 +954,126 @@ eq("BnF channels: the §4 allowlist, 8 channels", len(BS.CHANNELS), 8)
 eq("BnF page size 500, budget 60, >= 3 s", (BS.BNF.page, BS.BNF.budget >= 20, BS.BNF.interval >= 3.0), (500, True, True))
 
 
+# ---- Task 8: LoC client (fake gateway with diagnostic 61) -------------------------------------------------
+import loc_sru as LS
+
+LREC = ('<zs:record><zs:recordData><record xmlns="http://www.loc.gov/MARC21/slim"><leader>00000cam a2200000 i 4500'
+        '</leader><controlfield tag="001">%s</controlfield><controlfield tag="008">210101s2021    nyu           000 1 eng  '
+        '</controlfield><datafield tag="010" ind1=" " ind2=" "><subfield code="a">  %s</subfield></datafield>'
+        '<datafield tag="040" ind1=" " ind2=" "><subfield code="a">%s</subfield></datafield>%s</record></zs:recordData></zs:record>')
+DIAG61 = ('<?xml version="1.0"?><zs:searchRetrieveResponse xmlns:zs="http://www.loc.gov/zing/srw/"><zs:version>1.1'
+          '</zs:version><zs:numberOfRecords>%d</zs:numberOfRecords><zs:diagnostics xmlns:diag="http://www.loc.gov/zing/'
+          'srw/diagnostic/"><diag:diagnostic><diag:uri>info:srw/diagnostic/1/%s</diag:uri><diag:details></diag:details>'
+          '<diag:message>First record position out of range</diag:message></diag:diagnostic></zs:diagnostics>'
+          '</zs:searchRetrieveResponse>')
+LOCDB = {}                      # id -> (isbns, dlc)
+LRULE = {"fail": lambda q, start, size, seen: False, "code": "61"}
+LSEEN, LCALLS = {}, []
+
+
+def loc_matches(q, isbns):
+    m = re.fullmatch(r"bath\.isbn=(\d+)(\*?)", q)
+    if m:
+        return any((i.startswith(m.group(1)) if m.group(2) else i == m.group(1)) for i in isbns)
+    return q == 'dc.subject="webcomics"'
+
+
+def fake_loc(req, timeout=None):
+    LCALLS.append(req.full_url)
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(req.full_url).query)
+    query, start, size = q["query"][0], int(q["startRecord"][0]), int(q["maximumRecords"][0])
+    ids = sorted(i for i, (isb, _) in LOCDB.items() if loc_matches(query, isb))
+    key = (query, start, size)
+    LSEEN[key] = LSEEN.get(key, 0) + 1
+    if size > 1 and LRULE["fail"](query, start, size, LSEEN[key]):
+        return _R(DIAG61 % (len(ids), LRULE["code"]))
+    body = "".join(LREC % (i, "20%08d" % int(i), "DLC" if LOCDB[i][1] else "ZCU",
+                           "".join('<datafield tag="020" ind1=" " ind2=" "><subfield code="a">%s</subfield></datafield>' % x
+                                   for x in LOCDB[i][0])) for i in ids[start - 1:start - 1 + size])
+    return _R('<?xml version="1.0"?><zs:searchRetrieveResponse xmlns:zs="http://www.loc.gov/zing/srw/"><zs:numberOfRecords>'
+              '%d</zs:numberOfRecords><zs:records>%s</zs:records></zs:searchRetrieveResponse>' % (len(ids), body))
+
+
+_ltmp = tempfile.mkdtemp(prefix="krcn-loc-")
+LS.LOC.relocate(_ltmp, _ltmp)
+LS.LOC.offline, LS.LOC.refresh_days, LS.LOC.budget = False, 0, 0
+LS.LOC.urlopen, LS.LOC.sleep, LS.LOC.now = fake_loc, fsleep, lambda: CLOCK[0]
+
+
+def isbn13(prefix, n):
+    s = "%s%0*d" % (prefix, 12 - len(prefix), n)
+    return s + str((10 - sum((1 if k % 2 == 0 else 3) * int(c) for k, c in enumerate(s)) % 10) % 10)
+
+
+LOCDB.update({str(1000 + k): ([isbn13("979885540", k)], True) for k in range(63)})
+# 1. transient: page 1 at 100 fails twice, then succeeds unchanged (netlog 11:03-11:04 shape)
+LRULE["fail"] = lambda q, start, size, seen: (start, size) == (1, 100) and seen <= 2
+SLEEPS2.clear()
+n, pages = LS.search_set("bath.isbn=979885540*")
+eq("rung 1: two diagnostic-61 retries 10 s apart, then the page", (n, LS.LOC.distinct(pages), SLEEPS2.count(10)), (63, 63, 2))
+# 2. page-size dependent: at 100 it never works, at 50 it does (the 978168579* shape: 63 records)
+LRULE["fail"] = lambda q, start, size, seen: size == 100
+n, pages = LS.search_set("bath.isbn=9798855400*")         # the same 63 records, a new set
+eq("rung 2: the range re-paged at 50 (1-50, 51-63)", (n, LS.LOC.distinct(pages)), (63, 63))
+urls = json.load(open(LS.LOC.sets_path))["bath.isbn=9798855400*"]["urls"]
+eq("... the manifest records the 50-size pages", [re.search(r"maximumRecords=(\d+)&startRecord=(\d+)", u).groups() for u in urls],
+   [("50", "1"), ("50", "51")])
+# 3. 50 fails for the second half too -> 25
+LRULE["fail"] = lambda q, start, size, seen: size == 100 or (size == 50 and start == 51)
+n, pages = LS.search_set("bath.isbn=97988554*")
+eq("rung 2 again: 51-63 at 25", (n, LS.LOC.distinct(pages)), (63, 63))
+# 4. start=1 fails at EVERY size on the stem -> rung 3: ten next-digit prefixes; a set record under
+#    two prefixes is counted once (union, not sum)
+LOCDB["9999"] = ([isbn13("9798855401", 1), isbn13("9798855402", 1)], True)
+LRULE["fail"] = lambda q, start, size, seen: q == "bath.isbn=979885540*"
+LS.LOC.degraded, LS.LOC.degraded_queries = None, []
+n, pages = LS.LOC.search("bath.isbn=979885540*", force=True, pager=LS.pager)   # cached in case 1: refetch
+eq("rung 3: ISBN slices, union == the stem's count (65 slice hits, 64 records)",
+   (n, LS.LOC.distinct(pages), LS.LOC.degraded), (64, 64, None))
+# 5. another diagnostic raises at once (no ladder, nothing cached)
+LRULE["fail"], LRULE["code"] = (lambda q, start, size, seen: True), "10"
+try:
+    LS.search_set("bath.isbn=9798855*")
+    eq("a non-61 diagnostic is not laddered", "no exception", "SourceIncomplete")
+except SRU.SourceIncomplete as e:
+    eq("a non-61 diagnostic is not laddered (no cached set: the stage fails)", "diagnostic 10" in str(e), True)
+LRULE["code"] = "61"
+# 6. subject channel exhausted, YEAR_INDEX unconfirmed: no slices -> no cached set -> fails;
+#    with a previous complete set and a refresh -> degraded, the cached set kept whole
+FLIP = [CLOCK[0] + 3600]                                   # paging below takes seconds, not an hour
+LRULE["fail"] = lambda q, start, size, seen: q == 'dc.subject="webcomics"' and seen > 0 and CLOCK[0] > FLIP[0]
+_YI, _NY = LS.YEAR_INDEX, LS.NO_YEAR
+LS.YEAR_INDEX = None
+n, pages = LS.search_set('dc.subject="webcomics"')          # before FLIP: succeeds, cached complete
+CLOCK[0] += 29 * 86400
+LS.LOC.refresh_days = 28
+n2, pages2 = LS.search_set('dc.subject="webcomics"')
+eq("degraded: the ladder exhausted on a stale set keeps the previous complete set",
+   (n2 == n, bool(LS.LOC.degraded), 'dc.subject="webcomics"' in LS.LOC.degraded_queries), (True, True, True))
+LS.LOC.refresh_days, LS.LOC.degraded, LS.LOC.degraded_queries = 0, None, []
+LS.YEAR_INDEX, LS.NO_YEAR = _YI, _NY
+LRULE["fail"] = lambda q, start, size, seen: False
+# 7. the canary: exactly one DLC record
+LOCDB["21800815"] = (["9781975319434"], True)
+LS.canary()
+eq("canary: 1 DLC record passes", True, True)
+LOCDB["21800815"] = (["9781975319434"], False)
+try:
+    LS.canary()
+    eq("canary: a non-DLC answer fails the stage", "no exception", "LocCanaryFailed")
+except LS.LocCanaryFailed:
+    eq("canary: a non-DLC answer fails the stage", True, True)
+del LOCDB["21800815"]
+try:
+    LS.canary()
+    eq("canary: zero records fails the stage", "no exception", "LocCanaryFailed")
+except LS.LocCanaryFailed:
+    eq("canary: zero records fails the stage", True, True)
+eq("slices of an ISBN stem: its ten next-digit prefixes", LS.slices("bath.isbn=97988554*"),
+   ["bath.isbn=97988554%d*" % d for d in range(10)])
+eq("the §4 stems and subject channels", (len(LS.STEMS), len(LS.SUBJECTS)), (14, 10))
+eq("LoC: page 100, >= 3 s, sizes 100/50/25", (LS.LOC.page, LS.LOC.interval >= 3.0, LS.SIZES), (100, True, (100, 50, 25)))
+
 # ==== summary ====
 print()
 if FAILS:
