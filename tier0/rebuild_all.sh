@@ -119,6 +119,7 @@ suite line_status export/test_line_status.py
 suite to_mangarr  export/test_to_mangarr.py
 suite dnb         tier0/test_dnb.py
 suite "carried ids" tier0/test_carried_ids.py
+suite krcn        tier0/test_krcn.py
 echo "== 1. work identity ==";     python3 tier0/work_identity.py
 echo "== 2. corpus en+fr ==";      python3 tier0/build_corpus.py "$DB"
 echo "== 3. corpus de ==";         python3 tier0/build_corpus_de.py "$DB"
