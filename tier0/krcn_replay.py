@@ -10,7 +10,8 @@ build/opentome.db or the carry: snapshots run stage 3e on a COPY under build/krc
         {dnb_line.key: [tier, role, exported, rl_id, link_work]}. Note: build_dnb.run writes
         build/dnb-report.json and build/dnb-review.tsv (build outputs; the next build rewrites them).
     python3 tier0/krcn_replay.py jp-diff BASE.json NEW.json
-        exit 1 unless 0 keys added / removed and 0 tiers / roles / exported flags changed.
+        exit 1 unless 0 keys added / removed and 0 tiers / roles / exported flags / rl_ids /
+        link_works changed (every snapshot field; each change names the field).
 
 catalogue defaults to build/opentome.db, carry to build/alias-fix/carry.sqlite (opentome-2026-09-25).
 """
@@ -24,7 +25,7 @@ CARRY = os.path.join(ROOT, "build", "alias-fix", "carry.sqlite")
 WORK = os.path.join(ROOT, "build", "krcn-replay")
 # syllables, conjoining jamo (incl. extended A/B), compatibility jamo
 HANGUL = re.compile("[ᄀ-ᇿ㄰-㆏ꥠ-꥿가-힣ힰ-퟿]")
-FIELDS = ("tier", "role", "exported")          # rl_id / link_work are reported, keys gate via added/removed
+FIELDS = ("tier", "role", "exported", "rl_id", "link_work")     # the whole snapshot tuple is gated
 
 
 def has_hangul(s):
@@ -133,7 +134,7 @@ def jp_snapshot(out, cat=CAT, carry=CARRY):
 def jp_diff(a, b):
     base, new = (json.load(open(p, encoding="utf8")) for p in (a, b))
     d = diff_snapshots(base, new)
-    print("  keys added %d, removed %d; tier/role/exported changes %d" % (
+    print("  keys added %d, removed %d; tier/role/exported/rl_id/link_work changes %d" % (
         len(d["added"]), len(d["removed"]), len(d["changed"])))
     for row in d["changed"][:40]:
         print("    %s %s: %r -> %r" % row)
@@ -141,7 +142,7 @@ def jp_diff(a, b):
         print("    key %s %s" % ("added" if k in d["added"] else "removed", k))
     if d["added"] or d["removed"] or d["changed"]:
         raise SystemExit("jp-diff FAILED")
-    print("jp-diff ok: 0 changed keys, tiers, roles, exported flags")
+    print("jp-diff ok: 0 changed keys, tiers, roles, exported flags, rl_ids, link_works")
 
 
 if __name__ == "__main__":

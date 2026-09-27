@@ -41,6 +41,12 @@ d = R.diff_snapshots(base, new)
 eq("a role and an exported flag changed", d["changed"],
    [("dnb:1", "role", "linked", "out_of_scope"), ("dnb:1", "exported", 1, 0)])
 eq("a key added and a key removed", (d["added"], d["removed"]), (["dnb:3"], ["dnb:2"]))
+eq("an rl_id-only change is detected",
+   R.diff_snapshots(base, dict(base, **{"dnb:1": ["high", "linked", 1, "rl_z", "w_1"]}))["changed"],
+   [("dnb:1", "rl_id", "rl_a", "rl_z")])
+eq("a link_work-only change is detected",
+   R.diff_snapshots(base, dict(base, **{"dnb:2": ["none", "unlinked", 0, "rl_b", "w_9"]}))["changed"],
+   [("dnb:2", "link_work", None, "w_9")])
 eq("has_hangul: syllables", R.has_hangul("나 혼자만 레벨업"), True)
 eq("has_hangul: compatibility jamo", R.has_hangul("ㅋㅋ"), True)
 eq("has_hangul: kana / Latin", R.has_hangul("ガンダム Übel Blatt"), False)
