@@ -4,7 +4,10 @@ link field ('Première de couverture') is never read.
 
   003 ark (http://catalogue.bnf.fr/ark:/12148/cb<8 digits><check>) -> the record's key and source url
   010 $a ISBN            101 $a text / $c ORIGINAL language (kor / chi; the §6 origin test)
-  200 $a title, $h volume, $i part, $e other title       210 / 214 $c publisher, $d year
+  101 $b intermediate (relay) language -- information only, never a filter (controller ruling:
+         a French edition translated via English is still a French edition of the KR/CN work)
+  200 $a title, $h volume, $i part, $e other title
+  214 (ind2 0, the publication statement; ind2 3 is the printer) / 210 $c publisher, $d year
   215 $a extent ('1 vol. (235 p.)')    225 $a / $v, 461 $t / $v series    454 $t / 500 $a original title
   700 / 701 / 702 $a $b $4 people (070 author, 440 illustrator; 730 translator is not a creator)
 """
@@ -69,12 +72,23 @@ def origin(r):
     return None
 
 
+def relay_languages(r):
+    """101 $b: the language a translation was made through ('eng'). Information only: origin() and
+    scope ignore it -- a relayed French edition stays in scope (controller ruling, 2026-09-27)."""
+    return [v.strip().lower() for v in M.subs(r, "101", "b") if v.strip()]
+
+
 def is_monograph(r):
     return r["leader"][6:8] == "am"
 
 
+def _pub214(r, code):
+    """$code of the 214 publication statement (ind2 '0'), chosen by indicator, not by field order."""
+    return next((v for t, _, i2, s in r["df"] if t == "214" and i2 == "0" for c, v in s if c == code and v), None)
+
+
 def _date_field(r):
-    return M.first(r, "214", "d") or M.first(r, "210", "d") or ""
+    return _pub214(r, "d") or M.first(r, "210", "d") or ""
 
 
 def is_set_record(r):
@@ -102,13 +116,32 @@ def title(r):
     return M.clean(M.first(r, "200", "a"))
 
 
+ROMAN = {r: i + 1 for i, r in enumerate("I II III IV V VI VII VIII IX X XI XII XIII XIV XV XVI XVII XVIII "
+                                        "XIX XX".split())}
+WORDS = {"one": 1, "two": 2, "three": 3}
+_WORD_NUM = re.compile(r"^\s*\[?\s*(?:(?:vol(?:ume)?|tome|t)\.?\s+)?([A-Za-z]+)\s*\.?\s*\]?\s*$", re.I)
+
+
+def _word_number(h):
+    """200 $h 'IV' / 'Tome I' / 'Vol. VI' (roman I-XX) or 'One' / 'Two' / 'Three' -> '4' ...; else None."""
+    m = _WORD_NUM.match(M.clean(h))
+    if not m:
+        return None
+    w = m.group(1)
+    n = ROMAN.get(w.upper()) or WORDS.get(w.lower())
+    return str(n) if n else None
+
+
 def volume_number(r):
-    for v in M.subs(r, "200", "h") + M.subs(r, "225", "v") + M.subs(r, "461", "v"):
-        num, kind = M.canon_number(v)
-        if kind in ("int", "decimal"):
-            return num
-        if kind == "range":
-            return None
+    for tag, code in (("200", "h"), ("225", "v"), ("461", "v")):
+        for v in M.subs(r, tag, code):
+            num, kind = M.canon_number(v)
+            if kind in ("int", "decimal"):
+                return num
+            if kind == "range":
+                return None
+            if tag == "200" and _word_number(v):
+                return _word_number(v)
     return None
 
 
@@ -117,7 +150,7 @@ def series(r):
 
 
 def publisher(r):
-    return M.clean(M.first(r, "214", "c") or M.first(r, "210", "c") or "") or None
+    return M.clean(_pub214(r, "c") or M.first(r, "210", "c") or "") or None
 
 
 def pubfam(p):
@@ -134,7 +167,7 @@ def year(r):
 
 def pages(r):
     a = M.clean(M.first(r, "215", "a"))
-    if re.match(r"^\s*[2-9]\d*\s+vol", a):
+    if re.match(r"^\s*(?:[2-9]|[1-9]\d+)\s+vol", a):
         return None                      # several volumes in one record
     m = re.search(r"(\d{2,4})\s*p\.", a)
     return int(m.group(1)) if m and 0 < int(m.group(1)) <= 2000 else None
