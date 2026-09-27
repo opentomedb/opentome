@@ -355,6 +355,65 @@ try:
 finally:
     V.CACHE, V.urllib.request.urlopen = _saved_fix
 
+# ---- Task 5: link_work correction, scoped DNB unload --------------------------------------------------
+import corrections as CORR, build_dnb as B, dnb_marc as M
+
+cdir = tempfile.mkdtemp(prefix="krcn-corr-")
+with open(os.path.join(cdir, "lines.json"), "w") as f:
+    json.dump([{"line_key": "dnb:1200000000", "link_work": "w_aaaaaaaaaaaa",
+                "source_url": "https://d-nb.info/1200000000", "checked": "2026-09-28"}], f)
+eq("load_link_work", CORR.load_link_work(cdir), {"dnb:1200000000": "w_aaaaaaaaaaaa"})
+with open(os.path.join(cdir, "lines.json"), "w") as f:
+    json.dump([{"line_key": "isbn:978", "link_work": "w_aaaaaaaaaaaa", "source_url": "x", "checked": "x"}], f)
+try:
+    CORR.load_link_work(cdir)
+    eq("a non-library key is refused", "no exception", "ValueError")
+except ValueError:
+    eq("a non-library key is refused", True, True)
+
+
+def drec(idn, *fields, year="2019", parent=False):
+    leader = "00000pam a2200000 c" + ("a" if parent else "c") + "4500"
+    return {"leader": leader, "cf": {"001": idn, "008": "190101s%s    gw ||||| |||| 00||||ger  " % year},
+            "df": [(t, " ", " ", list(s)) for t, s in fields]}
+
+
+def dvol(idn, num, isbn, parent, title="Unbekannt Titel", origin=("h", "jpn")):
+    return drec(idn, ("041", [("a", "ger"), origin]), ("082", [("a", "741.5")]),
+                ("245", [("a", title), ("n", num)]), ("264", [("b", "Altraverse GmbH")]),
+                ("020", [("a", isbn)]), ("773", [("w", "(DE-101)" + parent)]))
+
+
+recs = {r["cf"]["001"]: r for r in (dvol("1300000001", "1", "9783753935874", "1200000000"),
+                                    dvol("1300000002", "2", "9783753935881", "1200000000"))}
+db = schema_db()
+db.execute("INSERT INTO work VALUES('w_aaaaaaaaaaaa','Some Work',NULL,NULL,NULL,NULL,'x','x')")
+idx = L.Index(db)
+lines, _, _ = B.build(recs, {}, idx, {}, {})
+eq("without the correction the line is unlinked", [(l["key"], l["role"]) for l in lines], [("dnb:1200000000", "unlinked")])
+lines, _, _ = B.build(recs, {}, idx, {}, {}, link_work={"dnb:1200000000": "w_aaaaaaaaaaaa"})
+eq("link_work: role linked to the named work, via correction",
+   [(l["role"], l["work"], l["via"]) for l in lines], [("linked", "w_aaaaaaaaaaaa", "correction")])
+lines, _, _ = B.build(recs, {}, idx, {}, {}, link_work={"dnb:1200000000": "w_000000000000"})
+eq("link_work to a work not in the catalogue: stale, ignored", lines[0]["role"], "unlinked")
+
+db = schema_db()
+B.load(db, [], [], {}, {})                                     # creates the staging tables
+db.execute("INSERT INTO dnb_member VALUES('1','dnb:1','1',NULL,'v_jp','created',NULL,0)")
+db.execute("INSERT INTO dnb_line(key,rl_id,role,exported) VALUES('dnb:1','rl_jp','linked',1)")
+for eid, ent in (("v_jp", "volume"), ("rl_jp", "release_line"), ("v_kr", "volume")):
+    db.execute("INSERT INTO claim VALUES(?,?,'isbn13','x','dnb',NULL,'cc0','x')", (ent, eid))
+B.unload(db.cursor())
+eq("scoped unload: only 3e's own dnb claims go (a KR/CN 3f claim stays)",
+   [r[0] for r in db.execute("SELECT entity_id FROM claim WHERE source='dnb'")], ["v_kr"])
+db = schema_db()
+B.load(db, [], [], {}, {})
+db.execute("INSERT INTO dnb_line(key,rl_id,role,exported) VALUES('dnb:2','rl_wiki','merged',1)")
+db.execute("INSERT INTO claim VALUES('release_line','rl_wiki','line_name','x','dnb',NULL,'cc0','x')")
+B.unload(db.cursor())
+eq("scoped unload: a merged row's rl_id is the Wikipedia line (3e writes no line claim there)",
+   [r[0] for r in db.execute("SELECT entity_id FROM claim WHERE source='dnb'")], ["rl_wiki"])
+
 # ==== summary ====
 print()
 if FAILS:

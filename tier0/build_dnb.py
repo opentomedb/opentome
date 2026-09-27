@@ -51,6 +51,8 @@ import dnb_marc as M
 import dnb_sru as S
 import carried_ids as CI
 from load import LICENCE, _id
+sys.path.insert(0, os.path.join(ROOT, "tier2"))
+import corrections as CORR                 # lines.json link_work (krcn-design R2)
 
 NOW = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 CURRENT_YEAR = datetime.date.today().year
@@ -420,7 +422,7 @@ def assign_roles(lines, W, w_isbn):
 
 # ---- the build (pure: records in, lines out) -----------------------------------------------
 
-def build(recs, parents, idx, W, w_isbn, carried=None):
+def build(recs, parents, idx, W, w_isbn, carried=None, link_work=None):
     """-> (lines, stats, lost [(group, fate, line key)]). carried: {tome_id: work_id} of the
     German lines in the last published artifact -- a line that shipped there keeps shipping
     (role 'kept', under its published work) when only the linker's answer changed: ids are a
@@ -449,6 +451,15 @@ def build(recs, parents, idx, W, w_isbn, carried=None):
             ln["role"] = {"high": "linked", "medium": "linked", "low": "review",
                           "ambiguous": "review"}.get(ln["tier"], "unlinked")
             ln["work"] = ln["link_work"] if ln["role"] == "linked" else None
+            # a reviewed line a person linked (corrections/lines.json link_work): before the
+            # out-of-scope rule below, which still applies
+            lw = (link_work or {}).get(ln["key"])
+            if lw:
+                if lw in idx.name:
+                    ln["role"], ln["work"], ln["via"] = "linked", lw, "correction"
+                else:
+                    print("  STALE CORRECTION -- lines.json link_work %s -> %s: not a work in the catalogue"
+                          % (ln["key"], lw), flush=True)
             if ln["role"] == "linked" and ln["work"] in idx.out_of_scope:
                 ln["role"], ln["work"] = "out_of_scope", None      # a Korean / Chinese work (dnb_link.Index)
             # keep a published line only when the linker has simply lost its answer -- never
@@ -502,7 +513,12 @@ def unload(c):
                 c.execute("UPDATE volume SET %s=NULL WHERE id=?" % col, (vid,))
     c.executemany("DELETE FROM volume WHERE id=?", [(v,) for v in made_vols])
     c.executemany("DELETE FROM release_line WHERE id=?", [(r,) for r in made_lines])
-    c.execute("DELETE FROM claim WHERE source=?", (SRC,))
+    # only 3e's own claims: the KR/CN stage (3f) writes source 'dnb' claims too (docs/krcn-design.md).
+    # A merged row's rl_id is the Wikipedia line, which 3e never writes a line claim on.
+    c.execute("""DELETE FROM claim WHERE source=? AND (
+                     (entity='volume' AND entity_id IN (SELECT volume_id FROM dnb_member WHERE volume_id IS NOT NULL))
+                  OR (entity='release_line' AND entity_id IN (SELECT rl_id FROM dnb_line WHERE role<>'merged')))""",
+              (SRC,))
     c.execute("DELETE FROM dnb_line")
     c.execute("DELETE FROM dnb_member")
 
@@ -747,7 +763,8 @@ def run(dbpath, carry=None):
     db.commit()
     idx = L.Index(db)
     W, w_isbn = wiki_lines(db)
-    lines, stats, lost = build(recs, parents, idx, W, w_isbn, carried_lines(carry))
+    lines, stats, lost = build(recs, parents, idx, W, w_isbn, carried_lines(carry),
+                               link_work=CORR.load_link_work())
     fates = load(db, lines, lost, W, w_isbn)
     moved, orphans = redirects(db, carry)
     os.makedirs(BUILD, exist_ok=True)

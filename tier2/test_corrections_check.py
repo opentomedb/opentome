@@ -76,6 +76,32 @@ class CheckTests(unittest.TestCase):
             code = C.check(d, self.art)
         return code, out.getvalue()
 
+    # -- link_work (krcn-design R2): a reviewed library line ships under a checked work
+    LW = {"line_key": "dnb:1380595053", "link_work": "w_aaaaaaaaaaaa",
+          "source_url": "https://d-nb.info/1380595053", "checked": "2026-09-28"}
+
+    def test_link_work_resolves(self):
+        code, out = self.check(self.corrections(lines=[self.LW]))
+        self.assertEqual(code, 0, out)
+
+    def test_link_work_stale_work_fails(self):
+        code, out = self.check(self.corrections(lines=[dict(self.LW, link_work="w_ffffffffffff")]))
+        self.assertEqual(code, 1)
+        self.assertIn("STALE CORRECTION", out)
+        self.assertIn("w_ffffffffffff", out)
+
+    def test_link_work_bad_key_fails(self):
+        code, out = self.check(self.corrections(lines=[dict(self.LW, line_key="foo:1")]))
+        self.assertEqual(code, 1)
+        self.assertIn("line_key", out)
+
+    def test_link_work_twice_fails(self):
+        # the build's load_link_work refuses a key corrected twice; a PR that passes must not
+        # then fail the build on the same entry
+        code, out = self.check(self.corrections(lines=[self.LW, dict(self.LW)]))
+        self.assertEqual(code, 1)
+        self.assertIn("corrected twice", out)
+
     # -- passes
     def test_all_empty_passes(self):
         code, out = self.check(self.corrections())
