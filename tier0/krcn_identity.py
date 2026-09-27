@@ -72,13 +72,38 @@ def older(ids, K):
     return min(ids, key=key)
 
 
+def _num_key(n):
+    try:
+        return (0, float(n), n)
+    except (TypeError, ValueError):
+        return (1, 0.0, str(n))
+
+
+def split_id(carried, key):
+    """The id of a part split off a carried line (controller ruling 2026-09-27):
+    rl_<hash("split|" + carried id + "|" + the part's own natural key)>."""
+    return _id("rl_", "split|%s|%s" % (carried, key))
+
+
 def line_ids(lines, K):
-    """Rule 1 of the module plan (carry lookup before minting).
-    -> {"ambiguous": [...], "adopted": n}. Raises ValueError when two built lines would share one id
-    (a minted natural key equal to a carried id another line took, or absorbed): which part of a
-    split keeps a published id is the controller's call, never guessed here."""
-    rep = {"ambiguous": [], "adopted": 0}
-    claims = collections.defaultdict(list)
+    """Rule 1 of the module plan (carry lookup before minting), with the split rule.
+    -> {"ambiguous": [], "adopted": n, "split": [(carried id, [minor part keys])]}.
+
+    A built line is a PART of carried line T (same source) when it holds at least one of T's
+    volumes (the vote rule below). T is taken only when its parts TOGETHER hold a strict majority
+    of T's volumes -- with one part this is the brief's rule, and a lone 2 of 5 still mints.
+
+    Controller ruling 2026-09-27 (splits, docs/id-scheme.md "Merges and splits"):
+      1. the part holding the most of T's volumes keeps T, whatever its own natural key; a tie goes
+         to the part holding T's lowest volume number, then to the lowest own key;
+      2. every other part mints a NEW id, split_id(T, its own key) -- never T, and never its bare
+         key hash when that equals T (a line whose key once minted T but that now holds a minority
+         or none of T's volumes);
+      3. the moved volumes' published ids are left to 7b's general writer (carried_ids.redirects:
+         a lost volume goes to the volume now holding its ISBN, else its number).
+    So a tie is no longer ambiguous: 'ambiguous' stays empty (kept for the caller's report)."""
+    rep = {"ambiguous": [], "adopted": 0, "split": []}
+    parts = collections.defaultdict(list)
     by_src = collections.defaultdict(list)
     for t, src in ((K or {}).get("lines") or {}).items():
         by_src[src].append(t)
@@ -91,36 +116,47 @@ def line_ids(lines, K):
                 continue
             share = any(i in isb for _, i in tv if i)
             same_name = not any(i for _, i in tv) and L.fold(K["line_name"].get(t) or "", False) == L.fold(ln["name"] or "", False)
-            votes = sum(1 for n, i in tv if (i and i in isb) or (not i and n in bare and (share or same_name)))
-            if 2 * votes > len(tv):
-                claims[t].append((votes, n_))
-    got = collections.defaultdict(list)
-    for t, cands in claims.items():
-        cands.sort(key=lambda c: (-c[0], lines[c[1]]["key"]))
-        if len(cands) > 1 and cands[0][0] == cands[1][0]:
-            rep["ambiguous"].append(t)
-            continue
-        got[cands[0][1]].append(t)
-    rep["ambiguous"].sort()
+            held = {k for k, (n, i) in enumerate(tv) if (i and i in isb) or (not i and n in bare and (share or same_name))}
+            if held:
+                parts[t].append((held, n_))
+    got, minor = collections.defaultdict(list), collections.defaultdict(list)
+    for t, ps in parts.items():
+        tv = K["line_vols"][t]
+        if 2 * len(set().union(*(h for h, _ in ps))) <= len(tv):
+            continue                      # T's evidence is mostly gone: nobody takes it (7b decides)
+        ps.sort(key=lambda p: (-len(p[0]), min(_num_key(tv[k][0]) for k in p[0]), lines[p[1]]["key"]))
+        got[ps[0][1]].append(t)
+        for _, m in ps[1:]:
+            minor[m].append(t)
+        if len(ps) > 1:
+            rep["split"].append((t, sorted(lines[m]["key"] for _, m in ps[1:])))
+    rep["split"].sort()
+    taken = {t for ts in got.values() for t in ts}
     for n_, ln in enumerate(lines):
         ts = got.get(n_, [])
+        ln["absorbed_ids"] = []
         if ts:
             ln["tome_id"] = older(ts, K)
             ln["carried"] = True
             ln["absorbed_ids"] = sorted(set(ts) - {ln["tome_id"]})
             rep["adopted"] += 1
+        elif minor.get(n_):
+            ln["tome_id"] = split_id(older(minor[n_], K), ln["key"])
+            ln["carried"] = False
         else:
-            ln["tome_id"] = _id("rl_", ln["key"])
-            ln["carried"] = bool(K) and ln["tome_id"] in K["series_ids"]
-            ln["absorbed_ids"] = []
-    owner = collections.defaultdict(list)
+            mint = _id("rl_", ln["key"])
+            if mint in taken:             # its key once minted a carried id another part now keeps
+                ln["tome_id"], ln["carried"] = split_id(mint, ln["key"]), False
+            else:
+                ln["tome_id"] = mint
+                ln["carried"] = bool(K) and mint in K["series_ids"]
+    owner = collections.defaultdict(list)          # an invariant, not a policy: one id, one line
     for ln in lines:
         for t in [ln["tome_id"]] + ln["absorbed_ids"]:
             owner[t].append(ln["key"])
     clash = sorted((t, sorted(ks)) for t, ks in owner.items() if len(ks) > 1)
     if clash:
-        raise ValueError("krcn_identity.line_ids: one id for several built lines (a split of a carried "
-                         "line; the controller decides which part keeps it): %r" % clash)
+        raise AssertionError("krcn_identity.line_ids: one id for several built lines: %r" % clash)
     return rep
 
 
