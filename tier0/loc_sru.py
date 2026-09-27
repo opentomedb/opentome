@@ -64,6 +64,11 @@ class LocCanaryFailed(RuntimeError):
     pass
 
 
+class LocIncomplete(RuntimeError):
+    """Duplicate positions that repeated reads could not confirm: an incomplete set (degraded rule).
+    Not a failed page, so never sliced."""
+
+
 def _where(url):
     """'query' start N size M -- the ladder log (the netlog shows a diagnostic page as a plain 200)."""
     q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
@@ -119,16 +124,99 @@ def _page(query, start, size, last):
     return out
 
 
+# Duplicate positions -- controller ruling 2026-09-27 (amends spec §3 / R7 for LoC). The gateway
+# can return one record at two positions of a result set (live: a single 36-record response of
+# bath.isbn=9798855419* held one 001 twice), so "distinct == numberOfRecords" cannot hold. A LoC
+# set or slice is COMPLETE when (a) every position 1..n was delivered (full pages, no failed page;
+# a failed page goes down the ladder, and only a failed page ever leads to ISBN-prefix slices) and
+# (b) when distinct < n, a second full read at the next page size (50) finds no record the first
+# read lacked -- duplicates did not mask a missing record. If it does, the reads are unioned and a
+# third full read (25) must add nothing; if it still grows, the set is incomplete (LocIncomplete ->
+# the degraded rule). Verified sets are accepted through lib_sru's per-source hook (LOC.accept);
+# the generic distinct == n rule stays for BnF / DNB.
+VERIFIED = {}                      # query -> distinct records of a verified set with duplicates
+
+
+def _dups_path():
+    return os.path.join(LOC.cache, "loc-dups.json")
+
+
+def _dups():
+    try:
+        with open(_dups_path(), encoding="utf8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _note_dups(query, entry):
+    """Record (entry) or clear (None) a set's duplicate positions for build/loc-report.json."""
+    d = _dups()
+    if entry is None and query not in d:
+        return
+    if entry is None:
+        d.pop(query)
+    else:
+        d[query] = entry
+    os.makedirs(LOC.cache, exist_ok=True)
+    SRU._store(_dups_path(), json.dumps(d, sort_keys=True, indent=0))
+
+
+def _read(query, n, size):
+    """One full read of the set at this page size (each page through rungs 1 and 2)."""
+    staged = []
+    for start in range(1, n + 1, size):
+        staged += _page(query, start, size, n)
+    return staged
+
+
+def _ids(staged):
+    return [i for _, t in staged for i in SRU.ID_001.findall(t)]
+
+
+def _twice(ids):
+    seen, out = set(), set()
+    for i in ids:
+        (out if i in seen else seen).add(i)
+    return out
+
+
 def _ladder(query):
     n = _count(query)
-    staged = []
-    for start in range(1, n + 1, SIZES[0]):
-        staged += _page(query, start, SIZES[0], n)
-    got = LOC.distinct([t for _, t in staged])
-    if got != n:
-        # every page full, the union short: the set shifted between requests -> rung 3 (slices)
-        raise LadderExhausted("%r: pages hold %d distinct records, the set announces %d" % (query, got, n))
+    staged = _read(query, n, SIZES[0])
+    first = _ids(staged)
+    seen, twice = set(first), _twice(first)
+    VERIFIED.pop(query, None)
+    if len(seen) == n:
+        _note_dups(query, None)
+        return n, staged
+    if len(seen) > n:
+        raise LocIncomplete("%r: %d distinct records, more than the %d announced" % (query, len(seen), n))
+    reads = [(SIZES[0], len(seen), 0)]
+    for size in SIZES[1:]:
+        more = _read(query, n, size)
+        ids = _ids(more)
+        new = set(ids) - seen
+        twice |= _twice(ids)
+        staged += more
+        reads.append((size, len(set(ids)), len(new)))
+        print("    loc duplicates: %r announced %d; read at %d holds %d distinct, %d new" % (
+            query, n, size, len(set(ids)), len(new)), flush=True)
+        if not new:
+            break
+        if size == SIZES[-1]:
+            raise LocIncomplete("%r: announced %d; reads at %s kept finding new records %s" % (
+                query, n, "/".join(str(r[0]) for r in reads), [r[2] for r in reads]))
+        seen |= new
+        if len(seen) > n:
+            raise LocIncomplete("%r: %d distinct records, more than the %d announced" % (query, len(seen), n))
+    VERIFIED[query] = len(seen)
+    _note_dups(query, {"n": n, "distinct": len(seen), "positions": n - len(seen),
+                       "dup_ids": sorted(twice), "reads": reads})
     return n, staged
+
+
+LOC.accept = lambda query, n, got: VERIFIED.get(query) == got
 
 
 def slices(query):
@@ -161,12 +249,22 @@ def pager(query, depth=0):
             continue
         sn, sp = pager(q, depth + 1)
         got = {i for _, t in sp for i in SRU.ID_001.findall(t)}
-        if len(got) != sn:
+        if len(got) != VERIFIED.get(q, sn):
             raise LadderExhausted("slice %r announced %d, paged %d distinct" % (q, sn, len(got)))
         ids |= got
         staged += sp
-    if len(ids) != n:
+    # The ten prefixes cover the stem by construction. With duplicate positions (ruling 2026-09-27)
+    # the stem's count exceeds its distinct records, and the stem itself had a failed page, so it
+    # cannot be re-read: fewer distinct than announced is accepted and reported; more is not.
+    if len(ids) > n:
         raise LadderExhausted("%r: its slices hold %d distinct records, the set announces %d" % (query, len(ids), n))
+    VERIFIED.pop(query, None)
+    if len(ids) < n:
+        VERIFIED[query] = len(ids)
+        _note_dups(query, {"n": n, "distinct": len(ids), "positions": n - len(ids), "dup_ids": [],
+                           "reads": "sliced: shortfall inferred from the complete slices"})
+    else:
+        _note_dups(query, None)
     return n, staged
 
 
@@ -199,12 +297,16 @@ def enumerate_loc(verbose=True):
         for t in pages:
             for r in M.records(t):
                 got[r["cf"]["001"]] = r
-        report["channels"][name] = {"query": q, "records": n, "distinct": len(got),
-                                    "dlc": sum(1 for r in got.values() if LM.is_dlc(r)),
-                                    "degraded": q in LOC.degraded_queries}
+        dlc = sum(1 for r in got.values() if LM.is_dlc(r))
+        # duplicate positions (ruling 2026-09-27) of the channel's set and of its ISBN slices
+        dups = {k: v for k, v in _dups().items()
+                if k == q or (q.startswith("bath.isbn=") and k.startswith(q[:-1]) and k.endswith("*"))}
+        report["channels"][name] = {"query": q, "records": n, "distinct": len(got), "dlc": dlc,
+                                    "dlc_share": round(dlc / len(got), 3) if got else None,
+                                    "duplicates": dups, "degraded": q in LOC.degraded_queries}
         if verbose:
-            print("    loc %-14s %5d  dlc %5d  (live requests so far %d)" % (
-                name, n, report["channels"][name]["dlc"], LOC.live), flush=True)
+            print("    loc %-14s %5d  distinct %5d  dlc %5d  (live requests so far %d)" % (
+                name, n, len(got), dlc, LOC.live), flush=True)
         for k, r in got.items():
             recs.setdefault(k, r)
     report.update(distinct=len(recs), live_requests=LOC.live, degraded=LOC.degraded,

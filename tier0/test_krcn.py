@@ -979,8 +979,7 @@ def loc_matches(q, isbns):
 
 
 def _lwin(query, ids, start, size):
-    lo = start - 1 - (1 if LRULE.get("dup", lambda q, st, sz: False)(query, start, size) else 0)
-    win = ids[lo:lo + min(size, len(ids) - start + 1)]      # 'dup': as many records, shifted back one
+    win = ids[start - 1:start - 1 + size]
     return win[:-1] if LRULE.get("short", lambda q, st, sz: False)(query, start, size) else win
 
 
@@ -989,6 +988,7 @@ def fake_loc(req, timeout=None):
     q = urllib.parse.parse_qs(urllib.parse.urlparse(req.full_url).query)
     query, start, size = q["query"][0], int(q["startRecord"][0]), int(q["maximumRecords"][0])
     ids = sorted(i for i, (isb, _) in LOCDB.items() if loc_matches(query, isb))
+    ids = LRULE.get("seq", lambda q, ids, sz: ids)(query, ids, size)     # duplicate positions
     key = (query, start, size)
     LSEEN[key] = LSEEN.get(key, 0) + 1
     if size > 1 and LRULE["fail"](query, start, size, LSEEN[key]):
@@ -1089,18 +1089,69 @@ urls = json.load(open(LS.LOC.sets_path))["bath.isbn=979885549*"]["urls"]
 eq("short page: laddered like diagnostic 61 (re-paged at 50)",
    (n, LS.LOC.distinct(pages), [re.search(r"maximumRecords=(\d+)", u).group(1) for u in urls]), (80, 80, ["50", "50"]))
 LRULE.pop("short")
-# full pages whose union is short (the set shifted between requests): the stem goes to rung 3
-LRULE["dup"] = lambda q, st, sz: q == "bath.isbn=97988554*" and st == 101
-n, pages = LS.LOC.search("bath.isbn=97988554*", force=True, pager=LS.pager)
-eq("overlapping full pages: the stem is sliced, union == count", (n, LS.LOC.distinct(pages), LS.LOC.degraded), (144, 144, None))
-# the same fault on a subject channel (no slices): degraded on its cached set
-LRULE["dup"] = lambda q, st, sz: q == 'dc.subject="webcomics"' and st == 101
+# ---- controller ruling 2026-09-27: duplicate positions (one record at two positions of a set) ----
+def lmask(ids, *pos):
+    """Positions pos show their predecessor instead: a duplicate that masks a record."""
+    out = list(ids)
+    for p in pos:
+        out[p] = out[p - 1]
+    return out
+
+
+def ldups():
+    return json.load(open(os.path.join(_ltmp, "loc-dups.json")))
+
+
+# A. a genuine duplicate position (81 positions, 80 records); the read at 50 adds nothing: complete
+LRULE["seq"] = lambda q, ids, sz: ids[:50] + [ids[10]] + ids[50:] if q == "bath.isbn=9798855491*" else ids
+LOCDB.update({str(3100 + k): ([isbn13("9798855491", k)], True) for k in range(80)})
+n, pages = LS.search_set("bath.isbn=9798855491*")
+man = json.load(open(LS.LOC.sets_path))["bath.isbn=9798855491*"]
+eq("duplicate position confirmed by a second read at 50: complete, cached with distinct < n",
+   (n, LS.LOC.distinct(pages), man["distinct"], sorted({re.search(r"maximumRecords=(\d+)", u).group(1) for u in man["urls"]})),
+   (81, 80, 80, ["100", "50"]))
+eq("... duplicate positions reported (count + 001s)",
+   {k: ldups()["bath.isbn=9798855491*"][k] for k in ("positions", "dup_ids")}, {"positions": 1, "dup_ids": ["3110"]})
+k = len(LCALLS)
+eq("... served whole from the cache afterwards", (LS.search_set("bath.isbn=9798855491*")[0], len(LCALLS) - k), (81, 0))
+# B. at 100 a duplicate masks record 3160; the read at 50 reveals it -> union, third read at 25 adds nothing
+LRULE["seq"] = (lambda q, ids, sz: (lambda base: lmask(base, 61) if sz == 100 else base)(ids[:50] + [ids[10]] + ids[50:])
+                if q == "bath.isbn=9798855491*" else ids)
+n, pages = LS.LOC.search("bath.isbn=9798855491*", force=True, pager=LS.pager)
+eq("masked record: revealed at 50, unioned, the third read at 25 confirms",
+   (n, LS.LOC.distinct(pages), [r[0] for r in ldups()["bath.isbn=9798855491*"]["reads"]], LS.LOC.degraded),
+   (81, 80, [100, 50, 25], None))
+# C. every read finds a record the earlier ones lacked: incomplete (no slices -- not a failed page)
+LOCDB.update({str(3200 + k): ([isbn13("9798855492", k)], True) for k in range(80)})
+LRULE["seq"] = lambda q, ids, sz: lmask(ids, 60, 70) if sz == 100 else lmask(ids, 70) if sz == 50 else ids
+k = len(LCALLS)
+try:
+    LS.search_set("bath.isbn=9798855492*")
+    eq("still growing at 25: incomplete, the stage fails with no cached set", "no exception", "SourceIncomplete")
+except SRU.SourceIncomplete as e:
+    eq("still growing at 25: incomplete, the stage fails with no cached set",
+       ("LocIncomplete" in str(e), any("9798855492" in u and re.search(r"isbn%3D9798855492\d", u) for u in LCALLS[k:])),
+       (True, False))
 n0 = json.load(open(LS.LOC.sets_path))['dc.subject="webcomics"']["n"]
 n, pages = LS.LOC.search('dc.subject="webcomics"', force=True, pager=LS.pager)
-eq("overlapping full pages on a subject: degraded, the cached set kept",
+eq("still growing on a cached subject set: degraded, the cached set kept",
    (n, bool(LS.LOC.degraded), 'dc.subject="webcomics"' in LS.LOC.degraded_queries), (n0, True, True))
-LRULE.pop("dup")
+LRULE.pop("seq")
 LS.LOC.degraded, LS.LOC.degraded_queries = None, []
+# enumerate_loc: build/loc-report.json per channel -- announced, distinct, DLC share, duplicates
+LOCDB["21800815"] = (["9781975319434"], True)
+_ch, _rp = LS.CHANNELS, LS.REPORT
+LS.CHANNELS, LS.REPORT = [("isbn 9798855491", "bath.isbn=9798855491*")], os.path.join(_ltmp, "loc-report.json")
+recs, rep = LS.enumerate_loc(verbose=False)
+c = json.load(open(LS.REPORT))["channels"]["isbn 9798855491"]
+eq("loc-report.json: announced, distinct, dlc, share, duplicate positions + 001s",
+   (c["records"], c["distinct"], c["dlc"], c["dlc_share"], c["duplicates"]["bath.isbn=9798855491*"]["positions"],
+    c["duplicates"]["bath.isbn=9798855491*"]["dup_ids"], len(recs)), (81, 80, 80, 1.0, 1, ["3110", "3159"], 80))
+# (served from case B's cached set: 3110 is the genuine duplicate, 3159 the one that masked 3160 at 100)
+LS.CHANNELS, LS.REPORT = _ch, _rp
+del LOCDB["21800815"]
+for k in range(80):
+    del LOCDB[str(3100 + k)], LOCDB[str(3200 + k)]
 for k in range(80):
     del LOCDB[str(3000 + k)]
 

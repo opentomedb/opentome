@@ -80,6 +80,10 @@ class Source:
         self.degraded, self.degraded_queries = None, []
         self.live, self.refusals = 0, 0
         self.sleep, self.now, self.urlopen = time.sleep, time.time, None      # test hooks
+        # Completeness hook, None = the generic rule (distinct records == numberOfRecords). LoC sets
+        # it: accept(query, n, distinct) -> True when its pager verified a set with duplicate
+        # positions (controller ruling 2026-09-27). BnF / DNB keep the generic rule.
+        self.accept = None
 
     def relocate(self, cache, build):
         self.cache = cache
@@ -207,15 +211,18 @@ class Source:
                 return None
             with open(p, encoding="utf8") as f:
                 pages.append(f.read())
-        if self.distinct(pages) != e["n"]:
+        if self.distinct(pages) != e.get("distinct", e["n"]):
             return None                    # a page file changed under the manifest: not a whole set
         return e["n"], pages, e["fetched_at"]
 
-    def store_set(self, query, n, staged):
+    def store_set(self, query, n, staged, distinct=None):
+        """distinct: set only when a source's accept() hook took distinct != n (LoC duplicates)."""
         for u, t in staged:
             _store(self.cache_path(u), t)
         sets = self._sets()
         sets[query] = {"n": n, "urls": [u for u, _ in staged], "fetched_at": self.now()}
+        if distinct is not None:
+            sets[query]["distinct"] = distinct
         os.makedirs(self.cache, exist_ok=True)
         _store(self.sets_path, json.dumps(sets, sort_keys=True, indent=0))
 
@@ -265,7 +272,7 @@ class Source:
             if have and n == 0 < have[0]:
                 raise SourceDiagnostic("empty", "announced 0 records, the cached set holds %d" % have[0], query)
             got = self.distinct([t for _, t in staged])
-            if got != n:
+            if got != n and not (self.accept and self.accept(query, n, got)):
                 raise SourceDiagnostic("paging", "announced %d records, paged %d distinct" % (n, got), query)
         except FAIL as e:
             if not have:
@@ -276,5 +283,5 @@ class Source:
             print("    WARNING %s refresh failed (%s) -- %r keeps its previous complete set; later "
                   "refreshes this run are skipped" % (self.name, self.degraded, query), flush=True)
             return have[0], have[1]
-        self.store_set(query, n, staged)
+        self.store_set(query, n, staged, None if got == n else got)
         return n, [t for _, t in staged]
