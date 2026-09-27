@@ -1287,6 +1287,283 @@ eq("KR/CN channels: spo=kor / spo=chi print, jhr-sliced from 2015 (P20)",
    [(c[0], c[1], c[2], c[3]) for c in E.KRCN_CHANNELS],
    [("print_kor", "spo=kor and bbg=A*", 2015, (2000, 2005, 2010)), ("print_chi", "spo=chi and bbg=A*", 2015, (2000, 2005, 2010))])
 
+# ---- Task 10: lines per source ---------------------------------------------------------------------------
+import krcn_lines as KL
+
+# DNB: two Korean volumes of one set + a Chinese light novel
+dk = {r["cf"]["001"]: r for r in (
+    dvol("1400000001", "1", "9783753900001", "1390000000", title="Raeliana", origin=("h", "kor")),
+    dvol("1400000002", "2", "9783753900018", "1390000000", title="Raeliana", origin=("h", "kor")),
+    drec("1400000003", ("041", [("a", "ger"), ("h", "chi")]), ("926", [("a", "FYS")]),
+         ("245", [("a", "Grandmaster of Demonic Cultivation"), ("n", "1")]), ("264", [("b", "Bramble")]),
+         ("020", [("a", "9783753900025")])))}
+lines, lost, st = KL.dnb_lines(dk, {})
+by = {l["key"]: l for l in lines}
+eq("DNB: a Korean set -> one manhwa line keyed by its parent IDN, explicit, comic",
+   {k: (l["medium"], l["explicit"], l["comic"], len(l["vols"])) for k, l in by.items() if l["origin"] == "kor"},
+   {"dnb:1390000000": ("manhwa", True, True, 2)})
+eq("DNB: a Chinese light novel -> a novel line (not comic)",
+   [(l["medium"], l["comic"]) for l in lines if l["origin"] == "chi"], [("novel", False)])
+eq("DNB members are dnb:<IDN>", sorted(by["dnb:1390000000"]["members"]), ["dnb:1400000001", "dnb:1400000002"])
+eq("DNB stats: no review lines here", st["review"], {})
+
+# LoC: the Solo Leveling set record (Task 6 SL) + a single-volume DLC twin of its v. 1 + Mystery Science
+# Detectives books 3 and 4 + records that must drop
+SL1 = lrec("01000cam a2200000 i 4500", "210302s2021    nyu           000 1 eng  ", ("010", [("a", "  2021011111")]),
+           ("020", [("a", "9781975319434")]), DLC, ("041", [("a", "eng"), ("h", "kor")]), ("082", [("a", "741.5")]),
+           ("245", [("a", "Solo leveling."), ("n", "1")]), ("300", [("a", "320 pages")]), VOL338, cid="twin1")
+MS4 = lrec("04031cam a2200625 i 4500", "250709s2026    mnua   c 6    000 1 eng  ", ("010", [("a", "  2025024337")]),
+           ("020", [("a", "9798765627556"), ("q", "paperback")]), DLC, ("041", [("a", "eng"), ("h", "kor")]),
+           ("082", [("a", "741.5/973")]), ("245", [("a", "The case of the carnival monster /")]),
+           ("300", [("a", "128 pages")]), VOL338, ("490", [("a", "Mystery Science Detectives ;"), ("v", "book 4")]),
+           cid="in00024277995")
+NON = dict(KO, cf={"001": "zcu1", "008": KO["cf"]["008"].replace(" kor d", " eng d")},
+           df=KO["df"] + [("010", " ", " ", [("a", "  2026377465")])])          # an LCCN, but 040 $a ZCU
+lines, lost, st = KL.loc_lines({r["cf"]["001"]: r for r in (SL, SL1, MS, MS4, SE, ISE, NON)})
+by = {l["key"]: l for l in lines}
+eq("LoC: a set record IS a line, keyed loc:<its LCCN>", "loc:2020950228" in by, True)
+sl = by["loc:2020950228"]
+eq("... its 5 volumes; v.1 also has the single twin as a member", (len(sl["vols"]),
+   sorted(next(v for v in sl["vols"] if v["number"] == "1")["members"])), (5, ["loc:2020950228#1", "loc:2021011111"]))
+eq("... v.1 is dated by the SINGLE record, never by the set", next(v for v in sl["vols"] if v["number"] == "1")["date"],
+   ("2021", "year", "published"))
+eq("... v.2 (set record only) is undated", next(v for v in sl["vols"] if v["number"] == "2")["date"], None)
+eq("single-volume records cluster by series + publisher family, keyed by the lowest LCCN",
+   [(k, sorted(v["number"] for v in l["vols"])) for k, l in by.items() if "Mystery" in (l["name"] or "")],
+   [("loc:2025007302", ["3", "4"])])
+eq("the Ize ECIP set: medium unresolved, origin by imprint (not explicit)",
+   (by["loc:2024941070"]["medium"], by["loc:2024941070"]["explicit"]), (None, False))
+eq("dropped: the ebook twin (not print) and the non-DLC record, counted",
+   (st["dropped"].get("not_print"), st["dropped"].get("non_dlc")), (1, 1))
+eq("loc_member rows carry 040 $a, level, date type, set flag",
+   sorted((row[0], row[1], row[2], row[5]) for row in sl["loc"])[:2],
+   [("2020950228", "1", "DLC", 1), ("2020950228", "14", "DLC", 1)])
+
+# controller ruling 1: is_dlc() before anything else -- a non-DLC record's 010 is never read, and
+# no_lccn counts DLC records only
+_lccn_seen, _lccn_real = [], LM.lccn
+LM.lccn = lambda r: (_lccn_seen.append(r["cf"]["001"]), _lccn_real(r))[1]
+NON2 = dict(KO, cf={"001": "zcu2", "008": KO["cf"]["008"]})                        # non-DLC, no 010 at all
+NOLC = lrec("01000cam a2200000 i 4500", "210302s2021    nyu           000 1 eng  ", DLC, cid="dlc-no-010")
+try:
+    _, _, st = KL.loc_lines({r["cf"]["001"]: r for r in (NON, NON2, NOLC, SL)})
+finally:
+    LM.lccn = _lccn_real
+eq("ruling 1: LM.lccn is never called on a non-DLC record", sorted(x for x in _lccn_seen if x.startswith("zcu")), [])
+eq("ruling 1: both non-DLC records count non_dlc (with or without an 010); no_lccn only the DLC one",
+   (st["dropped"].get("non_dlc"), st["dropped"].get("no_lccn")), (2, 1))
+
+# controller ruling 2: 245 $b keeps a sequel apart -- the Ragnarok set (synthesised shape, its own ISBNs)
+# must not share Solo Leveling's signature, name or linker titles
+RAGS = lrec("02000cam a2200400 i 4500", "240801m20249999nyua     6    000 1 eng  ", ("010", [("a", "  2024950001")]),
+            DLC, ("041", [("a", "eng"), ("h", "kor")]),
+            ("020", [("a", isbn13("979840099", 1)), ("q", "v. 1"), ("q", "trade paperback")]),
+            ("020", [("a", isbn13("979840099", 2)), ("q", "v. 2"), ("q", "trade paperback")]),
+            ("245", [("a", "Solo leveling :"), ("b", "Ragnarok /"), ("c", "Daul ; original story, Chugong.")]),
+            ("264", [("b", "Ize Press,"), ("c", "2024-")]), VOL338, cid="rag")
+# a single Solo Leveling v. 16 (no set ISBN) and a single Ragnarok v. 3 ($b before $n)
+SL16 = lrec("01000cam a2200000 i 4500", "250302s2025    nyu           000 1 eng  ", ("010", [("a", "  2025011116")]),
+            ("020", [("a", isbn13("979840099", 16))]), DLC, ("041", [("a", "eng"), ("h", "kor")]),
+            ("082", [("a", "741.5")]), ("245", [("a", "Solo leveling."), ("n", "16")]),
+            ("264", [("b", "Yen Press/Ize Press,")]), VOL338, cid="sl16")
+RAG3 = lrec("01000cam a2200000 i 4500", "250302s2025    nyu           000 1 eng  ", ("010", [("a", "  2025011103")]),
+            ("020", [("a", isbn13("979840099", 3))]), DLC, ("041", [("a", "eng"), ("h", "kor")]),
+            ("245", [("a", "Solo leveling :"), ("b", "Ragnarok."), ("n", "3")]),
+            ("264", [("b", "Ize Press,")]), VOL338, cid="rag3")
+lines, lost, st = KL.loc_lines({r["cf"]["001"]: r for r in (SL, RAGS, SL16, RAG3)})
+by = {l["key"]: l for l in lines}
+eq("ruling 2: two lines -- Solo Leveling and Ragnarok", sorted(by), ["loc:2020950228", "loc:2024950001"])
+eq("ruling 2: the Ragnarok line is named by its full title", by["loc:2024950001"]["name"], "Solo leveling : Ragnarok")
+eq("ruling 2: its linker titles never reduce to 'Solo leveling'",
+   [t for t in by["loc:2024950001"]["titles"] if L.fold(t, False) == "sololeveling"], [])
+eq("ruling 2: the non-twin SL v. 16 single joins the Solo Leveling set by signature (unique set there)",
+   sorted((v["number"] for v in by["loc:2020950228"]["vols"]), key=int), ["1", "2", "3", "14", "15", "16"])
+eq("ruling 2: the Ragnarok v. 3 single ($b before $n) joins Ragnarok, not Solo Leveling",
+   sorted(v["number"] for v in by["loc:2024950001"]["vols"]), ["1", "2", "3"])
+
+# controller ruling 4: a colliding 6-character publisher family never merges different titles
+PA = lrec("01000cam a2200000 i 4500", "250302s2025    nyu           000 1 eng  ", ("010", [("a", "  2025020001")]),
+          ("020", [("a", isbn13("97817", 20001))]), DLC, ("041", [("a", "eng"), ("h", "kor")]), ("082", [("a", "741.5")]),
+          ("245", [("a", "Moon river."), ("n", "1")]), ("264", [("b", "Cambria Press,")]), VOL338, cid="pa")
+PB = lrec("01000cam a2200000 i 4500", "250302s2025    nyu           000 1 eng  ", ("010", [("a", "  2025020002")]),
+          ("020", [("a", isbn13("97817", 20002))]), DLC, ("041", [("a", "eng"), ("h", "kor")]), ("082", [("a", "741.5")]),
+          ("245", [("a", "Sun valley."), ("n", "2")]), ("264", [("b", "Cambridge University Press,")]), VOL338, cid="pb")
+eq("ruling 4: Cambria / Cambridge share the family 'cambri'",
+   (LM.pubfam("Cambria Press"), LM.pubfam("Cambridge University Press")), ("cambri", "cambri"))
+lines, _, _ = KL.loc_lines({"pa": PA, "pb": PB})
+eq("ruling 4: ... but two different titles stay two lines", sorted(l["name"] for l in lines), ["Moon river", "Sun valley"])
+bl = KL.bnf_lines({U.ark(r): r for r in (
+    brec(("010", [("a", isbn13("97823", 1))]), ("101", [("a", "fre"), ("c", "kor")]), ("200", [("a", "Chiro"), ("h", "1")]),
+         ("210", [("c", "Samji"), ("d", "2009")]), cf3="http://catalogue.bnf.fr/ark:/12148/cb40000001x"),
+    brec(("010", [("a", isbn13("97823", 2))]), ("101", [("a", "fre"), ("c", "kor")]), ("200", [("a", "Veritas"), ("h", "2")]),
+         ("210", [("c", "Samji Éditions"), ("d", "2009")]), cf3="http://catalogue.bnf.fr/ark:/12148/cb40000002x"))})[0]
+eq("ruling 4 (BnF): one family, two titles -> two lines", sorted(l["name"] for l in bl), ["Chiro", "Veritas"])
+eq("BnF family: an 'Éd.' word is dropped ('Éd. Ki-oon' = 'Ki-oon', Warlord), 'Pika éd.' = 'pika'",
+   (U.pubfam("Éd. Ki-Oon"), U.pubfam("Ki-oon"), U.pubfam("Pika éd.")), ("kion", "kion", "pika"))
+
+# controller ruling 5: titles are keyed per field -- an English 245 and a Hangul 880 each give their own key;
+# a mixed Latin + Hangul field is one native title
+HB = lrec("01000cam a2200000 i 4500", "250302s2025    nyu           000 1 eng  ", ("010", [("a", "  2025030001")]),
+          ("020", [("a", isbn13("97817", 30001))]), DLC, ("041", [("a", "eng"), ("h", "kor")]), ("082", [("a", "741.5")]),
+          ("245", [("a", "Tower of god."), ("n", "1")]), ("246", [("a", "Tower of God 신의 탑")]),
+          ("880", [("6", "245-01/$1"), ("a", "신의 탑 /")]), VOL338, cid="hb")
+hb = KL.loc_lines({"hb": HB})[0][0]
+eq("ruling 5: the English title keys everywhere, the Hangul and the mixed field are native titles",
+   (hb["titles"], hb["native"]), (["Tower of god. 1", "Tower of god"], ["신의 탑", "Tower of God 신의 탑"]))
+eq("ruling 5: one key per field (the Hangul 880 keys on its own, not only inside the mixed field)",
+   {L.fold(t, False) for t in hb["native"]} >= {"신의탑"} and "towerofgod" in L.keys(hb["titles"]), True)
+eq("script_title: Hangul / Hanzi yes, Latin no", (KL.script_title("신의 탑"), KL.script_title("三体"),
+                                               KL.script_title("Tower of god")), (True, True, False))
+
+# controller ruling 3 (KR/CN medium mapping; dnb_marc.classify untouched), synthetic shapes of the real
+# DNB records named in the ruling (2026-09-27 cache): Altraverse web-NOVEL editions classed 741.5 / XAM
+def kv(idn, num, parent, title, pages, *extra, ddc="741.5"):
+    return drec(idn, ("041", [("a", "ger"), ("h", "kor")]), ("082", [("a", ddc)]), ("926", [("a", "XAMG")]),
+                ("245", [("a", title), ("n", num)]), ("264", [("b", "Altraverse GmbH")]),
+                ("020", [("a", isbn13("97837539", int(idn[-5:-1])))]), ("300", [("a", "%d Seiten" % pages)]),
+                ("773", [("w", "(DE-101)" + parent)]), *extra)
+
+
+AUT = ("100", [("a", "Chu gong"), ("4", "aut")])
+dp = {p["cf"]["001"]: p for p in (
+    drec("1235188582", ("245", [("a", "Solo leveling"), ("c", "Chugong")]), parent=True),
+    drec("1306452414", ("245", [("a", "Solo leveling"), ("c", "Story: Chugong ; Artwork: Peperon")]),
+         ("700", [("a", "Peperon"), ("4", "ill")]), parent=True),
+    drec("1398947172", ("245", [("a", "Penelope - das Böse ist dem Tod geweiht"), ("b", "Roman")]), parent=True),
+    drec("1380593565", ("245", [("a", "The Horizon")]), parent=True))}
+dr = {r["cf"]["001"]: r for r in (
+    # dnb:1235188582 -- Solo Leveling novel, vols 1-7 'K' / XAMG, vol 8 'Solo Leveling Roman 08' 741.5
+    kv("1219161251", "1", "1235188582", "Solo leveling", 382, AUT, ddc="K"),
+    kv("1226876781", "2", "1235188582", "Solo leveling", 360, AUT, ddc="K"),
+    kv("1270356976", "8", "1235188582", "Solo Leveling Roman 08", 400, AUT),
+    # dnb:1306452414 -- the paperback novel run: Roman in a member's 490, an illustrator (Peperon) credited
+    kv("1293527131", "1", "1306452414", "Solo leveling", 424, AUT, ("700", [("a", "Peperon"), ("4", "ill")]), ddc="K"),
+    kv("1305974204", "2", "1306452414", "Solo leveling", 399, AUT, ("490", [("a", "Solo Leveling. Roman"), ("v", "2")]), ddc="K"),
+    # dnb:1398947172 -- Penelope vols 1-2: writer only, 414 / 396 pages; the SET record's 245 $b says 'Roman'
+    kv("1368765815", "1", "1398947172", "Penelope - das Böse ist dem Tod geweiht", 414,
+       ("100", [("a", "Gwon, Gyeo eul"), ("4", "aut")]), ddc="K"),
+    kv("1380091810", "2", "1398947172", "Penelope - das Böse ist dem Tod geweiht", 396,
+       ("100", [("a", "Gwon, Gyeo eul"), ("4", "aut")]), ddc="K"),
+    # dnb:1402480407 -- Penelope Roman 03 / 04 (no set record fetched: keyed by the lowest member IDN)
+    drec("1402480407", ("041", [("a", "ger"), ("h", "kor")]), ("082", [("a", "741.5")]),
+         ("245", [("a", "Penelope - Das Böse ist dem Tod geweiht Roman 03")]), ("264", [("b", "Altraverse GmbH")]),
+         ("490", [("a", "Penelope - Das Böse ist dem Tod geweiht. Roman"), ("v", "3")]),
+         ("020", [("a", isbn13("97837539", 2407))]), ("300", [("a", "432 Seiten")])),
+    drec("1412476909", ("041", [("a", "ger"), ("h", "kor")]), ("082", [("a", "741.5")]),
+         ("245", [("a", "Penelope - Das Böse ist dem Tod geweiht Roman 04")]), ("264", [("b", "Altraverse GmbH")]),
+         ("490", [("a", "Penelope - Das Böse ist dem Tod geweiht. Roman"), ("v", "4")]),
+         ("020", [("a", isbn13("97837539", 6909))]), ("300", [("a", "300 Seiten")])),
+    # dnb:1412477255 -- Solo Leveling: Ragnarok Roman 01
+    drec("1412477255", ("041", [("a", "ger"), ("h", "kor")]), ("082", [("a", "741.5")]),
+         ("245", [("a", "Solo Leveling: Ragnarok Roman 01")]), ("264", [("b", "Altraverse GmbH")]),
+         ("490", [("a", "Solo Leveling: Ragnarok. Roman"), ("v", "1")]), ("100", [("a", "Daul"), ("4", "aut")]),
+         ("020", [("a", isbn13("97837539", 7255))]), ("300", [("a", "400 Seiten")])),
+    # dnb:1395619670 -- Under the Oak Tree: the Roman and the Webtoon under one series statement (C Lines)
+    *[drec(i, ("041", [("a", "ger"), ("h", "kor")]), ("082", [("a", "741.5")]), ("245", [("a", t)]),
+           ("264", [("b", "C Lines")]), ("490", [("a", "Under the Oak Tree"), ("v", n)]),
+           ("020", [("a", isbn13("97837539", int(i[-5:-1])))]), ("300", [("a", "%d Seiten" % p)]), *x)
+      for i, t, n, p, x in (("1395619670", "Under the Oak Tree (Roman) 2", "2", 432, ()),
+                            ("139562769X", "Under the Oak Tree (Roman) 1", "1", 432, ()),
+                            ("1395622647", "Under the Oak Tree (Webtoon) 1", "1", 256, (("700", [("a", "P"), ("4", "ill")]),)),
+                            ("1395628068", "Under the Oak Tree (Webtoon) 2", "2", 256, (("700", [("a", "P"), ("4", "ill")]),)))],
+    # dnb:1380593565 -- The Horizon (JH, Manhwa Cult): writer only, 360 pages -> review, never auto-manhwa
+    kv("1380593566", "1", "1380593565", "The Horizon", 360, ("100", [("a", "JH"), ("4", "aut")])),
+    # controls: the same shape with an illustrator relator / a drawing role in 245 $c / < 320 pages / a
+    # 'nach dem Roman' credit in 245 $c (a comic adaptation) stays manhwa
+    kv("1500000001", "1", "1500000000", "Control ill", 360, ("700", [("a", "X"), ("4", "ill")])),
+    drec("1500000011", ("041", [("a", "ger"), ("h", "kor")]), ("082", [("a", "741.5")]),
+         ("245", [("a", "Control zeichn"), ("n", "1"), ("c", "Text: A ; Zeichnungen: B")]), ("264", [("b", "C Lines")]),
+         ("020", [("a", isbn13("97837539", 11))]), ("300", [("a", "360 Seiten")]), ("773", [("w", "(DE-101)1500000010")])),
+    kv("1500000021", "1", "1500000020", "Control short", 250),
+    drec("1500000031", ("041", [("a", "ger"), ("h", "kor")]), ("082", [("a", "741.5")]),
+         ("245", [("a", "Control adaptation"), ("n", "1"), ("c", "Zeichnungen: B ; nach dem Roman von A")]),
+         ("264", [("b", "C Lines")]), ("020", [("a", isbn13("97837539", 31))]), ("300", [("a", "360 Seiten")]),
+         ("773", [("w", "(DE-101)1500000030")])))}
+lines, lost, st = KL.dnb_lines(dr, dp)
+by = {l["key"]: l for l in lines}
+got = {k: (by[k]["medium"], by[k]["medium_why"], by[k]["medium_guess"], by[k]["comic"]) for k in sorted(by)}
+eq("ruling 3: the real cases and the controls",
+   got, {"dnb:1235188582": ("novel", None, None, False),        # (a) Roman on a member's 245 $a
+         "dnb:1306452414": ("novel", None, None, False),        # (a) Roman in a member's 490, despite an illustrator
+         "dnb:1380593565": (None, "writer_only", "manhwa", True),   # (b)
+         "dnb:1395619670": (None, "duplicate_numbers", "novel", False),  # (c) before (a)
+         "dnb:1398947172": ("novel", None, None, False),        # (a) Roman in the set record's 245 $b
+         "dnb:1402480407": ("novel", None, None, False),        # (a) Roman in 245 $a / 490
+         "dnb:1412477255": ("novel", None, None, False),        # (a)
+         "dnb:1500000000": ("manhwa", None, None, True),        # an illustrator relator
+         "dnb:1500000010": ("manhwa", None, None, True),        # a drawing role in 245 $c
+         "dnb:1500000020": ("manhwa", None, None, True),        # writer only, but < 320 pages
+         "dnb:1500000030": ("manhwa", None, None, True)})       # 'nach dem Roman' in 245 $c is not a Roman token
+eq("ruling 3: review counted by reason", st["review"], {"duplicate_numbers": 1, "writer_only": 1})
+eq("ruling 3: the duplicate numbers are in lost", sorted(m for m, f, k in lost if f == "dropped_duplicate_number"),
+   ["dnb:139562769X", "dnb:1395628068"])
+eq("dnb_marc.classify is unchanged: the Roman volume is still 'manga' to the JP round", M.classify(dr["1270356976"]), "manga")
+
+# ruling 3c for BnF and LoC too: a number left over twice -> review
+bdup = KL.bnf_lines({U.ark(r): r for r in (
+    brec(("010", [("a", isbn13("97823", 11))]), ("101", [("a", "fre"), ("c", "kor")]), ("200", [("a", "Yureka"), ("h", "1")]),
+         ("210", [("c", "Tokebi"), ("d", "2003")]), cf3="http://catalogue.bnf.fr/ark:/12148/cb39065080j"),
+    brec(("010", [("a", isbn13("97823", 12))]), ("101", [("a", "fre"), ("c", "kor")]), ("200", [("a", "Yureka"), ("h", "1")]),
+         ("210", [("c", "Tokebi"), ("d", "2009")]), cf3="http://catalogue.bnf.fr/ark:/12148/cb42168281g"))})
+eq("BnF: a re-edition under a new ISBN, same number -> review 'duplicate_numbers', guess manhwa",
+   [(l["medium"], l["medium_why"], l["medium_guess"]) for l in bdup[0]] + [bdup[2]["review"]],
+   [(None, "duplicate_numbers", "manhwa"), {"duplicate_numbers": 1}])
+LD1 = lrec("01000cam a2200000 i 4500", "250302s2025    nyu           000 1 eng  ", ("010", [("a", "  2025040001")]),
+           ("020", [("a", isbn13("97817", 40001))]), DLC, ("041", [("a", "eng"), ("h", "kor")]), ("082", [("a", "741.5")]),
+           ("245", [("a", "Lookism."), ("n", "1")]), VOL338, cid="ld1")
+LD2 = dict(LD1, cf={"001": "ld2", "008": LD1["cf"]["008"]},
+           df=[f if f[0] not in ("010", "020") else (f[0], " ", " ", [("a", "  2025040002" if f[0] == "010" else isbn13("97817", 40002))])
+               for f in LD1["df"]])
+ll = KL.loc_lines({"ld1": LD1, "ld2": LD2})
+eq("LoC: two single records of one number (different ISBNs) -> review 'duplicate_numbers'",
+   [(l["medium"], l["medium_why"], l["medium_guess"]) for l in ll[0]], [(None, "duplicate_numbers", "manhwa")])
+
+# controller ruling 6: relays through English (BnF 101 $b eng, DNB 041 $h eng + kor) stay in scope
+rl = KL.bnf_lines({U.ark(r): r for r in (
+    brec(("010", [("a", isbn13("97823", 21))]), ("101", [("a", "fre"), ("b", "eng"), ("c", "kor")]),
+         ("200", [("a", "Relayed"), ("h", "1")]), ("210", [("c", "Kbooks"), ("d", "2024")]),
+         cf3="http://catalogue.bnf.fr/ark:/12148/cb40000021x"),)})[0]
+eq("ruling 6: a French edition translated via English is a line", [(l["name"], l["medium"]) for l in rl], [("Relayed", "manhwa")])
+dl = KL.dnb_lines({r["cf"]["001"]: r for r in (dvol("1600000001", "1", isbn13("97837539", 8001), "1600000000",
+                                                     title="Via English", origin=("h", "eng")),)}, {})[0]
+dl2 = KL.dnb_lines({r["cf"]["001"]: r for r in (drec("1600000011", ("041", [("a", "ger"), ("h", "eng"), ("h", "kor")]),
+                                                     ("082", [("a", "741.5")]), ("245", [("a", "Via English"), ("n", "1")]),
+                                                     ("020", [("a", isbn13("97837539", 8011))])),)}, {})[0]
+eq("ruling 6: DNB 041 $h eng + kor stays in (only a jpn relay is out); $h eng alone names no KR/CN origin",
+   ([(l["origin"], l["explicit"]) for l in dl2], dl), ([("kor", True)], []))
+
+# BnF: The gamer 1 (Task 7 GAMER) + The gamer 2 + the 4-6 box + Omega (a set record) + Niumao (no 101 $c)
+g2 = brec(("010", [("a", "978-2-38288-038-8")]), ("101", [("a", "fre"), ("c", "kor")]),
+          ("200", [("a", "The gamer"), ("h", "2")]), ("214", [("c", "Kbooks"), ("d", "DL 2023")]),
+          ("215", [("a", "1 vol. (230 p.)")]), ("461", [("t", "The gamer"), ("v", "2")]),
+          cf3="http://catalogue.bnf.fr/ark:/12148/cb09999999z")
+g2["df"] = [(t, i1, "0" if t == "214" else i2, s_) for t, i1, i2, s_ in g2["df"]]   # the publication statement (Task 7: ind2 0)
+box["cf"]["003"] = "http://catalogue.bnf.fr/ark:/12148/cb47137369q"
+box["df"].append(("101", " ", " ", [("a", "fre"), ("c", "kor")]))
+omega["cf"]["003"] = "http://catalogue.bnf.fr/ark:/12148/cb39076808g"
+lines, lost, st = KL.bnf_lines({U.ark(r): r for r in (g, g2, box, omega, niu)})
+eq("BnF: one line, keyed by the numerically lowest ark (cb09999999z < cb47253773p)",
+   [(l["key"], sorted(v["number"] for v in l["vols"]), l["medium"], l["explicit"]) for l in lines],
+   [("bnf:ark:/12148/cb09999999z", ["1", "2"], "manhwa", True)])
+eq("BnF drops: the box, the set record, the record without 101 $c",
+   (st["dropped"].get("bundle"), st["dropped"].get("set_record"), st["dropped"].get("origin_out_of_scope")), (1, 1, 1))
+
+# the Ize order (§7): 1. an existing line's ISBN, 2. a DNB/BnF line's title, 3. review
+ize = [dict(key="loc:1", source="loc", medium=None, medium_why=None, origin="kor", name="Semantic error",
+            vols=[{"isbns": ["9798400902628"]}]),
+       dict(key="loc:2", source="loc", medium=None, medium_why=None, origin="kor", name="The Star Seekers",
+            vols=[{"isbns": ["9798400900648"]}]),
+       dict(key="loc:3", source="loc", medium=None, medium_why=None, origin="kor", name="Finding Camellia",
+            vols=[{"isbns": ["9798400909999"]}]),
+       dict(key="dnb:9", source="dnb", medium="manhwa", medium_why=None, origin="kor", name="The Star Seekers",
+            titles=["The Star Seekers"], vols=[]),
+       dict(key="dnb:8", source="dnb", medium=None, medium_why="writer_only", origin="kor", name="Finding Camellia",
+            titles=["Finding Camellia"], vols=[])]
+KL.resolve_media(ize, {"9798400902628": "manhwa"})
+eq("Ize order: ISBN on an existing line, then a DE/FR title, else unresolved (review); a line in review is no source",
+   [(l["key"], l["medium"], l.get("medium_via")) for l in ize[:3]],
+   [("loc:1", "manhwa", "isbn"), ("loc:2", "manhwa", "title"), ("loc:3", None, None)])
+
 # ==== summary ====
 print()
 if FAILS:
