@@ -464,6 +464,165 @@ finally:
     CORR.DIR = _saved_dir
     del TA.FAILS[:]
 
+# ---- Task 6: LoC MARC parsing --------------------------------------------------------------------------
+import loc_marc as LM
+
+
+def lrec(leader, f008, *fields, cid="1"):
+    """A LoC record in dnb_marc's dict shape. fields: (tag, [(code, value), ...])."""
+    return {"leader": leader, "cf": {"001": cid, "008": f008}, "df": [(t, " ", " ", list(s)) for t, s in fields]}
+
+
+DLC = ("040", [("a", "DLC"), ("b", "eng"), ("e", "rda"), ("c", "DLC")])
+VOL338 = ("338", [("a", "volume"), ("b", "nc")])
+# spike cache f6427d408fe7b27ee63f7614921af690.xml -- the canary, Solo Leveling set record (trimmed to 5 volumes)
+SL = lrec("05074cam a2200721 i 4500", "201115m20219999nyua     6    000 1 eng  ",
+          ("010", [("a", "  2020950228")]),
+          ("020", [("a", "9781975319434"), ("q", "v. 1"), ("q", "trade paperback")]),
+          ("020", [("a", "9781975319458"), ("q", "v. 2"), ("q", "trade paperback")]),
+          ("020", [("a", "9781975336516"), ("q", "v. 3"), ("q", "trade paperback")]),
+          ("020", [("a", "9798400904646"), ("q", "v. 14 ;"), ("q", "trade paperback")]),
+          ("020", [("a", "9798400904660"), ("q", "v. 15 ;"), ("q", "trade paperback")]),
+          ("040", [("a", "DLC"), ("b", "eng"), ("e", "rda"), ("c", "DLC"), ("d", "DLC"), ("d", "DLC-MRC")]),
+          ("041", [("a", "eng"), ("h", "kor")]), ("050", [("a", "PN8323.C43"), ("b", "N313 2021")]),
+          ("082", [("a", "741.5/9519"), ("2", "23/eng/20250916")]),
+          ("100", [("a", "Chang, Sŏng-nak,"), ("d", "1985-2022")]),
+          ("240", [("a", "Na honja man lebel ŏp."), ("l", "English")]),
+          ("245", [("a", "Solo leveling /"), ("c", "Dubu (Redice Studio) ; original story, Chugong ; translation, "
+                                                  "Hye Young Im ; rewrite, J. Torres ; lettering, Abigail Blackman.")]),
+          ("264", [("a", "New York, NY :"), ("b", "Yen Press/Ize Press,"), ("c", "2021-")]),
+          ("300", [("a", "volumes"), ("b", "color illustrations")]), VOL338,
+          ("655", [("a", "Webcomics")]), ("655", [("a", "Fantasy comics")]), ("655", [("a", "Fiction")]),
+          ("700", [("a", "Im, Hye-Young"), ("e", "translator"), ("4", "http://id.loc.gov/vocabulary/relators/trl")]),
+          ("700", [("a", "Torres, J.,"), ("e", "adapter"), ("4", "http://id.loc.gov/vocabulary/relators/adp")]),
+          ("700", [("i", "Graphic novelization of (work):"), ("a", "Chugong."), ("t", "Na honjaman rebereop.")]),
+          cid="21800815")
+eq("lccn normalised", LM.lccn(SL), "2020950228")
+for raw, want in (("   85012345 ", "85012345"), ("sf 99999999 ", "sf99999999"), ("2021-12345", "2021012345"),
+                  ("85-2", "85000002"), ("2001-1114/AC/r932", "2001001114"), ("n  78890351 ", "n78890351"), ("", None)):
+    eq("normalise_lccn %r" % raw, LM.normalise_lccn(raw), want)
+eq("DLC", (LM.f040a(SL), LM.is_dlc(SL)), ("DLC", True))
+eq("set record: >= 2 volume-qualified ISBNs", LM.is_set(SL), True)
+eq("volume ISBNs incl. 'v. 14 ;'", sorted(LM.volume_isbns(SL), key=int), ["1", "2", "3", "14", "15"])
+eq("origin 041$h kor, explicit", LM.origin(SL), ("kor", True))
+eq("comic despite 655 'Fiction' (a comic signal is present)", LM.classify(SL), "comic")
+eq("a set record never dates a volume (008 m2021)", LM.volume_date(SL, set_record=True), None)
+eq("title proper without the ISBD ' /'", LM.title_proper(SL), "Solo leveling")
+eq("original title from 240", LM.original_titles(SL), ["Na honja man lebel ŏp"])
+eq("publisher family Yen/Ize", (LM.publisher(SL), LM.pubfam(LM.publisher(SL))), ("Yen Press/Ize Press", "yen"))
+eq("creators: 100, the 700 source author, 245$c minus translator/rewrite/lettering",
+   LM.creators(SL), ["Chang, Sŏng-nak", "Chugong", "Dubu (Redice Studio)"])
+eq("url", LM.url("2020950228"), "https://lccn.loc.gov/2020950228")
+
+# spike cache 632fc012e4541e27d5a39f9ace42f0b9.xml -- Semantic error, Ize Press, ECIP level 5, no 041
+SE = lrec("02127cam a22004215i 4500", "240622m20249999nyua     6    000 1 eng  ",
+          ("010", [("a", "  2024941070")]),
+          ("020", [("a", "9798400902628"), ("q", "(v. 1 ;"), ("q", "trade paperback)")]),
+          ("020", [("a", "9798400902642"), ("q", "(v. 2 ;"), ("q", "trade paperback)")]),
+          ("020", [("z", "9798400902635"), ("q", "(ebook)")]), DLC,
+          ("245", [("a", "Semantic error /"), ("c", "Angy, J. Soori.")]),
+          ("264", [("a", "New York :"), ("b", "Ize Press,"), ("c", "2024.")]), ("300", [("a", "volumes cm")]), VOL338,
+          cid="23743592")
+eq("level 5 is preliminary", (LM.encoding_level(SE), LM.is_prelim(SE)), ("5", True))
+eq("'(v. 1 ;' parses; $z (ebook) never read", sorted(LM.volume_isbns(SE)), ["1", "2"])
+eq("Ize with no 041: origin by imprint, NOT explicit", LM.origin(SE), ("kor", False))
+eq("level-5 Ize: class unresolved (no 082/050/655)", LM.classify(SE), "unresolved")
+
+# spike cache 22ce8d0fffaff324c6c7389a91b3522b.xml -- I shall master this family: binding FIRST, 263 2610
+IS = lrec("03868cam a22006258i 4500", "260330m20269999nyu    d 6    000 1 eng  ",
+          ("010", [("a", "  2025045144")]),
+          ("020", [("a", "9798217224234"), ("q", "trade paperback"), ("q", "v. 1")]),
+          ("020", [("a", "9798217224241"), ("q", "hardcover"), ("q", "v. 1")]),
+          ("020", [("z", "9798217224258"), ("q", "ebook"), ("q", "v. 1")]),
+          ("020", [("a", "9798217224265"), ("q", "trade paperback"), ("q", "v. 2")]),
+          DLC, ("041", [("a", "eng"), ("h", "kor")]), ("082", [("a", "741.5/973")]),
+          ("245", [("a", "I shall master this family /"), ("c", "Mon (ANT Studio) ; original story by Roah Kim ; "
+                                                               "English translation by Ciel.")]),
+          ("263", [("a", "2610")]), ("264", [("b", "Ink Pop/RH Graphic,"), ("c", "2026-")]), VOL338,
+          ("655", [("a", "Manhwa")]), cid="in00024521448")
+v1 = LM.volume_isbns(IS)["1"]
+eq("volume from the SECOND $q (P4)", [i for i, _ in v1], ["9798217224234", "9798217224241"])
+eq("pick: the paperback", LM.pick_isbn(v1), "9798217224234")
+eq("pick: the ISBN an OpenTome volume already has wins", LM.pick_isbn(v1, existing={"9798217224241"}), "9798217224241")
+eq("pick: 'pbk.' counts as paperback (P5)", LM.pick_isbn([("9790000000001", "hardcover"), ("9790000000002", "v. 1 : pbk.")]),
+   "9790000000002")
+eq("263 YYMM -> YYYY-MM", LM.planned_month(IS), "2026-10")
+eq("creators: 'original story by' label dropped, translator skipped", LM.creators(IS), ["Mon (ANT Studio)", "Roah Kim"])
+# its ebook twin (same file, in00024522018): 338 online resource
+ISE = lrec("03865nam a22006378i 4500", "260330m20269999nyu    do6    000 1 eng  ", ("010", [("a", "  2025045145")]),
+           DLC, ("041", [("a", "eng"), ("h", "kor")]), ("300", [("a", "1 online resource")]),
+           ("338", [("a", "online resource")]), cid="in00024522018")
+eq("the ebook twin is not print", (LM.is_print(IS), LM.is_print(ISE)), (True, False))
+
+# spike cache 089b92dbaca6989296fc485f1e27a845.xml -- Where's Joon?: 263 1111 = unknown
+WJ = lrec("01689cam a22004218i 4500", "230302s2023    wau    b 6    000 1 eng  ", DLC, ("263", [("a", "1111")]))
+eq("263 1111 is never a date", (LM.planned_month(WJ), LM.volume_date(WJ, set_record=False)), (None, None))
+eq("a CIP (level 8) single record: its 008 date1 is an estimate -> no published date",
+   LM.volume_date(WJ, set_record=False), None)
+ym = "%d-%02d" % (Y, datetime.date.today().month)
+CIPOK = lrec("01689cam a22004218i 4500", "230302s%d    wau    b 6    000 1 eng  " % Y, DLC, ("263", [("a", ym[2:4] + ym[5:7])]))
+eq("a CIP single record with a real 263: projected month", LM.volume_date(CIPOK, set_record=False), (ym, "month", "projected"))
+
+# spike cache 63dffb827013cb587ea4f9f676907640.xml -- Mystery Science Detectives book 3, single volume
+MS = lrec("04168cam a2200637 i 4500", "250325s2025    mnua   c 6    000 1 eng  ",
+          ("010", [("a", "  2025007302")]), ("020", [("a", "9798765627495"), ("q", "library binding")]),
+          ("020", [("a", "9798765627549"), ("q", "paperback")]), DLC, ("041", [("a", "eng"), ("h", "kor")]),
+          ("082", [("a", "741.5/973")]),
+          ("245", [("a", "The case of the underwater aliens /"),
+                   ("c", "Chi-hyeon Ahn ; illustrated by Gyung-hyo Kang ; translated from the Korean by Gloria Ohe.")]),
+          ("300", [("a", "135 pages"), ("b", "color illustrations")]), VOL338,
+          ("490", [("a", "Mystery Science Detectives ;"), ("v", "book 3")]), ("655", [("a", "Graphic novels")]))
+eq("single volume: not a set", LM.is_set(MS), False)
+eq("single volume: 008 s, deposited -> year published", LM.volume_date(MS, set_record=False), ("2025", "year", "published"))
+eq("single volume: pages", LM.pages(MS), 135)
+eq("single volume: number from 490 $v 'book 3'", LM.volume_number(MS), "3")
+eq("single volume: the paperback ISBN", LM.pick_isbn([(i, q) for _, i, q in LM.qualified_isbns(MS)]), "9798765627549")
+
+# spike cache cc3d41a4a6d0e888803b217b53434e3f.xml -- The three-body problem (comic), 041$h chi; its 880 is a 700's
+TB = lrec("05270cam a2200673 i 4500", "240521m20249999nyua     6    000 1 eng  ", DLC,
+          ("041", [("a", "eng"), ("h", "chi")]), ("050", [("a", "PN6790.C44")]), ("082", [("a", "741.5/951")]),
+          ("245", [("a", "The three-body problem :"), ("b", "the comic edition /")]),
+          ("880", [("6", "700-64/$1"), ("i", "Graphic novelization of"), ("a", "刘慈欣"), ("t", "三体")]))
+eq("041$h chi -> manhua origin", LM.origin(TB), ("chi", True))
+eq("comic by 050 PN6790 + 082 741.5", LM.classify(TB), "comic")
+eq("an 880 linked to a 700 is not a native title", LM.native_titles(TB), [])
+eq("880 linked to 245 is", LM.native_titles(lrec("", "", ("880", [("6", "245-01/$1"), ("a", "나 혼자만 레벨업 /")]))),
+   ["나 혼자만 레벨업"])
+
+# spike cache 63dffb827013cb587ea4f9f676907640.xml -- Please look after mom (prose)
+PM = lrec("01196cam a2200325 a 4500", "100901s2011    nyu           000 1 eng  ", ("040", [("a", "DLC"), ("c", "DLC")]),
+          ("041", [("a", "eng"), ("h", "kor")]), ("050", [("a", "PL992.73.K94")]), ("082", [("a", "895.7/3")]),
+          ("245", [("a", "Please look after mom :"), ("b", "a novel /")]))
+eq("prose: 082 895.7 + 050 PL", LM.classify(PM), "prose")
+eq("both a comic and a prose signal -> both (review)",
+   LM.classify(lrec("", "", ("082", [("a", "895.73")]), ("655", [("a", "Graphic novels")]))), "both")
+
+# synthesised shape (spike 073e4d0f… is a ZCU/OCLC record -- never copied): a non-DLC
+# copy-catalogued record. Only its 040 $a is read (R4: a non-DLC record is not read past is_dlc);
+# the field checks run on the same shape as a DLC record, a Korean-LANGUAGE original held by LoC.
+KO_FIELDS = (("041", [("a", "kor"), ("h", "kor")]), ("020", [("a", "9791191841466"), ("q", "volume 1")]))
+KO = lrec("03986cam a2200721 i 4500", "230802m20239999ko a     6    000 1 kor d",
+          ("040", [("a", "ZCU"), ("d", "DLC")]), *KO_FIELDS)
+KO_DLC = lrec("03986cam a2200721 i 4500", "230802m20239999ko a     6    000 1 kor d", DLC, *KO_FIELDS)
+eq("non-DLC is not DLC (040 $d DLC does not make it LoC-created)", LM.is_dlc(KO), False)
+eq("a Korean-language original is out of scope", LM.origin(KO_DLC), (None, False))
+eq("'$q volume 1' parses too (P4)", list(LM.volume_isbns(KO_DLC)), ["1"])
+eq("box set excluded", LM.excluded_kind(lrec("", "", ("245", [("a", "Solo leveling box set /")]))), "bundle")
+eq("art book excluded", LM.excluded_kind(lrec("", "", ("245", [("a", "The art of Solo leveling /")]))), "extra")
+src = open(os.path.join(HERE, "loc_marc.py"), encoding="utf8").read()
+eq("loc_marc never names 520 / 856 / 906 / 923 / 925 / 955 as a tag",
+   [t for t in ("520", "856", "906", "923", "925", "955") if '"%s"' % t in src or "'%s'" % t in src], [])
+
+LOCXML = ('<?xml version="1.0"?><zs:searchRetrieveResponse xmlns:zs="http://www.loc.gov/zing/srw/"><zs:version>1.1'
+          '</zs:version><zs:numberOfRecords>1</zs:numberOfRecords><zs:records><zs:record><zs:recordSchema>marcxml'
+          '</zs:recordSchema><zs:recordData><record xmlns="http://www.loc.gov/MARC21/slim"><leader>05074cam a2200721 i '
+          '4500</leader><controlfield tag="001">21800815</controlfield><controlfield tag="008">201115m20219999nyua     '
+          '6    000 1 eng  </controlfield><datafield tag="010" ind1=" " ind2=" "><subfield code="a">  2020950228'
+          '</subfield></datafield><datafield tag="040" ind1=" " ind2=" "><subfield code="a">DLC</subfield>'
+          '</datafield></record></zs:recordData></zs:record></zs:records></zs:searchRetrieveResponse>')
+eq("dnb_marc.records parses LoC marcxml (same MARC21 slim namespace)",
+   [(LM.lccn(r), LM.is_dlc(r)) for r in M.records(LOCXML)], [("2020950228", True)])
+
 # ==== summary ====
 print()
 if FAILS:
