@@ -1,5 +1,8 @@
 """The Library of Congress SRU client (docs/krcn-design.md §3, §4; R7). http://lx2.loc.gov:210/lcdb,
-SRU 1.1, marcxml; no key, no documented limit -- serial at >= 3 s (tier0/lib_sru.py).
+SRU 1.1, marcxml; no key, no documented limit -- serial, 20 s apart by default (LOC_INTERVAL
+overrides, never below lib_sru's 3 s floor): the 2026-09-27 run was cut off by dropped connections
+after ~120 requests at 3 s. A dropped connection counts as a refusal (LOC.transport_stops): the
+second transport error or 429/503 anywhere in a run stops LoC for the rest of the run.
 
 Diagnostic 61, "First record position out of range", arrives as HTTP 200. It is a FAILED PAGE,
 never cached. The spike (137 requests) found it page-size dependent and partly transient -- at
@@ -12,10 +15,15 @@ failed pages later worked unchanged -- so every page goes through a ladder:
      prefixes (97988554* -> 979885540* ... 979885549*); a subject channel by year plus a no-year
      remainder -- ONLY once the Task 8 probe confirmed the year index (YEAR_INDEX, NO_YEAR; plan
      ruling P11). At most MAX_DEPTH levels of slices.
-Completeness: a slice is complete when its distinct records equal its count; a sliced set when the
-UNION of its slices equals the set's count (a set record matches every prefix its volume ISBNs
-fall under). Cached whole or not at all (lib_sru's manifest). Exhausted with a previous complete
-set: that set, meta 'loc:degraded', no publish. Exhausted with none: the stage fails.
+Completeness -- controller ruling 2026-09-27 (duplicate positions; amends §3 / R7 for LoC): a set
+or slice is complete when every position 1..n was delivered (full pages, no failed page, every
+page announcing the same n -- a set that changes during paging is incomplete, never laddered) and,
+when distinct < n, repeated full reads at 50 (then 25) add no record the earlier reads lacked.
+A sliced stem (sliced only for a failed page) is complete when every slice is, their union is at
+most the stem's count (a set record matches every prefix its volume ISBNs fall under; the count
+also holds the duplicate positions) and a re-probe shows the count unchanged. Cached whole or not
+at all (lib_sru's manifest). Exhausted or incomplete with a previous complete set: that set,
+meta 'loc:degraded', no publish. With none: the stage fails.
 
 Each run first sends the canary (bath.isbn=9781975319434, the Solo Leveling set record): exactly
 one record, 040 $a DLC -- else the stage fails. LOC_OFFLINE=1 reads it from the cache (P12).
@@ -33,6 +41,8 @@ import loc_marc as LM
 
 LOC = SRU.Source("loc", "http://lx2.loc.gov:210/lcdb", "1.1", "marcxml", 100,
                  "US government work, LoC-created records only", budget=400)
+LOC.interval = max(3.0, float(os.environ.get("LOC_INTERVAL", "20") or 20))
+LOC.transport_stops = True
 SIZES = (100, 50, 25)
 RETRIES = 3
 RETRY_WAIT = 10
@@ -41,7 +51,8 @@ MAX_DEPTH = 2
 CANARY = "bath.isbn=9781975319434"
 # Set by the Task 8 probe (Step 5); None = subject channels cannot be sliced (rung 3 unavailable).
 YEAR_INDEX = None
-NO_YEAR = None                     # e.g. '%s not dc.date>0' once probed
+NO_YEAR = None                     # probed 2026-09-27: LoC takes dc.date= only (dc.date>0 is
+                                   # diagnostic 19; bath.date / date diagnostic 16) -- no remainder
 
 # §4: registrant stems of the ISBNs already on the carry's EN KR/CN lines (counts measured 2026-09-27)
 STEMS = ("97984009", "97988554", "9781975", "97807595", "978159816", "978159182", "978159532",
@@ -57,7 +68,9 @@ REPORT = os.path.join(SRU.ROOT, "build", "loc-report.json")
 
 
 class LadderExhausted(RuntimeError):
-    pass
+    """Diagnostic 61 / a short page at every page size. .n carries the set's count (set by _ladder)
+    so the pager slices without probing the count again."""
+    n = None
 
 
 class LocCanaryFailed(RuntimeError):
@@ -93,12 +106,15 @@ def _count(query):
     return SRU.count(_retry61(lambda: LOC.get(LOC.url_for(query, 1, 1), force=True)))
 
 
-def _fetch_page(u, start, size, last):
+def _fetch_page(query, u, start, size, last):
     """One live page; a page holding fewer records than its range is a failed page ('short'),
-    laddered like diagnostic 61 (live 2026-09-27: 97988554* paged 542 distinct of 562)."""
+    laddered like diagnostic 61. A page announcing another count than the set's means the set
+    changed during paging: LocIncomplete, not laddered (re-paging cannot repair it)."""
     text = LOC.fetch(u)
     got, want = len(SRU.ID_001.findall(text)), min(size, last - start + 1)
     print("    loc page %s: %d records (numberOfRecords %d)" % (_where(u), got, SRU.count(text)), flush=True)
+    if SRU.count(text) != last:
+        raise LocIncomplete("%r changed during paging: %d announced, page says %d" % (query, last, SRU.count(text)))
     if got < want:
         raise SRU.SourceDiagnostic("short", "%d records, the range holds %d" % (got, want), u)
     return text
@@ -108,7 +124,7 @@ def _page(query, start, size, last):
     """Records start .. min(start + size - 1, last), through rungs 1 and 2 -> [(url, text)]."""
     u = LOC.url_for(query, start, size)
     try:
-        return [(u, _retry61(lambda: _fetch_page(u, start, size, last)))]
+        return [(u, _retry61(lambda: _fetch_page(query, u, start, size, last)))]
     except SRU.SourceDiagnostic as e:
         if e.code not in LADDERED:
             raise
@@ -135,6 +151,7 @@ def _page(query, start, size, last):
 # the degraded rule). Verified sets are accepted through lib_sru's per-source hook (LOC.accept);
 # the generic distinct == n rule stays for BnF / DNB.
 VERIFIED = {}                      # query -> distinct records of a verified set with duplicates
+PENDING = {}                       # query -> duplicate info (or None) of this read, not yet stored
 
 
 def _dups_path():
@@ -149,15 +166,21 @@ def _dups():
         return {}
 
 
+def _family(query, k):
+    """k is the set itself or one of its ISBN slices."""
+    return k == query or (query.startswith("bath.isbn=") and k.startswith(query[:-1]) and k.endswith("*"))
+
+
 def _note_dups(query, entry):
-    """Record (entry) or clear (None) a set's duplicate positions for build/loc-report.json."""
-    d = _dups()
-    if entry is None and query not in d:
-        return
-    if entry is None:
-        d.pop(query)
-    else:
-        d[query] = entry
+    """Stage (entry) or clear (None) a set's or slice's duplicate positions for this read."""
+    PENDING[query] = entry
+
+
+def _commit_dups(query):
+    """The set was just stored whole: its read's duplicate info replaces the family's old entries
+    in .cache/loc-dups.json, so the report never shows a stale slice."""
+    d = {k: v for k, v in _dups().items() if not _family(query, k)}
+    d.update({k: v for k, v in PENDING.items() if v is not None and _family(query, k)})
     os.makedirs(LOC.cache, exist_ok=True)
     SRU._store(_dups_path(), json.dumps(d, sort_keys=True, indent=0))
 
@@ -181,12 +204,24 @@ def _twice(ids):
     return out
 
 
-def _ladder(query):
-    n = _count(query)
+def _ladder(query, n=None):
+    if n is None:
+        n = _count(query)
+    try:
+        return _verified(query, n)
+    except LadderExhausted as e:
+        e.n = n
+        raise
+
+
+def _verified(query, n):
+    VERIFIED.pop(query, None)
+    if n == 0:
+        _note_dups(query, None)
+        return 0, []
     staged = _read(query, n, SIZES[0])
     first = _ids(staged)
     seen, twice = set(first), _twice(first)
-    VERIFIED.pop(query, None)
     if len(seen) == n:
         _note_dups(query, None)
         return n, staged
@@ -241,13 +276,13 @@ def pager(query, depth=0):
         subs = slices(query) if depth < MAX_DEPTH else []
         if not subs:
             raise
+        n = e.n
         print("    loc ladder: %s -- slicing %r into %d queries (depth %d)" % (e, query, len(subs), depth + 1), flush=True)
-    n = _count(query)
     staged, ids = [], set()
     for q in subs:
-        if _count(q) == 0:
-            continue
         sn, sp = pager(q, depth + 1)
+        if sn == 0:
+            continue
         got = {i for _, t in sp for i in SRU.ID_001.findall(t)}
         if len(got) != VERIFIED.get(q, sn):
             raise LadderExhausted("slice %r announced %d, paged %d distinct" % (q, sn, len(got)))
@@ -257,7 +292,10 @@ def pager(query, depth=0):
     # the stem's count exceeds its distinct records, and the stem itself had a failed page, so it
     # cannot be re-read: fewer distinct than announced is accepted and reported; more is not.
     if len(ids) > n:
-        raise LadderExhausted("%r: its slices hold %d distinct records, the set announces %d" % (query, len(ids), n))
+        raise LocIncomplete("%r: its slices hold %d distinct records, the set announces %d" % (query, len(ids), n))
+    n2 = _count(query)                 # one re-probe: the stem must not have moved while sliced
+    if n2 != n:
+        raise LocIncomplete("%r changed during slicing: %d announced, now %d" % (query, n, n2))
     VERIFIED.pop(query, None)
     if len(ids) < n:
         VERIFIED[query] = len(ids)
@@ -268,17 +306,23 @@ def pager(query, depth=0):
     return n, staged
 
 
-def search_set(query):
+def search_set(query, force=False):
     """A whole result set (refreshed when older than LOC_REFRESH_DAYS) -> (n, page texts)."""
-    return LOC.search(query, refresh=True, pager=pager)
+    before = (LOC._sets().get(query) or {}).get("fetched_at")
+    PENDING.clear()
+    n, pages = LOC.search(query, refresh=True, force=force, pager=pager)
+    e = LOC._sets().get(query)
+    if e and e.get("fetched_at") != before:       # stored whole just now
+        _commit_dups(query)
+    return n, pages
 
 
 def canary():
     u = LOC.url_for(CANARY, 1, 1)
     try:
         text = _retry61(lambda: LOC.get(u, force=not LOC.offline))
-    except SRU.SourceDiagnostic as e:
-        raise LocCanaryFailed(str(e))
+    except SRU.FAIL as e:              # a diagnostic, the gateway down or refusing, an offline miss
+        raise LocCanaryFailed("canary %s: %s: %s" % (CANARY, type(e).__name__, e)) from e
     recs = M.records(text)
     if SRU.count(text) != 1 or len(recs) != 1 or not LM.is_dlc(recs[0]):
         raise LocCanaryFailed("canary %s: expected exactly 1 DLC record, got numberOfRecords=%d, %d record(s)%s"
@@ -299,8 +343,7 @@ def enumerate_loc(verbose=True):
                 got[r["cf"]["001"]] = r
         dlc = sum(1 for r in got.values() if LM.is_dlc(r))
         # duplicate positions (ruling 2026-09-27) of the channel's set and of its ISBN slices
-        dups = {k: v for k, v in _dups().items()
-                if k == q or (q.startswith("bath.isbn=") and k.startswith(q[:-1]) and k.endswith("*"))}
+        dups = {k: v for k, v in _dups().items() if _family(q, k)}
         report["channels"][name] = {"query": q, "records": n, "distinct": len(got), "dlc": dlc,
                                     "dlc_share": round(dlc / len(got), 3) if got else None,
                                     "duplicates": dups, "degraded": q in LOC.degraded_queries}

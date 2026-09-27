@@ -84,6 +84,10 @@ class Source:
         # it: accept(query, n, distinct) -> True when its pager verified a set with duplicate
         # positions (controller ruling 2026-09-27). BnF / DNB keep the generic rule.
         self.accept = None
+        # True (LoC): a transport error (dropped connection, timeout) counts as a refusal, so the
+        # second transport error or refusal anywhere in a run is the sticky stop. False keeps the
+        # generic rule (3 attempts per request, 30 s apart) -- BnF / DNB.
+        self.transport_stops = False
 
     def relocate(self, cache, build):
         self.cache = cache
@@ -161,6 +165,11 @@ class Source:
                 # socket.timeout (not a TimeoutError before 3.10) and http.client.IncompleteRead
                 # land here too; the last attempt re-raises as URLError, which FAIL covers
                 self._log(t0, "ERR", 0, url)
+                if self.transport_stops:
+                    self.refusals += 1
+                    if self.refusals > 1:
+                        raise SourceThrottled("%s: transport error %r (%d refusals / transport errors this run) "
+                                              "-- stopping; see %s" % (self.name, e, self.refusals, self.netlog))
                 if attempt == 2:
                     if isinstance(e, urllib.error.URLError):
                         raise
