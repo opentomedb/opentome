@@ -3,7 +3,9 @@
 
   * >= 3 s between requests ACROSS PROCESSES (a lock-guarded stamp file per source);
   * a descriptive User-Agent (dnb_sru.UA's shape);
-  * one 429/503 is answered by waiting out Retry-After (or 60 s); a SECOND one stops the run;
+  * one 429/503 is answered by waiting out Retry-After (or 60 s); a SECOND one stops the run
+    (sticky). With Source.transport_stops (LoC) a transport error -- a dropped connection, a
+    timeout -- counts as one too; without it (BnF, DNB) each request gets 3 attempts 30 s apart;
   * every live request is appended to build/<name>-netlog.tsv;
   * responses are cached in .cache/ as sha256(url)[:32] + '.xml', the repo-wide key;
   * <NAME>_OFFLINE=1: a cache miss is an error; <NAME>_REFRESH_DAYS=N: a result set whose manifest
@@ -46,9 +48,10 @@ class SourceDiagnostic(RuntimeError):
     """An SRU diagnostic (HTTP 200 carrying <diag:diagnostic>), never cached. .code is its number:
     '61' = "First record position out of range" (LoC's R7 case)."""
 
-    def __init__(self, code, message, url):
+    def __init__(self, code, message, url, n=None):
         RuntimeError.__init__(self, "SRU diagnostic %s %r for %s" % (code, message, url))
         self.code, self.message, self.url = code, message, url
+        self.n = n                         # the diagnostic body's numberOfRecords, None when absent
 
 
 def count(text):
@@ -130,7 +133,8 @@ class Source:
         if re.search(r"<(?:\w+:)?diagnostic\b", text):
             code = re.search(r"info:srw/diagnostic/1/(\d+)", text)
             msg = re.search(r"<(?:\w+:)?message>([^<]*)<", text)
-            raise SourceDiagnostic(code.group(1) if code else "?", msg.group(1) if msg else "?", url)
+            n = count(text) if re.search(r"numberOfRecords>\s*\d+\s*<", text) else None
+            raise SourceDiagnostic(code.group(1) if code else "?", msg.group(1) if msg else "?", url, n)
 
     def fetch(self, url):
         """One polite live request -> the checked response text (NOT cached: callers store)."""

@@ -993,8 +993,12 @@ def fake_loc(req, timeout=None):
     LSEEN[key] = LSEEN.get(key, 0) + 1
     if LRULE.get("drop", lambda q, st, sz: False)(query, start, size):
         raise http.client.RemoteDisconnected("Remote end closed connection without response")
+    if "raw" in LRULE and query in LRULE["raw"]:
+        return _R(LRULE["raw"][query])
     if size > 1 and LRULE["fail"](query, start, size, LSEEN[key]):
         return _R(DIAG61 % (len(ids), LRULE["code"]))
+    if start > 1 and start > len(ids):                  # the real gateway: past the end is 61
+        return _R(DIAG61 % (len(ids), "61"))
     body = "".join(LREC % (i, "20%08d" % int(i), "DLC" if LOCDB[i][1] else "ZCU",
                            "".join('<datafield tag="020" ind1=" " ind2=" "><subfield code="a">%s</subfield></datafield>' % x
                                    for x in LOCDB[i][0])) for i in _lwin(query, ids, start, size))
@@ -1226,6 +1230,28 @@ eq("BnF: transport errors keep the generic rule", (BS.BNF.transport_stops, BS.BN
 for k in range(120):
     del LOCDB[str(4000 + k)]
 del LOCDB["4999"]
+
+# ---- Task 8 re-review: a shrinking set answers diagnostic 61 past its end; a malformed canary ----
+LOCDB.update({str(5000 + k): ([isbn13("97988558", k)], True) for k in range(101)})
+LRULE["seq"] = lambda q, ids, sz: ids[:-1] if q == "bath.isbn=97988558*" and LSEEN.get((q, 1, 100), 0) else ids
+k = len(LCALLS)
+try:
+    LS.search_set("bath.isbn=97988558*")
+    eq("a set shrinking 101 -> 100 after page 1 is refused", "no exception", "SourceIncomplete")
+except SRU.SourceIncomplete as e:
+    eq("a set shrinking 101 -> 100 after page 1: diagnostic 61 with 100 -> LocIncomplete in <= 3 requests",
+       ("changed during paging: 101 announced, page says 100" in str(e), len(LCALLS) - k <= 3), (True, True))
+LRULE.pop("seq")
+for k in range(101):
+    del LOCDB[str(5000 + k)]
+LRULE["raw"] = {LS.CANARY: '<?xml version="1.0"?><zs:searchRetrieveResponse xmlns:zs="http://www.loc.gov/zing/srw/">'
+                           '<zs:numberOfRecords>1</zs:numberOfRecords><zs:records><record'}
+try:
+    LS.canary()
+    eq("canary: a malformed body fails the stage", "no exception", "LocCanaryFailed")
+except LS.LocCanaryFailed as e:
+    eq("canary: a malformed body fails the stage (LocCanaryFailed)", "malformed" in str(e), True)
+LRULE.pop("raw")
 
 # ==== summary ====
 print()
