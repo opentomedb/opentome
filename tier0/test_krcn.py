@@ -1777,25 +1777,70 @@ eq("adopt_line: vol 1 keeps the public id, takes the finer Wikipedia date and it
 eq("adopt_line: vol 2 moves over under the public line's volume id",
    db.execute("SELECT id FROM volume WHERE release_line_id='rl_lib' AND number='2'").fetchone()[0], _id("v_", "rl_lib", "2"))
 
-# ---- Task 11 deviations: split collisions, dangling references, determinism -----------------------------------
-# A carried line minted from loc:100 split this build: loc:200 holds 3 of its 5 ISBNs and takes the id by the
-# carry lookup; loc:100 (2 of 5) would mint the same id again. One id for two lines is never emitted.
+# ---- Task 11 deviations: splits (controller ruling 2026-09-27), dangling references, determinism ----------------
+# A carried line minted from loc:100 split this build: loc:200 holds 3 of its 5 ISBNs, loc:100 (the record that
+# made the key) only 2. The majority part keeps the published id whatever its own key; the other part mints
+# rl_<hash("split|" + carried id + "|" + its own key)> -- never the carried id.
 rl100 = _id("rl_", "loc:100")
+eq("split_id is the ruling's literal hash", KI.split_id("rl_x", "loc:1"),
+   "rl_" + hashlib.sha256(b"split|rl_x|loc:1").hexdigest()[:12])
 K4 = KI.read_carry(carry_file("c4", [(rl100, "w_4", "Split", "manhwa", "en", I5)], works=["w_4"], krcn_lines={rl100: "loc"}))
 split = [bl("loc:100", "loc", "Split", I5[:2]), bl("loc:200", "loc", "Split", I5[2:])]
-try:
-    KI.line_ids(split, K4)
-    eq("a split of a carried line whose natural key re-mints the taken id: refused", "no error", "ValueError")
-except ValueError as e:
-    eq("a split of a carried line whose natural key re-mints the taken id: refused, naming the id and both keys",
-       (rl100 in str(e), "loc:100" in str(e), "loc:200" in str(e)), (True, True, True))
+rep = KI.line_ids(split, K4)
+S100 = KI.split_id(rl100, "loc:100")
+eq("split: the majority part keeps the carried id even though the key-making record went to the minor part",
+   [(l["key"], l["tome_id"], l["carried"]) for l in split], [("loc:100", S100, False), ("loc:200", rl100, True)])
+eq("split: the minor part's id is new (not the carried id, not its own bare key hash)", S100 not in (rl100, _id("rl_", "loc:100")), True)
+eq("split: reported", rep["split"], [(rl100, ["loc:100"])])
+split_rev = [bl("loc:200", "loc", "Split", I5[2:]), bl("loc:100", "loc", "Split", I5[:2])]
+KI.line_ids(split_rev, K4)
+eq("split: order-independent", sorted((l["key"], l["tome_id"]) for l in split_rev), sorted((l["key"], l["tome_id"]) for l in split))
 eq("the same split with the natural-key line alone: it keeps its id by its key (no carry majority needed)",
    (lambda l: (KI.line_ids([l], K4), l["tome_id"], l["carried"]))(bl("loc:100", "loc", "Split", I5[:2]))[1:], (rl100, True))
+# the next build: the carry now holds both published ids -> the same built lines get the same ids again
+K4b = KI.read_carry(carry_file("c4b", [(rl100, "w_4", "Split", "manhwa", "en", I5[2:]), (S100, "w_4", "Split", "manhwa", "en", I5[:2])],
+                               works=["w_4"], krcn_lines={rl100: "loc", S100: "loc"}, ints={rl100: 10, S100: 20}))
+again = [bl("loc:100", "loc", "Split", I5[:2]), bl("loc:200", "loc", "Split", I5[2:])]
+rep2 = KI.line_ids(again, K4b)
+eq("split: the minor part's id is stable across two builds (both carried now, no further split)",
+   ([(l["key"], l["tome_id"], l["carried"]) for l in again], rep2["split"]),
+   ([("loc:100", S100, True), ("loc:200", rl100, True)], []))
+# a line whose key once minted the carried id but that holds none of it any more: never the carried id again
+gone = [bl("loc:100", "loc", "Split", [("9", "9798400999999")]), bl("loc:200", "loc", "Split", I5)]
+KI.line_ids(gone, K4)
+eq("the key-maker holding none of the carried line mints the split form, not the taken id",
+   [l["tome_id"] for l in gone], [KI.split_id(rl100, "loc:100"), rl100])
+# tie-break: 2 + 2 of 4 -> the part holding the carried line's lowest volume number, whatever the key order
 K5 = KI.read_carry(carry_file("c5", [("rl_t", "w_5", "Tie", "manhwa", "en", I5[:4])], works=["w_5"], krcn_lines={"rl_t": "loc"}))
-tie = [bl("loc:7", "loc", "Tie", I5[:2]), bl("loc:8", "loc", "Tie", I5[2:4])]
-rep = KI.line_ids(tie, K5)
-eq("2 + 2 of 4: no strict majority for anyone -> not taken, both minted", ([l["tome_id"] for l in tie], rep["ambiguous"]),
-   ([_id("rl_", "loc:7"), _id("rl_", "loc:8")], []))
+tie = [bl("loc:7", "loc", "Tie", I5[2:4]), bl("loc:8", "loc", "Tie", I5[:2])]
+KI.line_ids(tie, K5)
+eq("tie 2 + 2 of 4: the part holding volume 1 keeps the id (loc:8 over the lower key loc:7)",
+   [l["tome_id"] for l in tie], [KI.split_id("rl_t", "loc:7"), "rl_t"])
+tie2 = [bl("loc:8", "loc", "Tie", [I5[0], I5[2]]), bl("loc:7", "loc", "Tie", [I5[0], I5[1]])]
+KI.line_ids(tie2, K5)
+eq("tie, both holding volume 1: the lowest own key keeps the id",
+   [l["tome_id"] for l in tie2], [KI.split_id("rl_t", "loc:8"), "rl_t"])
+gate = [bl("loc:7", "loc", "Tie", I5[:1]), bl("loc:8", "loc", "Tie", I5[1:2])]
+KI.line_ids(gate, KI.read_carry(carry_file("c5b", [("rl_g", "w_5", "Tie", "manhwa", "en", I5)], works=["w_5"],
+                                           krcn_lines={"rl_g": "loc"})))
+eq("1 + 1 of 5: the parts together hold no majority -> nobody keeps it, both mint their keys",
+   [(l["tome_id"], l["carried"]) for l in gate], [(_id("rl_", "loc:7"), False), (_id("rl_", "loc:8"), False)])
+
+# 7b writes the split's volume redirects: the minor part's carried volume ids go to its volumes, by ISBN
+import carried_ids as CI7
+mk = CI7.MARKET_OF_LANG["en"]
+db7 = schema_db()
+db7.execute("INSERT INTO work VALUES('w_4','Split',NULL,NULL,NULL,NULL,'x','x')")
+for ln in split:
+    line_row(db7, ln["tome_id"], "w_4", "manhwa", mk, "en")
+    for v in ln["vols"]:
+        db7.execute("INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at) VALUES(?,?,?,?,'x','x')",
+                    (_id("v_", ln["tome_id"], v["number"]), ln["tome_id"], v["number"], v["isbns"][0]))
+carry7 = carry_file("c7", [(rl100, "w_4", "Split", "manhwa", "en", I5)], works=["w_4"], krcn_lines={rl100: "loc"})
+r7 = CI7.redirects(db7, carry7, excluded=set())
+eq("7b: the split's moved volumes redirect to the minor part's volumes by ISBN, no orphans",
+   (sorted((o, n, e, r) for o, n, e, r in r7["written"]), r7["orphans"]),
+   (sorted((_id("v_", rl100, n), _id("v_", S100, n), "volume", "correction") for n in ("1", "2")), []))
 rev = [dict(bl("loc:9", "loc", "X", I5[:3])), dict(bl("loc:10", "loc", "X", I5[3:]))]
 KI.line_ids(rev, K2)
 fwd = [dict(bl("loc:10", "loc", "X", I5[3:])), dict(bl("loc:9", "loc", "X", I5[:3]))]
