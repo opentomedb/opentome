@@ -554,10 +554,11 @@ def run_dnb(path, catalogue):
               GROUP BY 1,2 HAVING COUNT(*)>1 AND SUM(NOT EXISTS (SELECT 1 FROM claim w WHERE w.entity='volume'
                 AND w.entity_id=v.id AND w.field='isbn13' AND w.source='wikipedia' AND w.value=v.isbn13)) > 0)"""))
 
-    # export policy (decision 1): only high/medium links (and ISBN-proven lines) ship
+    # export policy (decision 1): only high/medium links (and ISBN-proven lines) ship -- and a
+    # line a person linked by a corrections/lines.json link_work entry (krcn-design R2)
     rule("exported DNB lines that are not merged / sibling / kept / high-or-medium linked",
          c("""SELECT COUNT(*) FROM dnb_line WHERE exported=1 AND NOT (role IN ('merged','sibling','kept')
-              OR (role='linked' AND tier IN ('high','medium')))"""))
+              OR (role='linked' AND (tier IN ('high','medium') OR via='correction')))"""))
     held = {r[0] for r in cat.execute("SELECT rl_id FROM dnb_line WHERE exported=0")}
     rule("held-back DNB lines (review / unlinked) present in the artifact",
          sum(1 for t in have if t in held))
@@ -610,11 +611,34 @@ def run_dnb(path, catalogue):
         print("        labelled wrong: %s -> %s (expected %s)" % m)
 
 
+def run_link_work(catalogue):
+    """corrections/lines.json link_work entries (R2): each names a library line this build has, and
+    that line ships linked (or kept) under the corrected work. A key the build does not have is
+    reported (stale), not failed: DNB can renumber a set."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tier2"))
+    import corrections as CORR
+    cat = sqlite3.connect(catalogue)
+    want = CORR.load_link_work()
+    rows = {}
+    for table in ("dnb_line", "krcn_line"):         # both carry key, role and rl_id
+        try:
+            rows.update({k: (r, w) for k, r, w in cat.execute(
+                "SELECT d.key, d.role, rl.work_id FROM %s d LEFT JOIN release_line rl ON rl.id=d.rl_id" % table)})
+        except sqlite3.OperationalError:
+            pass
+    wrong = [k for k, w in want.items() if k in rows and (rows[k][0] not in ("linked", "kept") or rows[k][1] != w)]
+    rule("link_work corrections not applied (line not linked under the corrected work)", len(wrong), str(wrong[:5]))
+    stale = [k for k in want if k not in rows]
+    if stale:
+        print("  info  link_work keys this build does not have (stale): %s" % stale[:10])
+
+
 if __name__ == "__main__":
     fails = run(sys.argv[1])
     if len(sys.argv) > 2:
         print("\n  -- German (DNB) rules, catalogue %s --" % sys.argv[2])
         run_dnb(sys.argv[1], sys.argv[2])
+        run_link_work(sys.argv[2])
     if len(sys.argv) > 3 and sys.argv[3] and os.path.exists(sys.argv[3]):
         print("\n  -- ids, carried artifact %s --" % sys.argv[3])
         run_ids(sys.argv[1], sys.argv[3])

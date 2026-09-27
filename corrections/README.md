@@ -317,6 +317,52 @@ line's market can change which line the origin picker treats as another
 line's counterpart (`export/to_mangarr.py`'s `origin_line`, matched by exact
 name within a market) -- read the result, do not assume it.
 
+### `lines.json` — `link_work`: a reviewed library line (a fourth entry shape, same file)
+
+For a line built from a library record (DNB, and in the KR/CN round LoC and
+BnF) that the linker could not place with confidence and sent to review
+(`build/dnb-review.tsv`, `build/krcn-review.tsv`): a person checks which work
+it is, and the line ships under that work.
+
+```json
+[
+  {
+    "line_key": "dnb:1380595053",
+    "link_work": "w_0123456789ab",
+    "source_url": "https://d-nb.info/1380595053",
+    "reason": "Bastard (Carnby Kim) is the Korean manhwa",
+    "checked": "2026-09-28"
+  }
+]
+```
+
+Required: `line_key`, `link_work`, `source_url`, `checked`. Optional: `reason`.
+An entry with a `link_work` key is this shape whatever else it carries; do not
+add `volumes`, `medium`, `market` or `line`.
+
+`line_key` is the library line's NATURAL key, copied from the review file's
+`dnb_key` column (`build/dnb-review.tsv`) or `line_key` column
+(`build/krcn-review.tsv`): `dnb:<IDN>`, `loc:<LCCN>` or `bnf:<ark>`. It is
+not an `rl_` id: a library line's id is not known before it links.
+`link_work` is the OpenTome work id (`series.tome_work_id` in the published
+artifact).
+
+Applied by the linking stages, 3e (`tier0/build_dnb.py`) and 3f
+(`tier0/build_krcn.py`), not by 5b: linking happens before the corrections
+stage, and 5b's `apply_line_corrections` skips these entries. The line gets
+role `linked`, via `correction`, under the named work. The scope rules still
+apply after it: a line corrected onto a Korean/Chinese work in the German JP
+round is still `out_of_scope`. A line that shares ISBNs with a Wikipedia line
+(merged / sibling) follows the ISBNs, not the entry. A `link_work` naming a
+work the catalogue does not have prints `STALE CORRECTION` at build time and
+the line stays as the linker left it.
+
+A `line_key` the build no longer has (DNB can renumber a set) is reported as
+stale by `export/test_artifact.py`, not failed; a key the build has whose line
+does not ship linked (or kept) under the named work fails it. `--check`
+refuses a key that is not a library key, a `link_work` that is not a work id,
+a key corrected twice, and a work that is not in the published artifact.
+
 ### `anilist.json` — a hand-checked AniList id for a line
 
 For a line `export/resolve_anilist.py` binds to the wrong AniList entry, where no

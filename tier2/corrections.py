@@ -36,6 +36,13 @@ VOLUME_FIELDS = {"release_date", "isbn13", "page_count", "title", "cover_url"}
 ORIGIN_MARKETS = ("JP", "KR", "CN", "TW")
 VOLUME_KEYS = ("volume", "field", "value", "source_url", "checked")
 LINE_KEYS = ("work", "market", "medium", "name", "volumes", "source_url", "checked")
+# lines.json `link_work` (krcn-design R2): a library line the linker sent to review ships under
+# a work a person checked. Keyed by the line's NATURAL key -- 'dnb:<IDN>', 'loc:<LCCN>',
+# 'bnf:<ark>' -- because a library line's id is not known before it links. Read by the linking
+# stages (tier0/build_dnb.py 3e, tier0/build_krcn.py 3f); apply_line_corrections (5b) skips it.
+LINK_WORK_KEYS = ("line_key", "link_work", "source_url", "checked")
+LIBRARY_KEY = re.compile(r"^(dnb|loc|bnf):\S+$")
+WORK_ID = re.compile(r"^w_[0-9a-f]{12}$")
 ALIAS_KEYS = ("line", "alias", "source_url", "checked")
 # A whole WORK the catalogue should not carry at all (2026-09-23 cleanup): a work
 # that entered through a Wikipedia list-of-volumes page but is not in scope (The
@@ -107,6 +114,24 @@ def _require(entry, keys, name, i):
         raise ValueError("%s[%d] is missing %s -- a correction without a source "
                          "is a guess (see corrections/README.md)"
                          % (name, i, ", ".join(missing)))
+
+
+def load_link_work(directory=None):
+    """-> {library line key: work id} from lines.json's link_work entries (validated)."""
+    out = {}
+    for i, e in enumerate(_read("lines.json", directory or DIR)):
+        if "link_work" not in e:
+            continue
+        _require(e, LINK_WORK_KEYS, "lines.json", i)
+        if not LIBRARY_KEY.match(str(e["line_key"])):
+            raise ValueError("lines.json[%d]: line_key %r is not a library line key (dnb:/loc:/bnf:)"
+                             % (i, e["line_key"]))
+        if not WORK_ID.match(str(e["link_work"])):
+            raise ValueError("lines.json[%d]: link_work %r is not a work id" % (i, e["link_work"]))
+        if e["line_key"] in out:
+            raise ValueError("lines.json[%d]: line_key %s corrected twice" % (i, e["line_key"]))
+        out[e["line_key"]] = e["link_work"]
+    return out
 
 
 def load_aliases(directory=None):
@@ -271,6 +296,8 @@ def apply_line_corrections(db, entries=None, verbose=True):
     entries = _read("lines.json") if entries is None else entries
     n_lines = n_vols = n_medium = n_market = 0
     for i, e in enumerate(entries):
+        if "link_work" in e:
+            continue                    # consumed by 3e / 3f (load_link_work), not a 5b change
         if "volumes" not in e:
             if "medium" in e:
                 _require(e, MEDIUM_KEYS, "lines.json", i)
@@ -626,9 +653,27 @@ def check(directory=DIR, artifact=None):
     except ValueError as err:            # json.JSONDecodeError is a ValueError
         problems.append("lines.json: %s" % err)
         line_data = []
+    link_keys = set()
     for i, e in enumerate(line_data):
         if not isinstance(e, dict):
             problems.append("lines.json[%d]: not an object" % i)
+            continue
+        if "link_work" in e:
+            try:
+                _require(e, LINK_WORK_KEYS, "lines.json", i)
+            except ValueError as err:
+                problems.append(str(err))
+                continue
+            # the build's load_link_work refuses these too: a PR that passes must not fail the build
+            if str(e["line_key"]) in link_keys:
+                problems.append("lines.json[%d]: line_key %s corrected twice" % (i, e["line_key"]))
+            link_keys.add(str(e["line_key"]))
+            if not LIBRARY_KEY.match(str(e["line_key"])):
+                problems.append("lines.json[%d]: line_key %r is not a library line key" % (i, e["line_key"]))
+            elif not WORK_ID.match(str(e["link_work"])):
+                problems.append("lines.json[%d]: link_work %r is not a work id" % (i, e["link_work"]))
+            elif not exists("SELECT 1 FROM series WHERE tome_work_id=?", e["link_work"]):
+                stale.append(("lines.json", i, "work %s" % e["link_work"]))
             continue
         if "volumes" not in e:
             # a medium or market override (2026-09-23): narrower shapes than a
