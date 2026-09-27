@@ -109,8 +109,15 @@ def _count(query):
 def _fetch_page(query, u, start, size, last):
     """One live page; a page holding fewer records than its range is a failed page ('short'),
     laddered like diagnostic 61. A page announcing another count than the set's means the set
-    changed during paging: LocIncomplete, not laddered (re-paging cannot repair it)."""
-    text = LOC.fetch(u)
+    changed during paging: LocIncomplete, not laddered (re-paging cannot repair it) -- a
+    diagnostic-61 page included, when its body carries a numberOfRecords (a set that shrank below
+    startRecord answers 61; laddering it would cost ~20 requests for nothing)."""
+    try:
+        text = LOC.fetch(u)
+    except SRU.SourceDiagnostic as e:
+        if e.n is not None and e.n != last:
+            raise LocIncomplete("%r changed during paging: %d announced, page says %d" % (query, last, e.n))
+        raise
     got, want = len(SRU.ID_001.findall(text)), min(size, last - start + 1)
     print("    loc page %s: %d records (numberOfRecords %d)" % (_where(u), got, SRU.count(text)), flush=True)
     if SRU.count(text) != last:
@@ -323,7 +330,10 @@ def canary():
         text = _retry61(lambda: LOC.get(u, force=not LOC.offline))
     except SRU.FAIL as e:              # a diagnostic, the gateway down or refusing, an offline miss
         raise LocCanaryFailed("canary %s: %s: %s" % (CANARY, type(e).__name__, e)) from e
-    recs = M.records(text)
+    try:
+        recs = M.records(text)
+    except M.ET.ParseError as e:
+        raise LocCanaryFailed("canary %s: malformed response: %s" % (CANARY, e)) from e
     if SRU.count(text) != 1 or len(recs) != 1 or not LM.is_dlc(recs[0]):
         raise LocCanaryFailed("canary %s: expected exactly 1 DLC record, got numberOfRecords=%d, %d record(s)%s"
                               % (CANARY, SRU.count(text), len(recs),
