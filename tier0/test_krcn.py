@@ -978,6 +978,12 @@ def loc_matches(q, isbns):
     return q == 'dc.subject="webcomics"'
 
 
+def _lwin(query, ids, start, size):
+    lo = start - 1 - (1 if LRULE.get("dup", lambda q, st, sz: False)(query, start, size) else 0)
+    win = ids[lo:lo + min(size, len(ids) - start + 1)]      # 'dup': as many records, shifted back one
+    return win[:-1] if LRULE.get("short", lambda q, st, sz: False)(query, start, size) else win
+
+
 def fake_loc(req, timeout=None):
     LCALLS.append(req.full_url)
     q = urllib.parse.parse_qs(urllib.parse.urlparse(req.full_url).query)
@@ -989,7 +995,7 @@ def fake_loc(req, timeout=None):
         return _R(DIAG61 % (len(ids), LRULE["code"]))
     body = "".join(LREC % (i, "20%08d" % int(i), "DLC" if LOCDB[i][1] else "ZCU",
                            "".join('<datafield tag="020" ind1=" " ind2=" "><subfield code="a">%s</subfield></datafield>' % x
-                                   for x in LOCDB[i][0])) for i in ids[start - 1:start - 1 + size])
+                                   for x in LOCDB[i][0])) for i in _lwin(query, ids, start, size))
     return _R('<?xml version="1.0"?><zs:searchRetrieveResponse xmlns:zs="http://www.loc.gov/zing/srw/"><zs:numberOfRecords>'
               '%d</zs:numberOfRecords><zs:records>%s</zs:records></zs:searchRetrieveResponse>' % (len(ids), body))
 
@@ -1073,6 +1079,30 @@ eq("slices of an ISBN stem: its ten next-digit prefixes", LS.slices("bath.isbn=9
    ["bath.isbn=97988554%d*" % d for d in range(10)])
 eq("the §4 stems and subject channels", (len(LS.STEMS), len(LS.SUBJECTS)), (14, 10))
 eq("LoC: page 100, >= 3 s, sizes 100/50/25", (LS.LOC.page, LS.LOC.interval >= 3.0, LS.SIZES), (100, True, (100, 50, 25)))
+
+# ---- Task 8 deviation: live 2026-09-27, 97988554* paged 542 distinct of 562 with every page full ----
+LOCDB.update({str(3000 + k): ([isbn13("979885549", k)], True) for k in range(80)})     # the stem: 144 records
+# a short page (fewer records than its range) is a failed page: retried, then re-paged smaller
+LRULE["short"] = lambda q, st, sz: q == "bath.isbn=979885549*" and sz == 100
+n, pages = LS.search_set("bath.isbn=979885549*")
+urls = json.load(open(LS.LOC.sets_path))["bath.isbn=979885549*"]["urls"]
+eq("short page: laddered like diagnostic 61 (re-paged at 50)",
+   (n, LS.LOC.distinct(pages), [re.search(r"maximumRecords=(\d+)", u).group(1) for u in urls]), (80, 80, ["50", "50"]))
+LRULE.pop("short")
+# full pages whose union is short (the set shifted between requests): the stem goes to rung 3
+LRULE["dup"] = lambda q, st, sz: q == "bath.isbn=97988554*" and st == 101
+n, pages = LS.LOC.search("bath.isbn=97988554*", force=True, pager=LS.pager)
+eq("overlapping full pages: the stem is sliced, union == count", (n, LS.LOC.distinct(pages), LS.LOC.degraded), (144, 144, None))
+# the same fault on a subject channel (no slices): degraded on its cached set
+LRULE["dup"] = lambda q, st, sz: q == 'dc.subject="webcomics"' and st == 101
+n0 = json.load(open(LS.LOC.sets_path))['dc.subject="webcomics"']["n"]
+n, pages = LS.LOC.search('dc.subject="webcomics"', force=True, pager=LS.pager)
+eq("overlapping full pages on a subject: degraded, the cached set kept",
+   (n, bool(LS.LOC.degraded), 'dc.subject="webcomics"' in LS.LOC.degraded_queries), (n0, True, True))
+LRULE.pop("dup")
+LS.LOC.degraded, LS.LOC.degraded_queries = None, []
+for k in range(80):
+    del LOCDB[str(3000 + k)]
 
 # ==== summary ====
 print()
