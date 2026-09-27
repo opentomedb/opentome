@@ -806,11 +806,85 @@ try:
 except SRU.SourceBudget:
     eq("budget: <NAME>_MAX_REQUESTS stops the run", True, True)
 
+# ---- Task 7 review fixes: lib_sru -------------------------------------------------------------------
+import socket, http.client
+
+T.budget, T.live = 0, 0
+FAKE["ids"] = list(range(1, 6))
+
+
+def fake_raising(exc):
+    def f(req, timeout=None):
+        FCALLS.append(req.full_url)
+        FAT.append(CLOCK[0])
+        UA_SEEN.append(req.get_header("User-agent"))
+
+        class _X(_R):
+            def read(self):
+                raise exc
+        return _X("")
+    return f
+
+
+def netlog_statuses():
+    return [line.split("\t")[1] for line in open(T.netlog, encoding="utf8")]
+
+
+for label, exc in (("socket.timeout", socket.timeout("timed out")),
+                   ("http.client.IncompleteRead", http.client.IncompleteRead(b"x", 10))):
+    T.urlopen, k = fake_raising(exc), len(netlog_statuses())
+    try:
+        T.search("q-cold-" + label)
+        eq("a read failure (%s) on a cold set" % label, "no exception", "SourceIncomplete")
+    except SRU.SourceIncomplete as e:
+        eq("a read failure (%s) on a cold set: 3 ERR netlog lines, SourceIncomplete(URLError)" % label,
+           (netlog_statuses()[k:], "URLError" in str(e)), (["ERR"] * 3, True))
+T.urlopen = fake_raising(socket.timeout("timed out"))
+CLOCK[0] += 3 * 86400
+n, pages = T.search("q1", refresh=True)
+eq("a read timeout refreshing a stale cached set: degraded, the previous set kept whole",
+   (n, T.distinct(pages), "URLError" in (T.degraded or ""), "q1" in T.degraded_queries), (5, 5, True, True))
+T.urlopen = fake_sru
+k = len(FCALLS)
+for label, url, force in (("a miss", T.url_for("q-miss", 1, 1), False), ("a force of a cached page", T.url_for("q1", 1), True)):
+    try:
+        T.get(url, force=force)
+        eq("get() while degraded: %s raises" % label, "no exception", "SourceIncomplete")
+    except SRU.SourceIncomplete:
+        eq("get() while degraded: %s raises SourceIncomplete, zero requests" % label, len(FCALLS) - k, 0)
+T.degraded, T.degraded_queries = None, []
+T.refusals = 2
+try:
+    T.fetch(T.url_for("q-sticky"))
+    eq("the 429 stop is sticky", "no exception", "SourceThrottled")
+except SRU.SourceThrottled:
+    eq("the 429 stop is sticky: SourceThrottled before anything is sent", len(FCALLS) - k, 0)
+T.refusals = 0
+os.utime(T.stamp, (CLOCK[0] + 1e6, CLOCK[0] + 1e6))
+j = len(SLEEPS2)
+T.fetch(T.url_for("q-future-stamp"))
+eq("a future-dated stamp: the throttle waits at most one interval", max(SLEEPS2[j:] or [0]) <= T.interval, True)
+two = ('<srw:searchRetrieveResponse xmlns:srw="x"><srw:numberOfRecords>2</srw:numberOfRecords>%s'
+       '</srw:searchRetrieveResponse>')
+T.store_set("q-verify", 2, [("http://x.invalid/v1", two % (mxc_rec(1) + mxc_rec(2)))])
+eq("cached_set: a whole set reads back", T.cached_set("q-verify")[0], 2)
+with open(T.cache_path("http://x.invalid/v1"), "w", encoding="utf8") as f:
+    f.write(two % mxc_rec(1))
+eq("cached_set: a page no longer holding n distinct records is not a cached set", T.cached_set("q-verify"), None)
+T.search("q-empty")
+CLOCK[0] += 3 * 86400
+FAKE["ids"] = []
+n, pages = T.search("q-empty", refresh=True)
+eq("a refresh announcing 0 records while the cached set holds 5: kept, degraded",
+   (n, T.distinct(pages), bool(T.degraded), "q-empty" in T.degraded_queries), (5, 5, True, True))
+FAKE["ids"] = list(range(1, 6))
+T.degraded, T.degraded_queries = None, []
+
 # BnF records, transcribed from spike cache c03c4c6db8ca8f4a16acb184655af793.xml (Kbooks), 27560a21… (Xiao Pan),
 # 2086741f… (Tokebi)
-def bdf(tag, *subs):
-    return '<mxc:datafield tag="%s" ind1=" " ind2=" ">%s</mxc:datafield>' % (
-        tag, "".join('<mxc:subfield code="%s">%s</mxc:subfield>' % s for s in subs))
+def bdf(tag, *subs, ind2=" "):
+    return '<mxc:datafield tag="%s" ind1=" " ind2="%s">%s</mxc:datafield>' % (
+        tag, ind2, "".join('<mxc:subfield code="%s">%s</mxc:subfield>' % s for s in subs))
 
 
 GAMER = ('<srw:searchRetrieveResponse xmlns:srw="x"><srw:numberOfRecords>1</srw:numberOfRecords><srw:records>'
@@ -820,7 +894,7 @@ GAMER = ('<srw:searchRetrieveResponse xmlns:srw="x"><srw:numberOfRecords>1</srw:
          + bdf("010", ("a", "978-2-38288-037-1"), ("b", "br."), ("d", "14,95 EUR"))
          + bdf("100", ("a", "20230525d2023    m  y0frey50      ba")) + bdf("101", ("a", "fre"), ("c", "kor"))
          + bdf("200", ("a", "The gamer"), ("h", "1"), ("b", "Texte imprimé"), ("f", "histoire, Seong Sang-Yeong"))
-         + bdf("214", ("a", "Paris"), ("c", "Kbooks"), ("d", "DL 2023"))
+         + bdf("214", ("a", "Paris"), ("c", "Kbooks"), ("d", "DL 2023"), ind2="0")
          + bdf("215", ("a", "1 vol. (235 p.)"), ("c", "ill. en coul."))
          + bdf("461", ("0", "47268502"), ("t", "The gamer"), ("v", "1"))
          + bdf("700", ("a", "Seong"), ("b", "Sang-Yeong"), ("4", "070")) + bdf("702", ("a", "Sang-A"), ("4", "440"))
@@ -858,6 +932,22 @@ omega = brec(("101", [("a", "fre"), ("c", "kor")]), ("200", [("a", "Omega")]), (
              ("454", [("t", "The hum")]), leader="     nam  22        450 ")
 eq("an open-dated record with no 200 $h is a set record (P8)", U.is_set_record(omega), True)
 eq("original title 454 $t", U.original_titles(omega), ["The hum"])
+# review fixes: 10+ volume extents, the 214 publication statement by ind2, roman / word volume numbers,
+# 101 $b relay language (information only)
+for a in ("10 vol. (180, 176 p.)", "12 vol.", "3 vol."):
+    eq("pages %r: several volumes, no page count" % a, U.pages(brec(("215", [("a", a)]))), None)
+eq("pages '1 vol. (235 p.)' still read", U.pages(brec(("215", [("a", "1 vol. (235 p.)")]))), 235)
+printer_first = {"leader": "     cam  22        450 ", "cf": {"001": "FRBNF1"},
+                 "df": [("214", " ", "3", [("a", "Barcelone"), ("c", "Impr. Liberduplex"), ("d", "impr. 2019")]),
+                        ("214", " ", "0", [("a", "Paris"), ("c", "Kbooks"), ("d", "DL 2023")])]}
+eq("214 ind2 0 is the publisher and date, whatever the field order (ind2 3 = the printer)",
+   (U.publisher(printer_first), U.year(printer_first)), ("Kbooks", "2023"))
+for h, want in (("IV", "4"), ("Tome I", "1"), ("Vol. VI", "6"), ("XX", "20"), ("One", "1"), ("three", "3"),
+                ("XXI", None), ("Volume", None)):
+    eq("200 $h %r -> volume %r" % (h, want), U.volume_number(brec(("200", [("a", "X"), ("h", h)]))), want)
+relayed = brec(("101", [("a", "fre"), ("b", "eng"), ("c", "kor")]))
+eq("101 $b relay language exposed; origin unaffected (a relayed French edition stays in scope)",
+   (U.relay_languages(relayed), U.origin(relayed), U.relay_languages(g)), (["eng"], "kor", []))
 src = open(os.path.join(HERE, "bnf_unimarc.py"), encoding="utf8").read()
 eq("bnf_unimarc never names 856", '"856"' in src or "'856'" in src, False)
 eq("BnF channels: the §4 allowlist, 8 channels", len(BS.CHANNELS), 8)

@@ -16,7 +16,7 @@
   * a live refetch that fails keeps the previous COMPLETE set (degraded: the run is marked, the
     build never publishes); a set with no complete earlier copy fails the stage (SourceIncomplete).
 """
-import fcntl, hashlib, json, os, re, time, urllib.error, urllib.parse, urllib.request
+import fcntl, hashlib, http.client, json, os, re, time, urllib.error, urllib.parse, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(ROOT, ".cache")
@@ -101,7 +101,8 @@ class Source:
         with open(self.stamp, "a+") as fh:
             fcntl.flock(fh, fcntl.LOCK_EX)
             try:
-                wait = self.interval - (self.now() - os.path.getmtime(self.stamp))
+                # min(): a future-dated stamp (clock skew, a copied cache) must not freeze the run
+                wait = min(self.interval - (self.now() - os.path.getmtime(self.stamp)), self.interval)
                 if wait > 0:
                     self.sleep(wait)
                 t = self.now()
@@ -126,6 +127,9 @@ class Source:
     def fetch(self, url):
         """One polite live request -> the checked response text (NOT cached: callers store)."""
         for attempt in range(3):
+            if self.refusals > 1:          # the stop is sticky: nothing more is sent this run
+                raise SourceThrottled("%s: stopped earlier this run after %d refusals -- see %s"
+                                      % (self.name, self.refusals, self.netlog))
             if self.budget and self.live >= self.budget:
                 raise SourceBudget("%s: %d live requests this run -- the %s_MAX_REQUESTS cap"
                                    % (self.name, self.live, self.name.upper()))
@@ -149,10 +153,14 @@ class Source:
                 print("    %s HTTP %d, Retry-After=%s -> waiting %ds" % (self.name, e.code, ra, wait), flush=True)
                 self.sleep(wait)
                 continue
-            except (urllib.error.URLError, TimeoutError, ConnectionError):
+            except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
+                # socket.timeout (not a TimeoutError before 3.10) and http.client.IncompleteRead
+                # land here too; the last attempt re-raises as URLError, which FAIL covers
                 self._log(t0, "ERR", 0, url)
                 if attempt == 2:
-                    raise
+                    if isinstance(e, urllib.error.URLError):
+                        raise
+                    raise urllib.error.URLError(e) from e
                 self.sleep(30)
                 continue
             self._log(t0, "200", len(text), url)
@@ -161,16 +169,21 @@ class Source:
         raise RuntimeError("%s: retries exhausted for %s" % (self.name, url))
 
     def get(self, url, refresh=False, force=False):
-        """One response (a count probe, the canary): from the cache, else one live request."""
+        """One response (a count probe, the canary): from the cache, else one live request.
+        Once the source is degraded this run, a miss (or a force) raises instead of going live; a
+        force is never answered from a stale copy while degraded (the canary must be fresh)."""
         key = self.cache_path(url)
         if os.path.exists(key):
             stale = force or (refresh and self.refresh_days and
                               self.now() - os.path.getmtime(key) > self.refresh_days * 86400)
-            if not stale or self.offline or self.degraded:
+            if not stale or self.offline or (self.degraded and not force):
                 with open(key, encoding="utf8") as f:
                     return f.read()
         if self.offline:
             raise SourceOfflineMiss("%s_OFFLINE=1 and no cached response for %s" % (self.name.upper(), url))
+        if self.degraded:
+            raise SourceIncomplete("%s is failing this run (%s) and %s cannot be answered from the cache"
+                                   % (self.name, self.degraded, url))
         text = self.fetch(url)
         _store(key, text)
         return text
@@ -194,6 +207,8 @@ class Source:
                 return None
             with open(p, encoding="utf8") as f:
                 pages.append(f.read())
+        if self.distinct(pages) != e["n"]:
+            return None                    # a page file changed under the manifest: not a whole set
         return e["n"], pages, e["fetched_at"]
 
     def store_set(self, query, n, staged):
@@ -247,6 +262,8 @@ class Source:
                                    % (self.name, self.degraded, query))
         try:
             n, staged = (pager or self.page_plain)(query)
+            if have and n == 0 < have[0]:
+                raise SourceDiagnostic("empty", "announced 0 records, the cached set holds %d" % have[0], query)
             got = self.distinct([t for _, t in staged])
             if got != n:
                 raise SourceDiagnostic("paging", "announced %d records, paged %d distinct" % (n, got), query)
