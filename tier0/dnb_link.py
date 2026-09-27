@@ -44,6 +44,8 @@ HANGUL_ONLY = re.compile("[가-힣]+")
 MIN_PREFIX = 10
 LIST_PREFIX = re.compile(r"^(List of|Liste des|Liste der) .*? (chapters|volumes|chapitres|tomes|light novels|"
                          r"Bände|Kapitel) (of|de|du|des|d'|von) ", re.I)
+KRCN_MEDIA = ("manhwa", "manhua", "webtoon")
+KRCN_MARKETS = ("KR", "CN", "TW")
 
 
 def fold(s, strip_vol=True):
@@ -112,6 +114,7 @@ class Index:
         self.official = collections.defaultdict(set)
         self.alias = collections.defaultdict(set)
         self.authors = collections.defaultdict(set)
+        self.author_raw = collections.defaultdict(set)
         self.name = {}
         for wid, t in db.execute("SELECT id, primary_title FROM work"):
             self.name[wid] = t
@@ -133,6 +136,7 @@ class Index:
                         nk = name_key(n)
                         if nk:
                             self.authors[wid].add(nk)
+                            self.author_raw[wid].add(n)
             else:
                 self._add(self.official, v, wid)
         for wid, v in db.execute("""SELECT rl.work_id, c.value FROM claim c JOIN release_line rl
@@ -140,11 +144,37 @@ class Index:
                                     AND c.field='line_name' AND c.source='wikipedia'"""):
             self._add(self.official, LIST_PREFIX.sub("", v), wid)
         self.official_keys = sorted(self.official)
-        # works OpenTome already knows as Korean / Chinese (a manhwa, manhua or webtoon line):
-        # a German edition catalogued as 'from the Japanese' is a relay translation (Ultramarine
-        # Magmell, from its Japanese edition) and waits for the KR/CN round (decision 4)
-        self.non_japanese = {w for (w,) in db.execute(
-            "SELECT DISTINCT work_id FROM release_line WHERE medium IN ('manhwa','manhua','webtoon')")}
+        # The KR/CN work set (docs/krcn-design.md §10): a manhwa / manhua / webtoon line, or a
+        # KR / CN / TW market line (King of Hell, I Love Amy: Korean works tagged 'manga');
+        # tier0/build_krcn.py adds the works it creates (add_krcn_work). A JAPANESE work has a
+        # JP-market line of a Japanese medium: Ultramarine Magmell's only JP line is its Japanese
+        # edition of a Chinese manhua, which does not make it Japanese (ruling P1 of the KR/CN plan).
+        self.krcn_works = {w for (w,) in db.execute(
+            "SELECT DISTINCT work_id FROM release_line WHERE medium IN (?,?,?) OR market IN (?,?,?)",
+            KRCN_MEDIA + KRCN_MARKETS)}
+        self.jp_works = {w for (w,) in db.execute(
+            "SELECT DISTINCT work_id FROM release_line WHERE market='JP' AND medium NOT IN (?,?,?)",
+            KRCN_MEDIA)}
+        # The German JP round (build_dnb) sends a German line that links to a Korean / Chinese
+        # work -- a manhwa / manhua / webtoon line and NO Japanese line -- to out_of_scope. German
+        # editions relayed from the Japanese (041$h jpn: Ultramarine Magmell, Priest) stay out: the
+        # KR/CN round does not read the spo=jpn channels either (krcn-design §10). Mixed works (Wind
+        # Breaker: Kodansha manga + the Korean webtoon) keep their Japanese side in scope. The WIDER
+        # KR/CN set (KR/CN/TW markets too) is NOT used here: it flips the published German King of
+        # Hell line (dnb:997592818, a ko-market work tagged manga) to out_of_scope and orphans its id
+        # (measured while validating the plan, 2026-09-27) -- plan ruling P1.
+        krcn_media = {w for (w,) in db.execute(
+            "SELECT DISTINCT work_id FROM release_line WHERE medium IN (?,?,?)", KRCN_MEDIA)}
+        self.out_of_scope = krcn_media - self.jp_works
+
+    def add_krcn_work(self, w):
+        """A work build_krcn creates joins the KR/CN work set (the KR/CN linker's guards)."""
+        self.krcn_works.add(w)
+
+    def jp_guard(self, w):
+        """A KR/CN line's best candidate is a Japanese work with no KR/CN line: review, never a
+        link (DNB 'Ouroboros', papertoons, linked at medium to the Japanese Ouroboros in the spike)."""
+        return w in self.jp_works and w not in self.krcn_works
 
     @staticmethod
     def _add(table, title, wid):
@@ -195,22 +225,51 @@ def same_person(p, q):
     return fam_in(pf, qt) or fam_in(qf, pt)
 
 
-def _shared(idx, w, auth):
+def full_splits(n):
+    """A KR/CN creator's name as its possible (family, given) splits: diacritics stripped,
+    lowercased, a bracketed studio dropped, hyphens and spaces inside the given name removed.
+    'Park, Jin-hwan' -> {('park', 'jinhwan')}; 'Park Jin Hwan' -> {('park', 'jinhwan'),
+    ('hwan', 'parkjin')} (family first or last); 'Chu-Gong' -> {('chugong', '')}."""
+    n = re.sub(r"\(.*?\)", " ", (n or "").replace("\x98", "").replace("\x9c", ""))
+    n = "".join(c for c in unicodedata.normalize("NFD", n) if not unicodedata.combining(c)).lower()
+    n = re.sub(r"(?<=[a-z])[-‐'’](?=[a-z])", "", n)
+    if "," in n:
+        last, first_ = n.split(",", 1)
+        fam, given = "".join(re.findall(r"[a-z]+", last)), "".join(re.findall(r"[a-z]+", first_))
+        return {(fam, given)} if fam else set()
+    toks = re.findall(r"[a-z]+", n)
+    if not toks:
+        return set()
+    if len(toks) == 1:
+        return {(toks[0], "")}
+    return {(toks[0], "".join(toks[1:])), (toks[-1], "".join(toks[:-1]))}
+
+
+def same_full(a, b):
+    """The KR/CN author rule (krcn-design §10): the WHOLE name agrees. A shared family name is not a
+    person -- Park, Zhang, Wang and Kim would otherwise pass same_person's family-name test."""
+    return bool(full_splits(a) & full_splits(b))
+
+
+def _shared(idx, w, auth, full=False):
+    if full:
+        return sum(1 for a in auth if any(same_full(a, b) for b in idx.author_raw.get(w, ())))
     return sum(1 for a in auth if any(same_person(a, b) for b in idx.authors.get(w, ())))
 
 
-def _author_match(idx, works, auth):
+def _author_match(idx, works, auth, full=False):
     """The works sharing the MOST creators with the line (a spin-off novel credits the
     original author once and its own writers twice: One Piece: Heroines, not One Piece)."""
-    score = {w: _shared(idx, w, auth) for w in works}
+    score = {w: _shared(idx, w, auth, full) for w in works}
     best = max(score.values(), default=0)
     return {w for w, n in score.items() if n and n == best}
 
 
-def _authors_disagree(idx, w, auth):
+def _authors_disagree(idx, w, auth, full=False):
     """Both sides name creators and none of them is the same person -- a title collision
     (Uzumaki by Kishimoto is not Ito's Uzumaki), not a missing credit."""
-    return bool(auth) and bool(idx.authors.get(w)) and not _shared(idx, w, auth)
+    theirs = idx.author_raw.get(w) if full else idx.authors.get(w)
+    return bool(auth) and bool(theirs) and not _shared(idx, w, auth, full)
 
 
 def _prefixed(idx, k):
@@ -225,17 +284,20 @@ def _prefixed(idx, k):
     return out
 
 
-def link(idx, titles, authors, orig=(), name=None):
+def link(idx, titles, authors, orig=(), name=None, full_names=False):
     """titles: every DNB-side title string of the line; orig: its original titles (240, 246,
     245$b '='), a subset of titles; name: the line's own title proper; authors: raw
     creator names.
     -> (tier, work_id | None, candidates (sorted list), via)"""
-    auth = {nk for nk in (name_key(a) for a in authors) if nk}
+    if full_names:
+        auth = list(dict.fromkeys(a for a in authors if full_splits(a)))
+    else:
+        auth = {nk for nk in (name_key(a) for a in authors) if nk}
     ks = keys(titles)
     off = set().union(*[idx.official.get(k, set()) for k in ks]) if ks else set()
     ali = set().union(*[idx.alias.get(k, set()) for k in ks]) if ks else set()
     if off:
-        wa = _author_match(idx, off, auth)
+        wa = _author_match(idx, off, auth, full_names)
         # Several works answer: the one whose title IS the line's own title proper wins -- a
         # series statement or original title names the franchise ("Shaman King", credited
         # to the same creator) while the title proper names the spin-off ("Shaman king the
@@ -247,7 +309,7 @@ def link(idx, titles, authors, orig=(), name=None):
                     w = next(iter(exact))
                     if w in wa:
                         return "high", w, sorted(off), "own-title"
-                    if _authors_disagree(idx, w, auth):
+                    if _authors_disagree(idx, w, auth, full_names):
                         return "low", w, sorted(off), "own-title, authors differ"
                     return "medium", w, sorted(off), "own-title"
                 if exact:
@@ -256,7 +318,7 @@ def link(idx, titles, authors, orig=(), name=None):
             return "high", next(iter(wa)), sorted(off), "title+author"
         if len(off) == 1:
             w = next(iter(off))
-            if _authors_disagree(idx, w, auth):
+            if _authors_disagree(idx, w, auth, full_names):
                 return "low", w, sorted(off), "title, authors differ"
             return "medium", w, sorted(off), "title"
         pool = wa or off
@@ -266,12 +328,12 @@ def link(idx, titles, authors, orig=(), name=None):
     for k in keys(orig):
         if len(k) >= MIN_PREFIX:
             pre |= _prefixed(idx, k)
-    wa = _author_match(idx, pre, auth)
+    wa = _author_match(idx, pre, auth, full_names)
     if len(wa) == 1:
         return "medium", next(iter(wa)), sorted(pre), "prefix+author"
     ali -= off
     if ali:
-        wa = _author_match(idx, ali, auth)
+        wa = _author_match(idx, ali, auth, full_names)
         pick = wa if wa else ali
         if len(pick) == 1:
             return "low", next(iter(pick)), sorted(ali), "alias" + ("+author" if wa else "")
@@ -281,7 +343,7 @@ def link(idx, titles, authors, orig=(), name=None):
     for k in ks:
         for n in range(len(k) - 1, MIN_PREFIX - 1, -1):
             rev |= idx.official.get(k[:n], set())
-    wa = _author_match(idx, rev, auth)
+    wa = _author_match(idx, rev, auth, full_names)
     if len(wa) == 1:
         return "low", next(iter(wa)), sorted(rev), "spinoff+author"
     return "none", None, [], None

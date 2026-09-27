@@ -449,8 +449,8 @@ def build(recs, parents, idx, W, w_isbn, carried=None):
             ln["role"] = {"high": "linked", "medium": "linked", "low": "review",
                           "ambiguous": "review"}.get(ln["tier"], "unlinked")
             ln["work"] = ln["link_work"] if ln["role"] == "linked" else None
-            if ln["role"] == "linked" and ln["work"] in idx.non_japanese:
-                ln["role"], ln["work"] = "out_of_scope", None      # Korean / Chinese origin: next round
+            if ln["role"] == "linked" and ln["work"] in idx.out_of_scope:
+                ln["role"], ln["work"] = "out_of_scope", None      # a Korean / Chinese work (dnb_link.Index)
             # keep a published line only when the linker has simply lost its answer -- never
             # against counter-evidence (the creators now disagree with the work it shipped under)
             # or a scope rule; those lines go, and redirects() retires their ids to a successor
