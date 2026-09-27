@@ -102,6 +102,25 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("corrected twice", out)
 
+    def test_link_work_with_another_shapes_keys_fails(self):
+        # test_artifact's medium / market / new-line loops would read such an entry too
+        for extra in ({"volumes": []}, {"medium": "manhwa"}, {"market": "DE"},
+                      {"line": "rl_aaaaaaaaaaaa"}, {"origin_line": "rl_bbbbbbbbbbbb"}):
+            with self.subTest(extra=extra):
+                code, out = self.check(self.corrections(lines=[dict(self.LW, **extra)]))
+                self.assertEqual(code, 1)
+                self.assertIn("also carries %s" % list(extra)[0], out)
+
+    def test_link_work_key_trailing_newline_fails(self):
+        code, out = self.check(self.corrections(lines=[dict(self.LW, line_key="dnb:1380595053\n")]))
+        self.assertEqual(code, 1)
+        self.assertIn("not a library line key", out)
+
+    def test_link_work_counted_in_summary(self):
+        code, out = self.check(self.corrections(lines=[self.LW]))
+        self.assertEqual(code, 0, out)
+        self.assertIn("1 link_work", out)
+
     # -- passes
     def test_all_empty_passes(self):
         code, out = self.check(self.corrections())

@@ -446,6 +446,11 @@ def build(recs, parents, idx, W, w_isbn, carried=None, link_work=None):
         if ln["role"] in ("merged", "sibling"):
             ln["truth_work"] = W[ln["wiki_line"]]["work"]
             ln["work"] = ln["truth_work"]
+            lw = (link_work or {}).get(ln["key"])
+            if lw:                      # the ISBNs decide; logged so a conflict is triageable
+                print("  link_work %s: line is %s by ISBN under %s (link_work %s%s)"
+                      % (ln["key"], ln["role"], ln["work"], lw, "" if lw == ln["work"] else ", CONFLICT"),
+                      flush=True)
         else:
             ln["truth_work"] = None
             ln["role"] = {"high": "linked", "medium": "linked", "low": "review",

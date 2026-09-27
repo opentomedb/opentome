@@ -337,8 +337,8 @@ it is, and the line ships under that work.
 ```
 
 Required: `line_key`, `link_work`, `source_url`, `checked`. Optional: `reason`.
-An entry with a `link_work` key is this shape whatever else it carries; do not
-add `volumes`, `medium`, `market` or `line`.
+An entry with a `link_work` key is this shape; it must not also carry
+`volumes`, `medium`, `market`, `line` or `origin_line` (`--check` refuses it).
 
 `line_key` is the library line's NATURAL key, copied from the review file's
 `dnb_key` column (`build/dnb-review.tsv`) or `line_key` column
@@ -353,15 +353,21 @@ stage, and 5b's `apply_line_corrections` skips these entries. The line gets
 role `linked`, via `correction`, under the named work. The scope rules still
 apply after it: a line corrected onto a Korean/Chinese work in the German JP
 round is still `out_of_scope`. A line that shares ISBNs with a Wikipedia line
-(merged / sibling) follows the ISBNs, not the entry. A `link_work` naming a
+(merged / sibling) follows the ISBNs, not the entry; the build log prints one
+`link_work <key>: line is merged|sibling by ISBN under <work>` line for it,
+marked `CONFLICT` when that work is not the entry's. A `link_work` naming a
 work the catalogue does not have prints `STALE CORRECTION` at build time and
 the line stays as the linker left it.
 
-A `line_key` the build no longer has (DNB can renumber a set) is reported as
-stale by `export/test_artifact.py`, not failed; a key the build has whose line
-does not ship linked (or kept) under the named work fails it. `--check`
-refuses a key that is not a library key, a `link_work` that is not a work id,
-a key corrected twice, and a work that is not in the published artifact.
+`export/test_artifact.py` checks every entry whose `line_key` the build has:
+the line must ship under the named work -- linked, kept, or merged / sibling
+by ISBN (a merged line counts under its Wikipedia line's work). Under any other
+work, or not shipped at all (out of scope, absorbed, still in review), it
+fails. A `line_key` the build no longer has (DNB can renumber a set) is
+reported as stale, not failed. `--check` refuses a key that is not a library
+key, a `link_work` that is not a work id, a key corrected twice, an entry that
+also carries another shape's keys, and a work that is not in the published
+artifact.
 
 ### `anilist.json` — a hand-checked AniList id for a line
 

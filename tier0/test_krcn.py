@@ -414,6 +414,56 @@ B.unload(db.cursor())
 eq("scoped unload: a merged row's rl_id is the Wikipedia line (3e writes no line claim there)",
    [r[0] for r in db.execute("SELECT entity_id FROM claim WHERE source='dnb'")], ["rl_wiki"])
 
+# ---- Task 5 review fix: merged/sibling link_work lines -----------------------------------------------
+import contextlib, io
+eq("LIBRARY_KEY refuses a trailing newline", bool(CORR.LIBRARY_KEY.match("dnb:1200000000\n")), False)
+
+# 3e: a link_work entry on a line that became merged by ISBN is logged (the ISBNs decide)
+db = schema_db()
+db.execute("INSERT INTO work VALUES('w_aaaaaaaaaaaa','Some Work',NULL,NULL,NULL,NULL,'x','x')")
+db.execute("INSERT INTO work VALUES('w_bbbbbbbbbbbb','Other Work',NULL,NULL,NULL,NULL,'x','x')")
+idx = L.Index(db)
+W = {"rl_wiki": {"work": "w_aaaaaaaaaaaa", "vols": {"1": ("v_w1", "9783753935874"), "2": ("v_w2", "9783753935881")}}}
+w_isbn = {"9783753935874": ("rl_wiki", "v_w1"), "9783753935881": ("rl_wiki", "v_w2")}
+for lw, tail in (("w_aaaaaaaaaaaa", ")"), ("w_bbbbbbbbbbbb", ", CONFLICT)")):
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        lines, _, _ = B.build(recs, {}, idx, W, w_isbn, link_work={"dnb:1200000000": lw})
+    eq("link_work on a merged line: the ISBNs decide (%s)" % lw,
+       [(l["role"], l["work"], l.get("via")) for l in lines][0][:2], ("merged", "w_aaaaaaaaaaaa"))
+    eq("link_work on a merged line: one build-log line (%s)" % lw, out.getvalue(),
+       "  link_work dnb:1200000000: line is merged by ISBN under w_aaaaaaaaaaaa (link_work %s%s\n" % (lw, tail))
+
+# test_artifact.run_link_work: merged / sibling ship under the corrected work -> pass; another work -> fail
+import test_artifact as TA
+catf = os.path.join(tempfile.mkdtemp(prefix="krcn-cat-"), "catalogue.db")
+cat = sqlite3.connect(catf)
+cat.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read() + B.STAGING_DDL)
+cat.execute("INSERT INTO work VALUES('w_aaaaaaaaaaaa','Some Work',NULL,NULL,NULL,NULL,'x','x')")
+for rid, wid in (("rl_wiki", "w_aaaaaaaaaaaa"), ("rl_sib", "w_aaaaaaaaaaaa"), ("rl_lnk", "w_aaaaaaaaaaaa")):
+    cat.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at) "
+                "VALUES(?,?,'manga','DE','de','x','x')", (rid, wid))
+for key, rid, role in (("dnb:10", "rl_wiki", "merged"), ("dnb:11", "rl_sib", "sibling"),
+                       ("dnb:12", "rl_lnk", "linked"), ("dnb:13", "rl_oos", "out_of_scope")):
+    cat.execute("INSERT INTO dnb_line(key,rl_id,role,exported) VALUES(?,?,?,1)", (key, rid, role))
+cat.commit()
+cat.close()
+_saved_dir = CORR.DIR
+try:
+    for key, wid, want in (("dnb:10", "w_aaaaaaaaaaaa", 0), ("dnb:11", "w_aaaaaaaaaaaa", 0),
+                           ("dnb:12", "w_aaaaaaaaaaaa", 0), ("dnb:10", "w_bbbbbbbbbbbb", 1),
+                           ("dnb:11", "w_bbbbbbbbbbbb", 1), ("dnb:13", "w_aaaaaaaaaaaa", 1),
+                           ("dnb:99", "w_aaaaaaaaaaaa", 0)):
+        CORR.DIR = tempfile.mkdtemp(prefix="krcn-corr-")
+        with open(os.path.join(CORR.DIR, "lines.json"), "w") as f:
+            json.dump([{"line_key": key, "link_work": wid, "source_url": "x", "checked": "x"}], f)
+        del TA.FAILS[:]
+        with contextlib.redirect_stdout(io.StringIO()):
+            TA.run_link_work(catf)
+        eq("run_link_work %s -> %s: %d failure(s)" % (key, wid, want), len(TA.FAILS), want)
+finally:
+    CORR.DIR = _saved_dir
+    del TA.FAILS[:]
+
 # ==== summary ====
 print()
 if FAILS:
