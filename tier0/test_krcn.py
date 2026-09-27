@@ -81,6 +81,55 @@ eq("Index._add keeps a 2-syllable Hangul alias key", idx.alias.get("괴물"), {"
 tier, work, _, via = L.link(idx, ["Bastard", "후레자식"], [], ["후레자식"], "Bastard")
 eq("a line carrying only the Hangul original links through it", (tier, work), ("medium", "w_kr1"))
 
+# ---- Task 3: KR/CN work set, out-of-scope, JP guard, full names ------------------------------------
+def line_row(db, rid, wid, medium, market, lang):
+    db.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at) "
+               "VALUES(?,?,?,?,?,'x','x')", (rid, wid, medium, market, lang))
+
+db = schema_db()
+for wid, title in (("w_wind", "Wind Breaker"), ("w_mag", "Ultramarine Magmell"), ("w_priest", "Priest"),
+                   ("w_hell", "King of Hell"), ("w_ouro", "Ouroboros"), ("w_sl", "Solo Leveling")):
+    db.execute("INSERT INTO work VALUES(?,?,NULL,NULL,NULL,NULL,'x','x')", (wid, title))
+line_row(db, "rl_w1", "w_wind", "manga", "JP", "ja")            # Kodansha manga ...
+line_row(db, "rl_w2", "w_wind", "manhwa", "KR", "ko")           # ... and the webtoon (merged by title)
+line_row(db, "rl_m1", "w_mag", "manhua", "JP", "ja")            # Magmell: its only line is a JP-market manhua
+line_row(db, "rl_p1", "w_priest", "manhwa", "EN", "en")
+line_row(db, "rl_h1", "w_hell", "manga", "KR", "ko")            # a Korean work tagged manga (§1)
+line_row(db, "rl_o1", "w_ouro", "manga", "JP", "ja")
+line_row(db, "rl_s1", "w_sl", "manhwa", "EN", "en")
+db.execute("""INSERT INTO claim VALUES('work','w_sl','author','["Chugong"]','wikipedia',NULL,'facts_only','x')""")
+db.execute("""INSERT INTO claim VALUES('work','w_priest','author','["Park Sun-young"]','wikipedia',NULL,'facts_only','x')""")
+idx = L.Index(db)
+eq("KR/CN work set: manhwa/manhua lines and KR/CN/TW markets",
+   idx.krcn_works, {"w_wind", "w_mag", "w_priest", "w_hell", "w_sl"})
+eq("Japanese works: a JP line of a Japanese medium (Magmell's JP manhua is not one)",
+   idx.jp_works, {"w_wind", "w_ouro"})
+eq("out of scope for the German JP round: a manhwa/manhua/webtoon line and no Japanese line",
+   idx.out_of_scope, {"w_mag", "w_priest", "w_sl"})
+eq("King of Hell (ko market, tagged manga): KR/CN for the KR/CN linker, but its published German line stays "
+   "in the JP round (P1)", ("w_hell" in idx.krcn_works, "w_hell" in idx.out_of_scope), (True, False))
+eq("Wind Breaker (JP manga + KR webtoon) stays in scope (the §1 latent drop fixed)", "w_wind" in idx.out_of_scope, False)
+eq("JP guard: a KR/CN line to Ouroboros (JP only) -> review", idx.jp_guard("w_ouro"), True)
+eq("JP guard: not for a mixed work", idx.jp_guard("w_wind"), False)
+idx.add_krcn_work("w_new")
+eq("add_krcn_work extends the set", "w_new" in idx.krcn_works, True)
+
+eq("full_splits: 'Park, Jin-hwan'", L.full_splits("Park, Jin-hwan"), {("park", "jinhwan")})
+eq("full_splits: 'Park Jin Hwan' (either order)", L.full_splits("Park Jin Hwan"), {("park", "jinhwan"), ("hwan", "parkjin")})
+eq("same_person (JP rule) accepts Park = Park (the §10 defect)",
+   L.same_person(L.name_key("Park, Jin-hwan"), L.name_key("Park Sun-young")), True)
+eq("same_full: Park, Jin-hwan != Park Sun-young", L.same_full("Park, Jin-hwan", "Park Sun-young"), False)
+eq("same_full: Chugong = Chu-Gong", L.same_full("Chugong", "Chu-Gong"), True)
+eq("same_full: 'Kim, Carnby' = 'Carnby Kim'", L.same_full("Kim, Carnby", "Carnby Kim"), True)
+eq("same_full: 'Dubu (Redice Studio)' = 'Dubu'", L.same_full("Dubu (Redice Studio)", "Dubu"), True)
+t = L.link(idx, ["Priest"], ["Park, Jin-hwan"], name="Priest", full_names=True)
+eq("full names: a KR/CN line whose author differs is a collision (low), not a link", (t[0], t[3]),
+   ("low", "title, authors differ"))
+t = L.link(idx, ["Solo Leveling"], ["Chu-Gong"], name="Solo Leveling", full_names=True)
+eq("full names: Chu-Gong matches Chugong -> high", (t[0], t[1], t[3]), ("high", "w_sl", "title+author"))
+t = L.link(idx, ["Priest"], ["Park, Jin-hwan"], name="Priest")
+eq("JP rule unchanged by default (family name within one edit)", t[0], "high")
+
 # ==== summary ====
 print()
 if FAILS:
