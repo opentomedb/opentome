@@ -991,6 +991,8 @@ def fake_loc(req, timeout=None):
     ids = LRULE.get("seq", lambda q, ids, sz: ids)(query, ids, size)     # duplicate positions
     key = (query, start, size)
     LSEEN[key] = LSEEN.get(key, 0) + 1
+    if LRULE.get("drop", lambda q, st, sz: False)(query, start, size):
+        raise http.client.RemoteDisconnected("Remote end closed connection without response")
     if size > 1 and LRULE["fail"](query, start, size, LSEEN[key]):
         return _R(DIAG61 % (len(ids), LRULE["code"]))
     body = "".join(LREC % (i, "20%08d" % int(i), "DLC" if LOCDB[i][1] else "ZCU",
@@ -1002,7 +1004,9 @@ def fake_loc(req, timeout=None):
 
 _ltmp = tempfile.mkdtemp(prefix="krcn-loc-")
 LS.LOC.relocate(_ltmp, _ltmp)
-LS.LOC.offline, LS.LOC.refresh_days, LS.LOC.budget = False, 0, 0
+eq("LoC: 20 s between requests by default (LOC_INTERVAL overrides), transport errors stop the run",
+   (LS.LOC.interval == 20.0 or "LOC_INTERVAL" in os.environ, LS.LOC.transport_stops), (True, True))
+LS.LOC.offline, LS.LOC.refresh_days, LS.LOC.budget, LS.LOC.interval = False, 0, 0, 3.0
 LS.LOC.urlopen, LS.LOC.sleep, LS.LOC.now = fake_loc, fsleep, lambda: CLOCK[0]
 
 
@@ -1033,7 +1037,10 @@ eq("rung 2 again: 51-63 at 25", (n, LS.LOC.distinct(pages)), (63, 63))
 LOCDB["9999"] = ([isbn13("9798855401", 1), isbn13("9798855402", 1)], True)
 LRULE["fail"] = lambda q, start, size, seen: q == "bath.isbn=979885540*"
 LS.LOC.degraded, LS.LOC.degraded_queries = None, []
+_k4 = len(LCALLS)
 n, pages = LS.LOC.search("bath.isbn=979885540*", force=True, pager=LS.pager)   # cached in case 1: refetch
+eq("rung 3 requests: stem count 1 + 9 failed pages + 10 slice counts + 3 pages + 1 re-probe (was 27)",
+   len(LCALLS) - _k4, 24)
 eq("rung 3: ISBN slices, union == the stem's count (65 slice hits, 64 records)",
    (n, LS.LOC.distinct(pages), LS.LOC.degraded), (64, 64, None))
 # 5. another diagnostic raises at once (no ladder, nothing cached)
@@ -1117,7 +1124,7 @@ eq("... served whole from the cache afterwards", (LS.search_set("bath.isbn=97988
 # B. at 100 a duplicate masks record 3160; the read at 50 reveals it -> union, third read at 25 adds nothing
 LRULE["seq"] = (lambda q, ids, sz: (lambda base: lmask(base, 61) if sz == 100 else base)(ids[:50] + [ids[10]] + ids[50:])
                 if q == "bath.isbn=9798855491*" else ids)
-n, pages = LS.LOC.search("bath.isbn=9798855491*", force=True, pager=LS.pager)
+n, pages = LS.search_set("bath.isbn=9798855491*", force=True)
 eq("masked record: revealed at 50, unioned, the third read at 25 confirms",
    (n, LS.LOC.distinct(pages), [r[0] for r in ldups()["bath.isbn=9798855491*"]["reads"]], LS.LOC.degraded),
    (81, 80, [100, 50, 25], None))
@@ -1154,6 +1161,71 @@ for k in range(80):
     del LOCDB[str(3100 + k)], LOCDB[str(3200 + k)]
 for k in range(80):
     del LOCDB[str(3000 + k)]
+
+# ---- Task 8 review fixes ----------------------------------------------------------------------------
+LOCDB.update({str(4000 + k): ([isbn13("97988556", k)], True) for k in range(120)})
+# 1. the set changes during paging (a record lands after page 1): incomplete, not laddered, not stored
+LRULE["seq"] = lambda q, ids, sz: ids + ["4999"] if q == "bath.isbn=97988556*" and LSEEN.get((q, 1, 100), 0) else ids
+LOCDB["4999"] = ([isbn13("97988557", 1)], True)
+k = len(LCALLS)
+try:
+    LS.search_set("bath.isbn=97988556*")
+    eq("a set that changes during paging fails (cold)", "no exception", "SourceIncomplete")
+except SRU.SourceIncomplete as e:
+    eq("a set that changes during paging fails (cold): LocIncomplete, 3 requests, no manifest entry",
+       ("changed during paging" in str(e), len(LCALLS) - k, "bath.isbn=97988556*" in json.load(open(LS.LOC.sets_path))),
+       (True, 3, False))
+LRULE.pop("seq")
+# 3. transport errors: the first is retried, the second anywhere in the run is the sticky stop
+LS.LOC.refusals = 0
+LRULE["drop"] = lambda q, st, sz: q == "bath.isbn=97988556*" and st == 101 and not LRULE.setdefault("dropped", 0) \
+    and LRULE.update(dropped=1) is None
+j = len(SLEEPS2)
+n, pages = LS.search_set("bath.isbn=97988556*")
+eq("one dropped connection: retried after 30 s, the set completes",
+   (n, LS.LOC.distinct(pages), LS.LOC.refusals, 30 in SLEEPS2[j:]), (120, 120, 1, True))
+LRULE["drop"] = lambda q, st, sz: True
+k = len(LCALLS)
+try:
+    LS.search_set("bath.isbn=97988556*", force=True)
+    raised = False
+except SRU.SourceIncomplete:
+    raised = True
+eq("a second transport error: the stop (SourceThrottled after 1 request), degraded on the cached set",
+   (raised, bool(LS.LOC.degraded) and "SourceThrottled" in LS.LOC.degraded, len(LCALLS) - k), (False, True, 1))
+LS.LOC.degraded, LS.LOC.degraded_queries = None, []
+try:
+    LS.LOC.fetch(LS.LOC.url_for("bath.isbn=97988556*", 1, 1))
+    eq("... and the stop is sticky", "no exception", "SourceThrottled")
+except SRU.SourceThrottled:
+    eq("... and the stop is sticky (no request sent)", len(LCALLS) - k, 1)
+# 4. the canary: gateway down with a cached canary -> LocCanaryFailed, never the cached copy
+LS.LOC.refusals = 0
+LRULE.pop("drop"), LRULE.pop("dropped")
+LOCDB["21800815"] = (["9781975319434"], True)
+LS.canary()
+LRULE["drop"] = lambda q, st, sz: True
+try:
+    LS.canary()
+    eq("canary: cached copy + failing gateway fails the stage", "no exception", "LocCanaryFailed")
+except LS.LocCanaryFailed as e:
+    eq("canary: cached copy + failing gateway fails the stage (LocCanaryFailed)", "RemoteDisconnected" in str(e)
+       or "SourceThrottled" in str(e), True)
+LRULE.pop("drop")
+LS.LOC.refusals = 0
+del LOCDB["21800815"]
+# 4. duplicate info is replaced as a family when the set is stored: no stale slice entry survives
+d = ldups()
+d["bath.isbn=979885569*"] = {"positions": 9, "dup_ids": ["x"]}           # a stale slice of the stem
+SRU._store(os.path.join(_ltmp, "loc-dups.json"), json.dumps(d))
+LS.search_set("bath.isbn=97988556*", force=True)
+eq("stored stem: its stale slice entries are cleared", "bath.isbn=979885569*" in ldups(), False)
+# 4. the generic sources keep the old manifest: no 'distinct' key, transport_stops off
+eq("generic / BnF manifest: no 'distinct' key", [k for k, e in json.load(open(T.sets_path)).items() if "distinct" in e], [])
+eq("BnF: transport errors keep the generic rule", (BS.BNF.transport_stops, BS.BNF.accept), (False, None))
+for k in range(120):
+    del LOCDB[str(4000 + k)]
+del LOCDB["4999"]
 
 # ==== summary ====
 print()
