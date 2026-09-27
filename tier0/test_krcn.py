@@ -623,6 +623,72 @@ LOCXML = ('<?xml version="1.0"?><zs:searchRetrieveResponse xmlns:zs="http://www.
 eq("dnb_marc.records parses LoC marcxml (same MARC21 slim namespace)",
    [(LM.lccn(r), LM.is_dlc(r)) for r in M.records(LOCXML)], [("2020950228", True)])
 
+# ---- Task 6 review fixes ----------------------------------------------------------------------------
+# spike cache f58430827d9be5719f7d55f1ffd3817d.xml -- Ransei ni eiyū arawaru: a JAPANESE translation of a Chinese comic
+RS = lrec("02104cam a22005174a 4500", "080804s1990    ja ab         000 c jpn  ", ("040", [("a", "DLC"), ("c", "DLC")]),
+          ("041", [("a", "jpn"), ("h", "chi")]), ("050", [("a", "PN6790.C44")]),
+          ("245", [("a", "Ransei ni eiyū arawaru /")]))
+eq("origin: a LoC line is English -- 008 jpn with 041 $h chi is not KR/CN", LM.origin(RS), (None, False))
+# spike cache f6a8890ec5bdf5ffe5f71c0df5a118ef.xml -- The blue dragon: $h fre + $h chi (a relay translation)
+BD = lrec("01593cam a2200409 a 4500", "110531s2011    onca          000 0 eng  ", ("010", [("a", "  2011930915")]),
+          ("040", [("a", "DLC"), ("c", "DLC"), ("d", "DLC")]), ("041", [("a", "eng"), ("b", "chi"), ("h", "fre"), ("h", "chi")]),
+          ("245", [("a", "The blue dragon /")]))
+eq("origin: an 041 $h naming a non-KR/CN language too is not KR/CN", LM.origin(BD), (None, False))
+eq("origin: $h kor + $h chi still reads (a subset of KR/CN)",
+   LM.origin(lrec("", "x" * 35 + "eng", DLC, ("041", [("a", "eng"), ("h", "chi"), ("h", "kor")]))), ("kor", True))
+
+# synthesised shape: the Solo Leveling: Ragnarok set record (not in the spike cache as DLC)
+RAG = lrec("02000cam a2200400 i 4500", "240801m20249999nyua     6    000 1 eng  ", DLC, ("041", [("a", "eng"), ("h", "kor")]),
+           ("020", [("a", "9798400904646"), ("q", "v. 1"), ("q", "trade paperback")]),
+           ("020", [("a", "9798400904660"), ("q", "v. 2"), ("q", "trade paperback")]),
+           ("245", [("a", "Solo leveling :"), ("b", "Ragnarok /"), ("c", "Daul ; original story, Chugong.")]))
+eq("full title keeps 245 $b (a sequel is not its parent)", LM.full_title(RAG), "Solo leveling : Ragnarok")
+eq("the full title is a linker title (variant_titles, read by build_krcn._loc_titles)",
+   LM.variant_titles(RAG), ["Solo leveling : Ragnarok"])
+eq("no $b: no extra variant", LM.variant_titles(SL), [])
+PT = lrec("", "", ("245", [("a", "Tower of god."), ("n", "Part 2,"), ("p", "The floor of death /")]))
+eq("title proper carries $n / $p (§5)", LM.title_proper(PT), "Tower of god. Part 2. The floor of death")
+eq("bare title strips a trailing $n number",
+   LM.bare_title(lrec("", "", ("245", [("a", "Tower of god."), ("n", "1 /")]))), "Tower of god")
+
+# spike cache 9ba96fe121a928a66a6490da7b24628e.xml -- Bottom-tier character Tomozaki ('v. 6.5 : pbk.'), shape
+HV = lrec("", "", DLC, ("020", [("a", "9781975319458"), ("q", "v. 5 : pbk.")]),
+          ("020", [("a", "9781975320386"), ("q", "v. 5.5 : pbk.")]), ("020", [("a", "9781975338404"), ("q", "v. 05")]))
+hv = LM.volume_isbns(HV)
+eq("decimal volume stays its own number; '05' canonicalises", sorted(hv), ["5", "5.5"])
+eq("pick for vol 5 never takes the 5.5 ISBN, even when an OpenTome volume has it",
+   LM.pick_isbn(hv["5"], existing={"9781975320386"}), "9781975319458")
+eq("vol 5.5 picks its own", LM.pick_isbn(hv["5.5"]), "9781975320386")
+# spike cache shapes: Karneval 'pbk. : v. 1' (4d90fc5d…), Btooom! '1 : pbk' (ee535b32…), The irregular at Magic
+# High School 'bk. 1' (3a989100…), The twelve kingdoms 'hbk. : v. 1 : alk paper' (4e76926a…), '6-pack' (885abf93…)
+for q, want in (("pbk. : v. 3", "3"), ("1 : pbk", "1"), ("2 : pbk.", "2"), ("bk. 4", "4"), ("hbk. : v. 7 : alk paper", "7"),
+                ("(v. 1 ;", "1"), ("v. 14 ;", "14"), ("volume 1", "1"), ("trade paperback", None), ("6-pack", None),
+                ("26 light : pbk", None), ("(ebook)", None), ("hardcover", None)):
+    eq("$q %r -> volume %r" % (q, want),
+       [n for n, _, _ in LM.qualified_isbns(lrec("", "", ("020", [("a", "9781975319434"), ("q", q)]))) ], [want])
+
+SG = lrec("01515cam a22003135i 4500", "240731s2024    nyu           000 0 eng  ", DLC,
+          ("020", [("a", "9781975397838"), ("q", "(v. 1 ;"), ("q", "trade paperback)")]),
+          ("020", [("a", "9798855412048"), ("q", "(v. 2 ;"), ("q", "trade paperback)")]),
+          ("245", [("a", "I Picked Up This World's Strategy Guide /")]))   # spike cache a78527b9530285a6678adc8cd81cc762.xml
+eq("a title with 'Guide' is not an extra", LM.excluded_kind(SG), None)
+eq("'The Genius Prince's Guide' single record is not an extra",
+   LM.excluded_kind(lrec("", "", ("245", [("a", "The genius prince's guide to raising a nation out of debt /")]))), None)
+eq("an official guide is", LM.excluded_kind(lrec("", "", ("245", [("a", "Solo leveling official visual guide /")]))), "extra")
+eq("a guidebook is", LM.excluded_kind(lrec("", "", ("245", [("a", "Tower of god guidebook /")]))), "extra")
+eq("a SET record is never an extra on its title words",
+   LM.excluded_kind(lrec("", "", ("245", [("a", "The art of war /")]), ("020", [("a", "9781975397838"), ("q", "v. 1")]),
+                         ("020", [("a", "9798855412048"), ("q", "v. 2")]))), None)
+eq("a single 'art of' record still is", LM.excluded_kind(lrec("", "", ("245", [("a", "The art of war /")]))), "extra")
+
+# spike cache c71306a3711ed5a62a382ca2e5499f7a.xml -- 'viii, 120 p. :'
+for a, want in (("viii, 106 p.", 106), ("ix, 326 pages", 326), ("135 pages", 135), ("volumes", None), ("1 online resource", None)):
+    eq("pages %r" % a, LM.pages(lrec("", "", ("300", [("a", a)]))), want)
+
+eq("040 $a DLC with a non-LoC $d (OCoLC) is still LoC-created (§2)",
+   LM.is_dlc(lrec("", "", ("040", [("a", "DLC"), ("b", "eng"), ("c", "DLC"), ("d", "OCoLC"), ("d", "DLC")]))), True)
+
+
 # ==== summary ====
 print()
 if FAILS:

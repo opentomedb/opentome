@@ -91,14 +91,19 @@ def text_language(r):
 
 # ---- ISBNs and volumes -------------------------------------------------------------------------------
 
-_VOL = re.compile(r"^\W*v(?:ol(?:ume)?)?\.?\s*(\d+)", re.I)
+# the volume a $q names, searched anywhere in it: 'v. 1', '(v. 1 ;', 'volume 1', 'pbk. : v. 1',
+# 'hbk. : v. 1 : alk paper', 'bk. 1'; a leading bare number before a binding ('1 : pbk') too. A
+# half volume stays one ('v. 5.5': its own number, never volume 5's). '6-pack' names no volume.
+_VOL = re.compile(r"\b(?:v(?:ol(?:ume)?)?|bk|book)\.?\s*(\d+(?:\.\d+)?)(?![\d-])|"
+                  r"^\W*(\d+(?:\.\d+)?)\s*:\s*(?:pbk|paperback|hbk|hardcover)", re.I)
 PAPERBACK = re.compile(r"paperback|pbk", re.I)
 
 
 def qualified_isbns(r):
     """020 $a ISBN-13s with the volume their $q names: [(number | None, isbn13, qualifiers)], record
-    order. EVERY $q is read -- LoC writes '$q v. 1 $q trade paperback', '$q trade paperback $q v. 1'
-    and '(v. 1 ;' (plan ruling P4). $z (cancelled, ebook) is never read."""
+    order. EVERY $q is read -- LoC writes '$q v. 1 $q trade paperback', '$q trade paperback $q v. 1',
+    '(v. 1 ;', 'pbk. : v. 1', '1 : pbk' and 'bk. 1' (plan ruling P4) -- and the number is
+    canonicalised by dnb_marc ('01' -> '1', '5.5' stays '5.5'). $z (cancelled, ebook) is never read."""
     out = []
     for f in M.fields(r, "020"):
         a = next((v for c, v in f if c == "a"), None)
@@ -106,7 +111,7 @@ def qualified_isbns(r):
         if not i13:
             continue
         qs = [v for c, v in f if c == "q"]
-        num = next((str(int(m.group(1))) for q in qs for m in [_VOL.match(q)] if m), None)
+        num = next((M.canon_number(m.group(1) or m.group(2))[0] for q in qs for m in [_VOL.search(q)] if m), None)
         out.append((num, i13, " ".join(qs)))
     return out
 
@@ -174,9 +179,10 @@ def volume_date(r, set_record):
 
 
 def pages(r):
-    """300 $a 'N pages' / 'N p.' -- single-volume records only carry it (22 of 75 in the spike)."""
+    """300 $a 'N pages' / 'N p.' -- single-volume records only carry it (22 of 75 in the spike);
+    a roman-numbered preliminary sequence is not counted ('viii, 106 p.' -> 106)."""
     a = M.clean(M.first(r, "300", "a"))
-    m = re.match(r"^\[?(\d{1,4})\]?\s*(?:unnumbered\s+)?(?:pages|p\.)", a)
+    m = re.match(r"^(?:[ivxlc]+\s*,\s*)?\[?(\d{1,4})\]?\s*(?:unnumbered\s+)?(?:pages|p\.)", a)
     return int(m.group(1)) if m and 0 < int(m.group(1)) <= 2000 else None
 
 
@@ -215,17 +221,19 @@ def origin(r):
     """-> (origin, explicit): ('kor' | 'chi', True) from 041 $h, else from a 'Translated from the
     Korean / Chinese' statement (500 / 546 / 245 $c); ('kor', False) for an Ize Press record that
     says neither (its ECIP-preliminary records carry no 041, §7 -- an imprint signal, never enough
-    to create a work, §9); (None, False) otherwise, including a Korean- or Chinese-LANGUAGE
-    original (008/35-37 kor / chi, out of scope §16) and any other 041 $h."""
-    if text_language(r) in ("kor", "chi", "zho"):
+    to create a work, §9); (None, False) otherwise:
+      * a text that is not English (008/35-37): a LoC line is an English-market line, so neither a
+        Korean- or Chinese-LANGUAGE original (out of scope §16) nor a Japanese translation of a
+        Chinese comic (Ransei ni eiyū arawaru, 041 $h chi) is one;
+      * an 041 $h naming any language besides Korean / Chinese: a relay translation (The blue
+        dragon, 2011930915: $h fre + $h chi, translated from the French)."""
+    if text_language(r) != "eng":
         return None, False
     h = {v.strip().lower() for v in M.subs(r, "041", "h")}
-    if "kor" in h:
-        return "kor", True
-    if h & {"chi", "zho"}:
-        return "chi", True
     if h:
-        return None, False
+        if not h <= {"kor", "chi", "zho"}:
+            return None, False
+        return ("kor", True) if "kor" in h else ("chi", True)
     m = TRANSLATED.search(" ".join(M.subs(r, "500", "a") + M.subs(r, "546", "a") + M.subs(r, "245", "c")))
     if m:
         return ("kor" if m.group(1).lower() == "korean" else "chi"), True
@@ -266,16 +274,19 @@ def classify(r):
 
 
 BUNDLE = re.compile(r"box(?:ed)? set|boxset|\bbox\b|slipcase", re.I)
-EXTRA = re.compile(r"artbook|art book|\bthe art of\b|guide ?book|\bguide\b|colou?ring book|sticker|calendar|postcard", re.I)
+# 'guide' alone is a title word: I Picked Up This World's Strategy Guide, The Genius Prince's Guide ...
+EXTRA = re.compile(r"artbook|art book|\bthe art of\b|guide ?book|official (?:visual )?guide|colou?ring book|"
+                   r"sticker|calendar|postcard", re.I)
 
 
 def excluded_kind(r):
-    """A bundle / box / artbook / guide is not a volume (§6.4; the dnb_marc.classify exclusions)."""
+    """A bundle / box / artbook / guide is not a volume (§6.4; the dnb_marc.classify exclusions).
+    A set record (is_set) is a series with numbered volumes, never an extra by its title words."""
     t = " ".join(M.subs(r, "245", "a") + M.subs(r, "245", "b") + M.subs(r, "245", "p") + M.subs(r, "250", "a")
                  + [v for f in M.fields(r, "020") for c, v in f if c == "q"])
     if BUNDLE.search(t):
         return "bundle"
-    if EXTRA.search(t):
+    if EXTRA.search(t) and not is_set(r):
         return "extra"
     return None
 
@@ -287,7 +298,16 @@ def _isbd(s):
 
 
 def title_proper(r):
-    return _isbd(M.first(r, "245", "a"))
+    """245 $a without the ISBD, then its part number / part name ($n / $p) in field order (§5)."""
+    f = next(iter(M.fields(r, "245")), [])
+    return ". ".join(x for x in (_isbd(v) for c, v in f if c in ("a", "n", "p")) if x)
+
+
+def full_title(r):
+    """The title proper with its other title information (245 $b): 'Solo leveling : Ragnarok' --
+    a sequel that is its own work, which the title proper alone reduces to its parent's name."""
+    b = _isbd(" ".join(M.subs(r, "245", "b")))
+    return title_proper(r) + " : " + b if b else title_proper(r)
 
 
 def bare_title(r):
@@ -318,7 +338,11 @@ def native_titles(r):
 
 
 def variant_titles(r):
-    return [x for x in (_isbd(v) for v in M.subs(r, "246", "a")) if x and not re.search("[\uac00-\ud7a3\u4e00-\u9fff]", x)]
+    """The full title (245 $a : $b) when it differs from the title proper, then 246 $a (not in
+    Hangul / Hanzi) -- the linker titles beyond title_proper / bare_title."""
+    out = [full_title(r)] if full_title(r) != title_proper(r) else []
+    out += [x for x in (_isbd(v) for v in M.subs(r, "246", "a")) if x and not re.search("[\uac00-\ud7a3\u4e00-\u9fff]", x)]
+    return list(dict.fromkeys(out))
 
 
 def series(r):
