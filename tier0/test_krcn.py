@@ -134,11 +134,10 @@ t = L.link(idx, ["Priest"], ["Park, Jin-hwan"], name="Priest")
 eq("JP rule unchanged by default (family name within one edit)", t[0], "high")
 
 # a line stage 3f loads (DE / manhwa, a dnb line_name claim) onto a KR-market work tagged manga
-# (King of Hell) must not move the work into out_of_scope: the work sets read Wikipedia lines only
+# (King of Hell) must not move the work into out_of_scope: the work sets never read a library line
 line_row(db, "rl_h_de", "w_hell", "manhwa", "DE", "de", source="dnb")
 db.execute("INSERT INTO claim VALUES('release_line','rl_h_de','line_name','King of Hell','dnb',NULL,'cc0','x')")
-db.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at) "
-           "VALUES('rl_noclaim','w_ouro','manhwa','DE','de','x','x')")      # no claim at all: not Wikipedia
+line_row(db, "rl_o_loc", "w_ouro", "manhwa", "US", "en", source="loc")      # a 3f LoC line: ignored too
 db.execute("INSERT INTO work VALUES('w_tog','Tower of God',NULL,NULL,NULL,NULL,'x','x')")
 line_row(db, "rl_t1", "w_tog", "manhwa", "EN", "en")
 db.execute("""INSERT INTO claim VALUES('work','w_tog','author','["SIU", "Kim Min-soo"]','wikipedia',NULL,'facts_only','x')""")
@@ -147,6 +146,18 @@ eq("a 3f-loaded DE/manhwa line (dnb claim) leaves out_of_scope unchanged",
    idx2.out_of_scope, {"w_mag", "w_priest", "w_sl", "w_tog"})
 eq("... and the KR/CN / JP work sets", (idx2.krcn_works, idx2.jp_works),
    ({"w_wind", "w_mag", "w_priest", "w_hell", "w_sl", "w_tog"}, {"w_wind", "w_ouro"}))
+# a line a correction created (only a 'correction' claim) and a DE Wikipedia line merged with DNB
+# claims are not library lines: both count
+db.execute("INSERT INTO work VALUES('w_corr','Corrected Manhwa',NULL,NULL,NULL,NULL,'x','x')")
+line_row(db, "rl_c1", "w_corr", "manhwa", "EN", "en", source="correction")
+db.execute("INSERT INTO work VALUES('w_dewiki','German Wiki Manhua',NULL,NULL,NULL,NULL,'x','x')")
+line_row(db, "rl_dw1", "w_dewiki", "manhua", "DE", "de")
+db.execute("INSERT INTO claim VALUES('release_line','rl_dw1','line_name','German Wiki Manhua','dnb',NULL,'cc0','x')")
+idx3 = L.Index(db)
+eq("a correction-created manhwa line counts (KR/CN work set and out_of_scope)",
+   ("w_corr" in idx3.krcn_works, "w_corr" in idx3.out_of_scope), (True, True))
+eq("a DE Wikipedia line merged with DNB claims counts",
+   ("w_dewiki" in idx3.krcn_works, "w_dewiki" in idx3.out_of_scope), (True, True))
 eq("author_raw keeps a short pen name name_key drops ('SIU')", "SIU" in idx2.author_raw["w_tog"], True)
 t = L.link(idx2, ["Tower of God"], ["SIU"], name="Tower of God", full_names=True)
 eq("full names: 'SIU' against a work credited SIU + another creator -> high", (t[0], t[1], t[3]),
