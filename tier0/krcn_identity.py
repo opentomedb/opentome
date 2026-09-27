@@ -90,18 +90,19 @@ def line_ids(lines, K):
     -> {"ambiguous": [], "adopted": n, "split": [(carried id, [minor part keys])]}.
 
     A built line is a PART of carried line T (same source) when it holds at least one of T's
-    volumes (the vote rule below). T is taken only when its parts TOGETHER hold a strict majority
-    of T's volumes -- with one part this is the brief's rule, and a lone 2 of 5 still mints.
+    volumes (the vote rule below); a line holding none of them never takes T by the lookup.
 
-    Controller ruling 2026-09-27 (splits, docs/id-scheme.md "Merges and splits"):
-      1. the part holding the most of T's volumes keeps T, whatever its own natural key; a tie goes
+    Controller ruling 2026-09-27, clarified the same day (docs/id-scheme.md "Merges and splits"):
+      1. PLURALITY: the part holding the most of T's volumes keeps T, whatever its own natural key,
+         provided it holds at least one -- so a lone surviving part with 2 of 5 keeps T; a tie goes
          to the part holding T's lowest volume number, then to the lowest own key;
       2. every other part mints a NEW id, split_id(T, its own key) -- never T, and never its bare
          key hash when that equals T (a line whose key once minted T but that now holds a minority
          or none of T's volumes);
       3. the moved volumes' published ids are left to 7b's general writer (carried_ids.redirects:
          a lost volume goes to the volume now holding its ISBN, else its number).
-    So a tie is no longer ambiguous: 'ambiguous' stays empty (kept for the caller's report)."""
+    This supersedes the brief's strict majority and "a tie is ambiguous": 'ambiguous' stays empty
+    (kept for the caller's report)."""
     rep = {"ambiguous": [], "adopted": 0, "split": []}
     parts = collections.defaultdict(list)
     by_src = collections.defaultdict(list)
@@ -122,8 +123,6 @@ def line_ids(lines, K):
     got, minor = collections.defaultdict(list), collections.defaultdict(list)
     for t, ps in parts.items():
         tv = K["line_vols"][t]
-        if 2 * len(set().union(*(h for h, _ in ps))) <= len(tv):
-            continue                      # T's evidence is mostly gone: nobody takes it (7b decides)
         ps.sort(key=lambda p: (-len(p[0]), min(_num_key(tv[k][0]) for k in p[0]), lines[p[1]]["key"]))
         got[ps[0][1]].append(t)
         for _, m in ps[1:]:
