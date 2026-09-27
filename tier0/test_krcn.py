@@ -236,6 +236,125 @@ try:
 finally:
     V.CACHE, V.urllib.request.urlopen = _saved_ol
 
+# ---- Task 4 fix round: ol_adopt determinism + OL_NEG_REFRESH_DAYS ------------------------------
+import time
+
+_fix_tmp = tempfile.mkdtemp(prefix="krcn-olfix-")
+_saved_fix = (V.CACHE, V.urllib.request.urlopen)
+V.CACHE = _fix_tmp
+try:
+    WORSE = {"publish_date": "2017", "cover": {"large": "https://covers.openlibrary.org/b/id/99999999-L.jpg"}}
+    BETTER = {"publish_date": "May 16, 2017", "cover": {"large": "https://covers.openlibrary.org/b/id/15251348-L.jpg"}}
+
+    F_ = "9780000000064"       # worse record sorts first (file name "aaa...")
+    with open(os.path.join(_fix_tmp, "aaa_batch.json"), "w") as f:
+        json.dump({"ISBN:" + F_: WORSE}, f)
+    with open(os.path.join(_fix_tmp, "zzz_batch.json"), "w") as f:
+        json.dump({"ISBN:" + F_: BETTER}, f)
+    EM.ol_adopt([])
+    eq("ol_adopt: finer date precision wins even when the coarser record sorts first",
+       EM.ol_entry(F_), BETTER)
+
+    G_ = "9780000000071"       # same two variants, better record sorts first this time
+    with open(os.path.join(_fix_tmp, "aaa_batch2.json"), "w") as f:
+        json.dump({"ISBN:" + G_: BETTER}, f)
+    with open(os.path.join(_fix_tmp, "zzz_batch2.json"), "w") as f:
+        json.dump({"ISBN:" + G_: WORSE}, f)
+    EM.ol_adopt([])
+    eq("ol_adopt: the same winner regardless of which file sorts first", EM.ol_entry(G_), BETTER)
+
+    H_ = "9780000000088"       # tied date; lowest positive cover id wins (6390630 < 15249132)
+    COVER_HI = {"publish_date": "2019", "cover": {"large": "https://covers.openlibrary.org/b/id/15249132-L.jpg"}}
+    COVER_LO = {"publish_date": "2019", "cover": {"large": "https://covers.openlibrary.org/b/id/6390630-L.jpg"}}
+    with open(os.path.join(_fix_tmp, "aaa_batch3.json"), "w") as f:
+        json.dump({"ISBN:" + H_: COVER_HI}, f)
+    with open(os.path.join(_fix_tmp, "zzz_batch3.json"), "w") as f:
+        json.dump({"ISBN:" + H_: COVER_LO}, f)
+    EM.ol_adopt([])
+    eq("ol_adopt: on a date tie, the lowest positive cover id wins", EM.ol_entry(H_), COVER_LO)
+
+    # OL_NEG_REFRESH_DAYS / ol_needs_fetch, with a fake mtime
+    I_ = "9780000000095"
+    EM._put(I_, None)
+    pi = EM.ol_isbn_path(I_)
+    old_t, fresh_t = time.time() - 61 * 86400, time.time() - 10 * 86400
+    os.utime(pi, (old_t, old_t))
+    eq("a negative older than OL_NEG_REFRESH_DAYS (60) needs a refetch", EM.ol_needs_fetch(I_), True)
+    os.utime(pi, (fresh_t, fresh_t))
+    eq("a fresh negative (10 days) does not", EM.ol_needs_fetch(I_), False)
+    os.utime(pi, (old_t, old_t))
+    _saved_days = EM.OL_NEG_REFRESH_DAYS
+    EM.OL_NEG_REFRESH_DAYS = 0
+    eq("OL_NEG_REFRESH_DAYS=0 disables the retry even when stale", EM.ol_needs_fetch(I_), False)
+    EM.OL_NEG_REFRESH_DAYS = _saved_days
+
+    J_ = "9780000000101"
+    EM._put(J_, {"publish_date": "2020"})
+    os.utime(EM.ol_isbn_path(J_), (old_t, old_t))
+    eq("a positive entry is never stale, however old", EM.ol_needs_fetch(J_), False)
+
+    # _put(refresh=True): a repeat negative just touches mtime; an upgrade is written; a positive
+    # is never overwritten either way
+    L_ = "9780000000125"
+    EM._put(L_, None)
+    pl = EM.ol_isbn_path(L_)
+    os.utime(pl, (old_t, old_t))
+    eq("_put(refresh=True) with no new data leaves it negative", EM._put(L_, None, refresh=True), False)
+    eq("... but resets the staleness clock", EM.ol_needs_fetch(L_), False)
+    os.utime(pl, (old_t, old_t))
+    eq("_put(refresh=True) upgrades a stale negative to positive",
+       EM._put(L_, {"publish_date": "2021"}, refresh=True), True)
+    eq("... entry is now positive", EM.ol_entry(L_), {"publish_date": "2021"})
+    eq("a positive entry is never overwritten, even with refresh=True",
+       EM._put(L_, {"publish_date": "1999"}, refresh=True), False)
+    eq("... value unchanged", EM.ol_entry(L_), {"publish_date": "2021"})
+
+    # A size-1 missing chunk's url IS that ISBN's own per-ISBN cache key: _fetch's ordinary cache
+    # read would just re-serve the stale {} and never attempt a live call, silently resetting the
+    # staleness clock forever without ever re-checking Open Library. enrich_openlibrary detects a
+    # stale chunk and passes _fetch(fresh=True) to force the live attempt.
+    O_ = "9780000000156"
+    db_o = schema_db()
+    db_o.execute("INSERT INTO work VALUES('w_o','TO',NULL,NULL,NULL,NULL,'x','x')")
+    line_row(db_o, "rl_o2", "w_o", "manhwa", "EN", "en")
+    db_o.execute("INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at) "
+                 "VALUES('v_o1','rl_o2','1',?,'x','x')", (O_,))
+    EM._put(O_, None)
+    os.utime(EM.ol_isbn_path(O_), (old_t, old_t))
+    OL_CALLS.clear()
+    V.urllib.request.urlopen = ol_urlopen
+    EM.enrich_openlibrary(db_o, market="EN")
+    eq("a lone stale negative is actually retried, not just re-read from cache",
+       OL_CALLS, [EM.ol_url([O_])])
+    eq("still not held -> stays negative", EM.ol_entry(O_), {})
+    # age it again and rerun: a SECOND real call, not a silent no-op reusing the first response
+    os.utime(EM.ol_isbn_path(O_), (old_t, old_t))
+    EM.enrich_openlibrary(db_o, market="EN")
+    eq("re-staled and re-run: two identical calls, not one (still refetching each time)",
+       OL_CALLS, [EM.ol_url([O_]), EM.ol_url([O_])])
+
+    # integration: two stale negatives on one market are retried together in a single request
+    M_, N_ = "9780000000132", "9780000000149"
+    for _isbn in (M_, N_):
+        EM._put(_isbn, None)
+        os.utime(EM.ol_isbn_path(_isbn), (old_t, old_t))
+    db_r = schema_db()
+    db_r.execute("INSERT INTO work VALUES('w_r','TR',NULL,NULL,NULL,NULL,'x','x')")
+    line_row(db_r, "rl_r", "w_r", "manhwa", "EN", "en")
+    db_r.execute("INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at) "
+                 "VALUES('v_r1','rl_r','1',?,'x','x')", (M_,))
+    db_r.execute("INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at) "
+                 "VALUES('v_r2','rl_r','2',?,'x','x')", (N_,))
+    OL_DB[M_] = {"publish_date": "2021"}      # N_ stays unresolved -- OL still doesn't hold it
+    OL_CALLS.clear()
+    EM.enrich_openlibrary(db_r, market="EN")
+    eq("stale negatives retried together in one request", OL_CALLS, [EM.ol_url(sorted([M_, N_]))])
+    eq("the one OL now holds is upgraded to positive", EM.ol_entry(M_), {"publish_date": "2021"})
+    eq("the one still not held stays negative", EM.ol_entry(N_), {})
+    eq("... but its staleness clock was reset", EM.ol_needs_fetch(N_), False)
+finally:
+    V.CACHE, V.urllib.request.urlopen = _saved_fix
+
 # ==== summary ====
 print()
 if FAILS:

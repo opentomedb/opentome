@@ -38,7 +38,13 @@ def ol_cover_ok(url):
 
 
 def covers_from_cache(verbose=True):
-    """-> {isbn13: (url, source)} from every cached Open Library / openBD response."""
+    """-> {isbn13: (url, source)} from every cached Open Library / openBD response. An Open
+    Library ISBN prefers its per-ISBN entry (tier1/enrich_more.ol_entry) when one exists --
+    deterministic, since ol_adopt ranks conflicting cached variants instead of picking by
+    glob/filesystem order -- and falls back to today's raw-batch scan (first cached batch
+    encountered wins) only for an ISBN ol_adopt has never derived an entry for."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import enrich_more as _EM
     out, files = {}, 0
     for f in glob.glob(os.path.join(CACHE, "*.json")):
         try:
@@ -50,9 +56,13 @@ def covers_from_cache(verbose=True):
         if isinstance(d, dict) and d and all(k.startswith("ISBN:") for k in list(d)[:3]):
             for key, rec in d.items():
                 isbn = key.split(":", 1)[1]
-                cover = (rec.get("cover") or {})
+                if isbn in out:
+                    continue
+                entry = _EM.ol_entry(isbn)
+                pick = rec if entry is None else entry
+                cover = (pick or {}).get("cover") or {}
                 url = cover.get("large") or cover.get("medium")
-                if url and ol_cover_ok(url) and isbn not in out:
+                if url and ol_cover_ok(url):
                     out[isbn] = (url, "openlibrary")
         elif isinstance(d, list) and any(isinstance(x, dict) and "summary" in x for x in d):
             # openBD answers a batch as a list with a null per unknown ISBN; a batch whose
