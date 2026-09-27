@@ -1712,7 +1712,11 @@ eq("carry lookup: the re-keyed line keeps its published id (strict majority of I
    ("rl_old", True))
 ln = bl("loc:2022000001", "loc", "Semantic error", I5[:2])
 KI.line_ids([ln], K)
-eq("2 of 5: no majority -> minted", ln["tome_id"], _id("rl_", "loc:2022000001"))
+eq("a lone part with 2 of 5 keeps the published id (plurality, controller ruling 2026-09-27)",
+   (ln["tome_id"], ln["carried"]), ("rl_old", True))
+ln = bl("loc:2022000001", "loc", "Semantic error", [("1", "9798400999991"), ("2", "9798400999992")])
+KI.line_ids([ln], K)
+eq("a line holding none of the carried line's volumes never takes it -> minted", ln["tome_id"], _id("rl_", "loc:2022000001"))
 ln = bl("dnb:1", "dnb", "Semantic error", I5)
 KI.line_ids([ln], K)
 eq("another source never takes a carried library line", ln["tome_id"], _id("rl_", "dnb:1"))
@@ -1820,11 +1824,15 @@ tie2 = [bl("loc:8", "loc", "Tie", [I5[0], I5[2]]), bl("loc:7", "loc", "Tie", [I5
 KI.line_ids(tie2, K5)
 eq("tie, both holding volume 1: the lowest own key keeps the id",
    [l["tome_id"] for l in tie2], [KI.split_id("rl_t", "loc:8"), "rl_t"])
-gate = [bl("loc:7", "loc", "Tie", I5[:1]), bl("loc:8", "loc", "Tie", I5[1:2])]
+gate = [bl("loc:7", "loc", "Tie", I5[1:2]), bl("loc:8", "loc", "Tie", I5[:1])]
 KI.line_ids(gate, KI.read_carry(carry_file("c5b", [("rl_g", "w_5", "Tie", "manhwa", "en", I5)], works=["w_5"],
                                            krcn_lines={"rl_g": "loc"})))
-eq("1 + 1 of 5: the parts together hold no majority -> nobody keeps it, both mint their keys",
-   [(l["tome_id"], l["carried"]) for l in gate], [(_id("rl_", "loc:7"), False), (_id("rl_", "loc:8"), False)])
+eq("1 + 1 of 5: plurality tie -> the part holding volume 1 keeps it (loc:8's own key is higher), the other splits",
+   [(l["tome_id"], l["carried"]) for l in gate], [(KI.split_id("rl_g", "loc:7"), False), ("rl_g", True)])
+zero = [bl("loc:300", "loc", "Split", [("1", "9798400999993")]), bl("loc:200", "loc", "Split", I5[2:])]
+KI.line_ids(zero, K4)
+eq("a 0-overlap line beside a split never takes the carried id and is no part: it mints its own key",
+   [(l["tome_id"], l["carried"]) for l in zero], [(_id("rl_", "loc:300"), False), (rl100, True)])
 
 # 7b writes the split's volume redirects: the minor part's carried volume ids go to its volumes, by ISBN
 import carried_ids as CI7
