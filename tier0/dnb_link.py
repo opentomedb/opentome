@@ -39,6 +39,8 @@ Tiers -- only high and medium are exported (decision 1, docs/dnb-design.md):
 import collections, json, re, unicodedata
 
 MIN_KEY = 3
+MIN_HANGUL_KEY = 2              # a key of Hangul syllables only (docs/krcn-design.md §10)
+HANGUL_ONLY = re.compile("[가-힣]+")
 MIN_PREFIX = 10
 LIST_PREFIX = re.compile(r"^(List of|Liste des|Liste der) .*? (chapters|volumes|chapitres|tomes|light novels|"
                          r"Bände|Kapitel) (of|de|du|des|d'|von) ", re.I)
@@ -48,7 +50,12 @@ def fold(s, strip_vol=True):
     s = (s or "").replace("\x98", "").replace("\x9c", "")
     s = unicodedata.normalize("NFKC", s)
     s = s.replace("×", "x").replace("&", " and ")
-    s = "".join(c for c in unicodedata.normalize("NFD", s) if not unicodedata.combining(c))
+    # NFD splits kana voicing marks off (dropped, as always) and Hangul syllables into conjoining
+    # jamo; NFC AFTER the strip puts the syllables back (docs/krcn-design.md §10). Once the marks
+    # are gone nothing else in a string composes, so a string without Hangul folds byte for byte
+    # as before -- tier0/krcn_replay.py fold-gate checks it over every catalogue and DNB string.
+    s = unicodedata.normalize("NFC", "".join(c for c in unicodedata.normalize("NFD", s)
+                                              if not unicodedata.combining(c)))
     s = s.lower().strip()
     s = re.sub(r"^the\s+", "", s)                  # 'The Dungeon of Black Company' = 'Dungeon of ...'
     if strip_vol:
@@ -57,12 +64,20 @@ def fold(s, strip_vol=True):
     s = re.sub(r"\bwo\b", "o", s)
     s = s.replace("ou", "o").replace("oo", "o").replace("uu", "u")
     s = re.sub(r"\(.*?\)", " ", s)
-    return re.sub(r"[^0-9a-z぀-ヿ一-鿿]+", "", s)
+    return re.sub("[^0-9a-z぀-ヿ一-鿿가-힣]+", "", s)
+
+
+def key_ok(k):
+    """Long enough to link on: MIN_KEY characters, or MIN_HANGUL_KEY for a key made only of Hangul
+    syllables (two-syllable Korean titles are common). Exact-equality lookups only: the prefix
+    paths need MIN_PREFIX, and the KR/CN containment guard (tier0/build_krcn.py) 5 characters.
+    Kana/CJK and Latin keys keep MIN_KEY, so no Japanese key changes."""
+    return len(k) >= MIN_KEY or (len(k) >= MIN_HANGUL_KEY and HANGUL_ONLY.fullmatch(k) is not None)
 
 
 def keys(titles):
     """Every DNB-side key: stripped and unstripped."""
-    return {k for t in titles for k in (fold(t), fold(t, False)) if len(k) >= MIN_KEY}
+    return {k for t in titles for k in (fold(t), fold(t, False)) if key_ok(k)}
 
 
 def name_key(n):
@@ -134,7 +149,7 @@ class Index:
     @staticmethod
     def _add(table, title, wid):
         k = fold(title, False)
-        if len(k) >= MIN_KEY:
+        if key_ok(k):
             table[k].add(wid)
 
 
