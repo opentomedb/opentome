@@ -613,8 +613,9 @@ def run_dnb(path, catalogue):
 
 def run_link_work(catalogue):
     """corrections/lines.json link_work entries (R2): each names a library line this build has, and
-    that line ships linked (or kept) under the corrected work. A key the build does not have is
-    reported (stale), not failed: DNB can renumber a set."""
+    that line ships under the corrected work -- linked or kept, or merged / sibling by ISBN when
+    the ISBNs agree (the join resolves merged to the Wikipedia line's work); a different work
+    fails. A key the build does not have is reported (stale), not failed: DNB can renumber a set."""
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tier2"))
     import corrections as CORR
     cat = sqlite3.connect(catalogue)
@@ -626,7 +627,8 @@ def run_link_work(catalogue):
                 "SELECT d.key, d.role, rl.work_id FROM %s d LEFT JOIN release_line rl ON rl.id=d.rl_id" % table)})
         except sqlite3.OperationalError:
             pass
-    wrong = [k for k, w in want.items() if k in rows and (rows[k][0] not in ("linked", "kept") or rows[k][1] != w)]
+    ships = ("linked", "kept", "merged", "sibling")
+    wrong = [k for k, w in want.items() if k in rows and (rows[k][0] not in ships or rows[k][1] != w)]
     rule("link_work corrections not applied (line not linked under the corrected work)", len(wrong), str(wrong[:5]))
     stale = [k for k in want if k not in rows]
     if stale:

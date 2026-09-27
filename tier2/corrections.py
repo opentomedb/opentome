@@ -41,8 +41,11 @@ LINE_KEYS = ("work", "market", "medium", "name", "volumes", "source_url", "check
 # 'bnf:<ark>' -- because a library line's id is not known before it links. Read by the linking
 # stages (tier0/build_dnb.py 3e, tier0/build_krcn.py 3f); apply_line_corrections (5b) skips it.
 LINK_WORK_KEYS = ("line_key", "link_work", "source_url", "checked")
-LIBRARY_KEY = re.compile(r"^(dnb|loc|bnf):\S+$")
-WORK_ID = re.compile(r"^w_[0-9a-f]{12}$")
+LIBRARY_KEY = re.compile(r"^(dnb|loc|bnf):\S+\Z")
+WORK_ID = re.compile(r"^w_[0-9a-f]{12}\Z")
+# keys of the other lines.json shapes: a link_work entry carrying one would be read by the
+# medium/market/new-line consumers too (export/test_artifact.py), so it is refused
+LINK_WORK_FORBIDDEN = ("volumes", "medium", "market", "line", "origin_line")
 ALIAS_KEYS = ("line", "alias", "source_url", "checked")
 # A whole WORK the catalogue should not carry at all (2026-09-23 cleanup): a work
 # that entered through a Wikipedia list-of-volumes page but is not in scope (The
@@ -616,7 +619,7 @@ def check(directory=DIR, artifact=None):
     def exists(sql, value):
         return db.execute(sql, (value,)).fetchone() is not None
 
-    n_vol = n_line = n_medium = n_market = n_alias = 0
+    n_vol = n_line = n_medium = n_market = n_alias = n_link = 0
     for i, e in entries("volumes.json", VOLUME_KEYS):
         field = str(e["field"])
         if field not in VOLUME_FIELDS:
@@ -664,6 +667,11 @@ def check(directory=DIR, artifact=None):
             except ValueError as err:
                 problems.append(str(err))
                 continue
+            n_link += 1
+            extra = [k for k in LINK_WORK_FORBIDDEN if k in e]
+            if extra:
+                problems.append("lines.json[%d]: a link_work entry also carries %s -- one entry, one "
+                                "correction shape (see corrections/README.md)" % (i, ", ".join(extra)))
             # the build's load_link_work refuses these too: a PR that passes must not fail the build
             if str(e["line_key"]) in link_keys:
                 problems.append("lines.json[%d]: line_key %s corrected twice" % (i, e["line_key"]))
@@ -817,9 +825,9 @@ def check(directory=DIR, artifact=None):
         label = db.execute("SELECT value FROM meta WHERE key='gcd_dump'").fetchone()
     except sqlite3.OperationalError:
         label = None
-    print("  corrections check ok: %d volume, %d line, %d medium, %d market, %d alias, "
+    print("  corrections check ok: %d volume, %d line, %d medium, %d market, %d link_work, %d alias, "
           "%d anilist, %d excluded entries resolve against %s%s"
-          % (n_vol, n_line, n_medium, n_market, n_alias, n_anilist, n_excluded, os.path.basename(artifact),
+          % (n_vol, n_line, n_medium, n_market, n_link, n_alias, n_anilist, n_excluded, os.path.basename(artifact),
              " (%s)" % label[0] if label else ""))
     return 0
 
