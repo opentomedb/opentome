@@ -35,10 +35,14 @@ def _throttle(interval):
     _last[0] = time.time()
 
 
-def _fetch(url, interval=0.35, retries=3):
+def _fetch(url, interval=0.35, retries=3, fresh=False):
+    """`fresh=True` bypasses the cache READ (still writes on success): used when the caller knows
+    this exact url was cached from a stale answer it's deliberately trying to refresh -- otherwise
+    a url that happens to already be cached (e.g. a size-1 chunk, whose url IS its single ISBN's
+    own per-ISBN cache key) would just serve the stale answer back and never attempt a live call."""
     os.makedirs(CACHE, exist_ok=True)
     key = os.path.join(CACHE, hashlib.sha256(url.encode()).hexdigest()[:32] + ".json")
-    if os.path.exists(key):
+    if not fresh and os.path.exists(key):
         with open(key, encoding="utf8") as f:
             return json.load(f)
     delay = 2.0

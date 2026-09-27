@@ -12,6 +12,12 @@ build/opentome.db or the carry: snapshots run stage 3e on a COPY under build/krc
     python3 tier0/krcn_replay.py jp-diff BASE.json NEW.json
         exit 1 unless 0 keys added / removed and 0 tiers / roles / exported flags / rl_ids /
         link_works changed (every snapshot field; each change names the field).
+    python3 tier0/krcn_replay.py ol-gate [catalogue]
+        Open Library per-ISBN cache keys (tier1/enrich_more.py): the frozen old sorted-batch loop
+        vs the new per-ISBN code, network BLOCKED, each on its own copy of the catalogue. Like
+        `plan` and any live `ol`/`both`/`olfr` run, the new code's `ol_adopt` WRITES newly-derived
+        per-ISBN entries into .cache/ as it runs -- from cached batch responses already on disk,
+        zero network. Fails unless every old claim is reproduced with the same value.
 
 catalogue defaults to build/opentome.db, carry to build/alias-fix/carry.sqlite (opentome-2026-09-25).
 """

@@ -133,10 +133,48 @@ def ol_entry(isbn):
     return d.get("ISBN:" + isbn, {}) if d else {}
 
 
-def _put(isbn, rec):
+# A negative entry ({}, "Open Library was asked and doesn't hold it") is retried after this many
+# days (by mtime) -- Open Library's holdings grow, so a book missing today may be added later.
+# <= 0 disables the retry: negatives are permanent, the original per-ISBN-cache behaviour. Cost:
+# at most ceil(current negative count / batch) extra LIVE requests, once per window, forever --
+# a recurring cost, unlike a positive entry's one-time ceil(new/50).
+OL_NEG_REFRESH_DAYS = 60
+
+
+def ol_needs_fetch(isbn):
+    """True when there's no per-ISBN entry yet, or the entry is a negative older than
+    OL_NEG_REFRESH_DAYS days (mtime). A positive entry is never stale. Used for both the live
+    fetch loop and `plan` (so the plan dict reflects what a live run would actually request)."""
+    p = ol_isbn_path(isbn)
+    if not os.path.exists(p):
+        return True
+    if OL_NEG_REFRESH_DAYS <= 0:
+        return False
+    with open(p, encoding="utf8") as f:
+        d = json.load(f)
+    if d:
+        return False
+    return (time.time() - os.path.getmtime(p)) / 86400 > OL_NEG_REFRESH_DAYS
+
+
+def _put(isbn, rec, refresh=False):
+    """Write the per-ISBN entry. Default: never overwrites an existing file (ol_adopt's offline
+    derivation always uses this). `refresh=True` (only the live fetch loop, on an ISBN
+    `ol_needs_fetch` already flagged) allows a STALE NEGATIVE to be re-answered: an upgrade to a
+    positive record is written; a repeat negative just touches the file's mtime (no rewrite) so
+    the next staleness check starts a fresh window. A positive entry is never overwritten either
+    way."""
     p = ol_isbn_path(isbn)
     if os.path.exists(p):
-        return False
+        if not refresh:
+            return False
+        with open(p, encoding="utf8") as f:
+            old = json.load(f)
+        if old:                        # a positive entry is never overwritten
+            return False
+        if not rec:                    # still negative: just reset the staleness clock
+            os.utime(p, None)
+            return False
     tmp = p + ".part"
     with open(tmp, "w", encoding="utf8") as f:
         json.dump({"ISBN:" + isbn: rec} if rec else {}, f, ensure_ascii=False)
@@ -144,15 +182,47 @@ def _put(isbn, rec):
     return True
 
 
+_PREC_RANK = {"day": 3, "month": 2, "year": 1, None: 0}
+_COVER_ID_RE = re.compile(r"/b/id/(-?\d+)-[SML]\.jpg")
+
+
+def _cover_id(rec):
+    """The Open Library cover's numeric id, read off any of its URLs, or None (no cover, or a
+    non-positive id -- -1 means "no cover", per tier1/covers.py's ol_cover_ok)."""
+    cov = (rec or {}).get("cover") or {}
+    for size in ("large", "medium", "small"):
+        u = cov.get(size)
+        if u:
+            m = _COVER_ID_RE.search(u)
+            if m and int(m.group(1)) > 0:
+                return int(m.group(1))
+    return None
+
+
+def _variant_rank(rec):
+    """Ranks a candidate record for an ISBN when cached batches disagree, so the winner is the
+    same on every machine regardless of glob/filesystem order: finest release-date precision,
+    then page count present, then a positive cover id (the LOWEST id wins), then a canonical json
+    dump as the final deterministic tiebreak."""
+    _, prec = parse_ol_date(rec.get("publish_date"))
+    cid = _cover_id(rec)
+    return (_PREC_RANK.get(prec, 0), 1 if rec.get("number_of_pages") else 0,
+            1 if cid else 0, -cid if cid else 0, json.dumps(rec, sort_keys=True))
+
+
 def ol_adopt(legacy, batch=50):
     """Split cached legacy batches into per-ISBN entries -- offline, zero requests.
-    Positive: every record of every cached Open Library batch response in .cache/*.json.
+    Positive: every record of every cached Open Library batch response in .cache/*.json. When
+    cached batches disagree about an ISBN (an older vs a newer Open Library snapshot), the best
+    variant wins by `_variant_rank` -- NOT by glob/filesystem order, so the derived entry is the
+    same regardless of directory listing order (Linux vs APFS, etc).
     Negative: the ISBNs a REBUILDABLE batch asked for and did not get -- the sorted 50-chunks of
     `legacy` (what the pre-round code requested); sha256 urls cannot be inverted, so no other
     batch can say what it asked for. Never overwrites an entry. -> (positive, negative) written."""
     import glob
     pos = neg = 0
-    for f in glob.glob(os.path.join(_V.CACHE, "*.json")):
+    variants = {}
+    for f in sorted(glob.glob(os.path.join(_V.CACHE, "*.json"))):
         try:
             with open(f, encoding="utf8") as fh:
                 d = json.load(fh)
@@ -160,7 +230,10 @@ def ol_adopt(legacy, batch=50):
             continue
         if isinstance(d, dict) and d and all(k.startswith("ISBN:") for k in list(d)[:3]):
             for k, rec in d.items():
-                pos += _put(k.split(":", 1)[1], rec)
+                if rec:
+                    variants.setdefault(k.split(":", 1)[1], []).append(rec)
+    for isbn, recs in variants.items():
+        pos += _put(isbn, max(recs, key=_variant_rank))
     legacy = sorted(set(legacy))
     for i in range(0, len(legacy), batch):
         chunk = legacy[i:i + batch]
@@ -203,19 +276,23 @@ def enrich_openlibrary(db, batch=50, limit=None, market="EN", plan=False):
         by.setdefault(isbn, []).append(vid)
     isbns = sorted(by)
     ol_adopt(legacy_isbns(db, market), batch)
-    missing = [x for x in isbns if ol_entry(x) is None]
+    missing = [x for x in isbns if ol_needs_fetch(x)]
     if plan:
         return {"isbns": len(isbns), "have": len(isbns) - len(missing), "missing": len(missing),
                 "requests": -(-len(missing) // batch)}
     print(f"  Open Library[{market}]: {len(isbns):,} distinct ISBNs, {len(missing):,} without a "
-          f"per-ISBN entry -> {-(-len(missing) // batch)} batch request(s)", flush=True)
+          f"current per-ISBN entry -> {-(-len(missing) // batch)} batch request(s)", flush=True)
     for i in range(0, len(missing), batch):
         chunk = missing[i:i + batch]
-        d = _fetch(ol_url(chunk), interval=0.6)
+        # a chunk containing a stale negative may hash to an already-cached url (most sharply for
+        # a size-1 chunk, whose url IS that ISBN's own per-ISBN key) -- fresh=True forces a live
+        # attempt instead of silently re-serving the stale answer and never checking again
+        stale = any(os.path.exists(ol_isbn_path(x)) for x in chunk)
+        d = _fetch(ol_url(chunk), interval=0.6, fresh=stale)
         if not isinstance(d, dict) or "_error" in d or "_http_error" in d:
             continue                       # a failed fetch writes nothing -- not even negatives
         for x in chunk:
-            _put(x, d.get("ISBN:" + x))
+            _put(x, d.get("ISBN:" + x), refresh=True)   # refresh: x may be a stale negative
     hit = ins = 0
     for isbn in isbns:
         rec = ol_entry(isbn)
@@ -305,6 +382,9 @@ def _fetch_xml(url, interval=1.0):
 
 
 if __name__ == "__main__":
+    # `plan` (below) and every live `ol`/`both`/`olfr` run first call ol_adopt (via
+    # enrich_openlibrary), which WRITES newly-derived per-ISBN entries into .cache/ from cached
+    # batch responses already on disk -- zero network either way; `plan` never fetches live.
     p = sys.argv[1] if len(sys.argv) > 1 else _build("opentome.db")
     which = sys.argv[2] if len(sys.argv) > 2 else "ol"
     lim = int(sys.argv[3]) if len(sys.argv) > 3 else None
