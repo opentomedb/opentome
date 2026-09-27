@@ -1570,6 +1570,105 @@ eq("Ize order: ISBN on an existing line, then a DE/FR title, else unresolved (re
    [(l["key"], l["medium"], l.get("medium_via")) for l in ize[:3]],
    [("loc:1", "manhwa", "isbn"), ("loc:2", "manhwa", "title"), ("loc:3", None, None)])
 
+# ---- Task 10 review fixes: keys from kept volumes, 225 without $v, 461 $0 heads, Ize title step, reasons ----
+def fr(ark8, *fields, h=None, c="kor"):
+    """A BnF volume record, ark cb<ark8>x; h: its series head's record number (461 $0)."""
+    f = [("101", [("a", "fre")] + ([("c", c)] if c else []))] + list(fields)
+    if h:
+        f.append(("461", [("0", h), ("t", dict(fields).get("200", [("a", "")])[0][1])] +
+                  ([("v", dict(dict(fields)["200"]).get("h"))] if dict(dict(fields)["200"]).get("h") else [])))
+    return brec(*f, cf3="http://catalogue.bnf.fr/ark:/12148/cb%sx" % ark8)
+
+
+# 1. the key is the lowest ark / LCCN among the KEPT volumes (FR Dr. Brain: its lowest ark was dropped)
+drb = KL.bnf_lines({U.ark(r): r for r in (
+    fr("47364934", ("010", [("a", isbn13("97823", 101))]), ("200", [("a", "Dr. Brain")]), ("225", [("a", "Dr. Brain"), ("v", "")]),
+       ("210", [("c", "Kbooks"), ("d", "2021")])),
+    fr("48631246", ("010", [("a", isbn13("97823", 102))]), ("200", [("a", "Dr. Brain"), ("h", "2")]),
+       ("225", [("a", "Dr. Brain"), ("v", "2")]), ("210", [("c", "Kbooks"), ("d", "2022")])))})
+eq("BnF key: the lowest ark among the KEPT volumes, never a dropped record's",
+   ([(l["key"], [v["number"] for v in l["vols"]]) for l in drb[0]], drb[1]),
+   ([("bnf:ark:/12148/cb48631246x", ["2"])],
+    [("bnf:ark:/12148/cb47364934x", "dropped_unnumbered", "bnf:ark:/12148/cb48631246x")]))
+LK1 = lrec("01000cam a2200000 i 4500", "250302s2025    nyu           000 1 eng  ", ("010", [("a", "  2025050001")]),
+           ("020", [("a", isbn13("97817", 50001))]), DLC, ("041", [("a", "eng"), ("h", "kor")]), ("082", [("a", "741.5")]),
+           ("245", [("a", "Omnibus of stars /")]), ("490", [("a", "Star saga ;"), ("v", "omnibus")]), VOL338, cid="lk1")
+LK2 = lrec("01000cam a2200000 i 4500", "250302s2025    nyu           000 1 eng  ", ("010", [("a", "  2025050002")]),
+           ("020", [("a", isbn13("97817", 50002))]), DLC, ("041", [("a", "eng"), ("h", "kor")]), ("082", [("a", "741.5")]),
+           ("245", [("a", "The first star /")]), ("490", [("a", "Star saga ;"), ("v", "2")]), VOL338, cid="lk2")
+lk = KL.loc_lines({"lk1": LK1, "lk2": LK2})
+eq("LoC singles key: the lowest LCCN among the KEPT volumes",
+   ([(l["key"], [v["number"] for v in l["vols"]]) for l in lk[0]], lk[1]),
+   ([("loc:2025050002", ["2"])], [("loc:2025050001", "dropped_unnumbered", "loc:2025050002")]))
+
+# 2. a bare 225 $a (no $v, no 461) is a collection, not a series: two one-shots stay two lines
+pp = KL.bnf_lines({U.ark(r): r for r in (
+    fr("43485033", ("010", [("a", isbn13("97823", 111))]), ("200", [("a", "Coup de foudre")]),
+       ("225", [("a", "Petit Pierre et Ieiazel")]), ("210", [("c", "Ieiazel"), ("d", "2011")])),
+    fr("43830362", ("010", [("a", isbn13("97823", 112))]), ("200", [("a", "Golden glove")]),
+       ("225", [("a", "Petit Pierre et Ieiazel")]), ("210", [("c", "Ieiazel"), ("d", "2012")])))})
+eq("225 $a without $v / 461: each one-shot is its own one-volume line (not one dropped group)",
+   sorted((l["name"], [v["number"] for v in l["vols"]]) for l in pp[0]), [("Coup de foudre", ["1"]), ("Golden glove", ["1"])])
+eq("225 $a WITH $v still names the series", U.series(brec(("225", [("a", "Dr. Brain"), ("v", "2")]))), "Dr. Brain")
+eq("... and a bare 225 $a does not", U.series(brec(("225", [("a", "KBL")]))), None)
+
+# 3. 461 $0: a volume with no 101 $c inherits its series head's origin; two heads never merge; a volume
+# with no 461 $0 joins the one head of its signature
+HEAD = brec(("101", [("a", "fre"), ("c", "kor")]), ("200", [("a", "Chonchu")]), ("210", [("c", "Tokebi"), ("d", "2003-")]),
+            leader="     nam  22        450 ", cf3="http://catalogue.bnf.fr/ark:/12148/cb39026600x")
+HEAD2 = brec(("101", [("a", "fre"), ("c", "kor")]), ("200", [("a", "Chonchu")]), ("210", [("c", "Tokebi"), ("d", "2007-")]),
+             leader="     nam  22        450 ", cf3="http://catalogue.bnf.fr/ark:/12148/cb43300000x")
+cs = [fr("39026622", ("010", [("a", isbn13("97823", 121))]), ("200", [("a", "Chonchu"), ("h", "1")]),
+         ("210", [("c", "Tokebi"), ("d", "2003")]), h="39026600"),
+      fr("39026700", ("010", [("a", isbn13("97823", 127))]), ("200", [("a", "Chonchu"), ("h", "7")]),
+         ("210", [("c", "Tokebi"), ("d", "2004")]), h="39026600", c=None),                      # no 101 $c of its own
+      fr("39026800", ("010", [("a", isbn13("97823", 128))]), ("200", [("a", "Chonchu"), ("h", "8")]),
+         ("210", [("c", "Tokebi"), ("d", "2004")])),                                            # no 461 $0: joins
+      fr("43300001", ("010", [("a", isbn13("97823", 131))]), ("200", [("a", "Chonchu"), ("h", "1")]),
+         ("210", [("c", "Tokebi"), ("d", "2007")]), h="43300000"),                               # another head
+      fr("43300002", ("010", [("a", isbn13("97823", 132))]), ("200", [("a", "Orphan"), ("h", "1")]),
+         ("210", [("c", "Tokebi"), ("d", "2007")]), h="99999999", c=None)]                      # head unknown
+shape = lambda res: sorted((l["key"][-11:], sorted((v["number"] for v in l["vols"]), key=int), l["origin"], l["medium_why"])
+                           for l in res[0])
+ch = KL.bnf_lines({U.ark(r): r for r in [HEAD, HEAD2] + cs[:2] + cs[3:]})
+eq("461 $0: two heads of one title + publisher are two lines (never merged, no duplicate-number review); "
+   "a volume with no 101 $c inherits its head's kor",
+   shape(ch), [("cb39026622x", ["1", "7"], "kor", None), ("cb43300001x", ["1"], "kor", None)])
+eq("... inherited origin counted; a volume under an unknown head with no 101 $c stays out",
+   (ch[2]["origin_inherited"], ch[2]["dropped"].get("origin_out_of_scope"), ch[2]["dropped"].get("set_record")), (1, 1, 2))
+eq("461 $0: a volume without 461 $0 joins the ONE head line of its signature",
+   shape(KL.bnf_lines({U.ark(r): r for r in [HEAD] + cs[:3]})), [("cb39026622x", ["1", "7", "8"], "kor", None)])
+eq("... and stays apart when two heads share its signature",
+   shape(KL.bnf_lines({U.ark(r): r for r in [HEAD, HEAD2] + cs[:4]})),
+   [("cb39026622x", ["1", "7"], "kor", None), ("cb39026800x", ["8"], "kor", None), ("cb43300001x", ["1"], "kor", None)])
+
+# 4. the Ize title step resolves only to a comic medium
+iz = [dict(key="loc:4", source="loc", medium=None, medium_why=None, origin="kor", name="Semantic error",
+           vols=[{"isbns": []}]),
+      dict(key="loc:5", source="loc", medium=None, medium_why=None, origin="kor", name="Penelope", vols=[{"isbns": []}]),
+      dict(key="dnb:7", source="dnb", medium="novel", medium_why=None, origin="kor", name="Semantic error",
+           titles=["Semantic error"], vols=[]),
+      dict(key="dnb:6", source="dnb", medium="novel", medium_why=None, origin="kor", name="Penelope",
+           titles=["Penelope"], vols=[]),
+      dict(key="bnf:5", source="bnf", medium="manhwa", medium_why=None, origin="kor", name="Semantic error",
+           titles=["Semantic error"], vols=[])]
+KL.resolve_media(iz, {})
+eq("Ize title step: a novel-only match, or a novel beside a comic, leaves the LoC line in review",
+   [(l["key"], l["medium"], l.get("medium_via")) for l in iz[:2]], [("loc:4", None, None), ("loc:5", None, None)])
+
+# 5. every review reason is kept: 'both' AND duplicate numbers -> 'duplicate_numbers+both'
+LB1 = lrec("01000cam a2200000 i 4500", "250302s2025    nyu           000 1 eng  ", ("010", [("a", "  2025060001")]),
+           ("020", [("a", isbn13("97817", 60001))]), DLC, ("041", [("a", "eng"), ("h", "kor")]),
+           ("082", [("a", "895.73")]), ("655", [("a", "Graphic novels")]), ("245", [("a", "Dual."), ("n", "1")]),
+           VOL338, cid="lb1")
+LB2 = lrec("01000cam a2200000 i 4500", "250302s2025    nyu           000 1 eng  ", ("010", [("a", "  2025060002")]),
+           ("020", [("a", isbn13("97817", 60002))]), DLC, ("041", [("a", "eng"), ("h", "kor")]), ("082", [("a", "741.5")]),
+           ("245", [("a", "Dual."), ("n", "1")]), VOL338, cid="lb2")
+lb = KL.loc_lines({"lb1": LB1, "lb2": LB2})
+eq("both reasons kept, '+'-joined in rule order", [(l["medium"], l["medium_why"], l["medium_why"].split("+")) for l in lb[0]],
+   [(None, "duplicate_numbers+both", ["duplicate_numbers", "both"])])
+eq("stats count the joined reason", lb[2]["review"], {"duplicate_numbers+both": 1})
+
 # ==== summary ====
 print()
 if FAILS:

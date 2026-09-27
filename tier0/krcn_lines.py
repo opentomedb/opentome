@@ -4,19 +4,25 @@ tier0/build_krcn.py links, clusters, creates and loads them.
 
 A line dict (every source):
   key         natural key, from source data only (§8): 'dnb:<parent IDN | lowest member IDN>'
-              (build_dnb's rule), 'loc:<LCCN of a set record | lowest member LCCN>' (string order of
-              the normalised LCCN), 'bnf:<ark with the lowest 8-digit record number>'
+              (build_dnb's rule), 'loc:<LCCN of a set record | lowest kept member LCCN>' (string order
+              of the normalised LCCN), 'bnf:<ark with the lowest 8-digit record number among the kept
+              volumes>' -- a LoC / BnF key is always one of the line's own volumes
   source      'dnb' | 'loc' | 'bnf'; market 'DE' | 'EN' | 'FR'; language 'de' | 'en' | 'fr'
   name, publisher, pubfam, edition (DNB only; else None)
   medium      'manhwa' | 'manhua' | 'novel' | None. None = the line goes to REVIEW: medium_why says
               why, and a LoC line with medium_why None is an unresolved class (§7, the Ize order;
               build_krcn's reason 'ize-medium')
-  medium_why  the review reason when medium is None, else None:
+  medium_why  the review reason(s) when medium is None, else None: one reason, or several joined by
+              '+' in this order (read it with medium_why.split('+')):
                 'duplicate_numbers'  two volumes of one number were left over (a novel and its comic
                                      merged, a re-edition under the same key: controller ruling 3c)
                 'both'               a comic AND a prose signal (LoC, §7)
                 'writer_only'        DNB: no illustrator credit and median pages >= 320 -- a web-novel
                                      edition the publisher classed as a comic (ruling 3b)
+              e.g. 'duplicate_numbers+both' (LoC). A LoC line with medium None and medium_why None is
+              an unresolved class (the Ize order, resolve_media).
+  medium_via  set by resolve_media only, on a LoC line it resolved: 'isbn' (an existing OpenTome line
+              holds one of its ISBNs) | 'title' (a DE / FR comic line of the same title); absent otherwise
   medium_guess the medium the line would have without its review reason (None when unknown)
   origin      'kor' | 'chi' (majority of members); explicit: any member has 041$h / 101$c or a
               translation statement (§9 criterion 2); comic: any comic-classified volume, and never
@@ -199,7 +205,9 @@ def _loc_titles(rs):
 
 
 def _loc_line(key, set_rec, singles):
-    """One LoC line: a set record's volumes (from its $q ISBNs) and/or single-volume records."""
+    """One LoC line: a set record's volumes (from its $q ISBNs) and/or single-volume records. key None
+    (no set record): 'loc:' + the lowest LCCN among the KEPT volumes' records -- a line key is always
+    one of its volumes."""
     rs = ([set_rec] if set_rec is not None else []) + [r for _, r in singles]
     vols = {}
     if set_rec is not None:
@@ -257,6 +265,8 @@ def _loc_line(key, set_rec, singles):
         (next((n for n, _ in LM.series(singles[0][1])), None) or _own_title(singles[0][1]))
     for v in allv:
         v.pop("_pref", None)
+    if key is None:
+        key = "loc:" + min([m[4:] for v in allv for m in v["members"]] or [lc for lc, _ in singles])
     ln = {"key": key, "source": "loc", "market": "EN", "language": "en", "name": name, "publisher": pub,
           "pubfam": LM.pubfam(pub), "edition": None, "medium": medium, "medium_why": why, "medium_guess": None,
           "origin": origin, "ize": any(LM.is_ize(r) for r in rs),
@@ -268,8 +278,7 @@ def _loc_line(key, set_rec, singles):
           "members": [m for v in allv for m in v["members"]],
           "loc": [row for v in allv for row in v.pop("rows")]}
     if any(f == DUP for _, f in lost):
-        ln["medium_why"] = None
-        _review(ln, "duplicate_numbers")
+        _review(ln, "+".join(["duplicate_numbers"] + ([why] if why else [])))
     return ln, [(m, f, key) for v, f in lost for m in v["members"]]
 
 
@@ -327,7 +336,7 @@ def loc_lines(recs):
         lost += l2
     for s in sorted(groups):
         singles = groups[s]
-        ln, l2 = _loc_line("loc:" + min(lc for lc, _ in singles), None, singles)
+        ln, l2 = _loc_line(None, None, singles)
         lost += l2
         if ln["vols"]:
             lines.append(ln)
@@ -337,19 +346,30 @@ def loc_lines(recs):
 # ---- BnF ------------------------------------------------------------------------------------------------
 
 def bnf_lines(recs):
-    """The French KR/CN lines from BnF (§4-§8). Scope: 101 $c kor / chi (explicit; a relay through
-    English, 101 $b eng, stays in: controller ruling), a monograph, not a set record (P8), not a
-    bundle / range / extra. Every record of the publisher channels is a comic (§7). ISBN twins (same
-    ISBN, same number) are one volume; an ISBN on two DIFFERENT numbers is dropped from both
-    (build_dnb.twins' box-set rule). Lines: folded 461 $t / 225 $a, else 200 $a, + publisher family;
-    key 'bnf:' + the ark with the lowest record number. A number left over twice -> review."""
+    """The French KR/CN lines from BnF (§4-§8). Scope: a KR/CN origin -- 101 $c kor / chi, or, for a
+    volume with no 101 $c of its own, the 101 $c of the series head it hangs under (461 $0; the head
+    is a set record of the same channels) --, a monograph, not a set record (P8), not a bundle /
+    range / extra. A relay through English (101 $b eng) stays in (controller ruling). Every record of
+    the publisher channels is a comic (§7). ISBN twins (same ISBN, same number) are one volume; an
+    ISBN on two DIFFERENT numbers is dropped from both (build_dnb.twins' box-set rule).
+    Lines: the volumes of one series head (461 $0) are one line -- two heads are never merged; a
+    volume with no 461 $0 joins the one head line of its signature (folded series, else 200 $a, +
+    publisher family) when there is exactly one, else lines by that signature. Key 'bnf:' + the ark
+    with the lowest record number among the line's KEPT volumes (a line key is always one of its
+    volumes). A number left over twice -> review."""
     drop, keep = collections.Counter(), []
+    heads = {U.ark_number(U.ark(r)): r for r in recs.values() if U.ark(r)}
+    inherited = 0
     for r in recs.values():
         a = U.ark(r)
         if not a:
             drop["no_ark"] += 1
             continue
-        if not U.origin(r):
+        o = U.origin(r)
+        if not o and U.head_number(r) in heads:
+            o = U.origin(heads[U.head_number(r)])
+            inherited += bool(o)
+        if not o:
             drop["origin_out_of_scope"] += 1
             continue
         if not U.is_monograph(r):
@@ -362,21 +382,31 @@ def bnf_lines(recs):
         if kind:
             drop[kind] += 1
             continue
-        keep.append((U.ark_number(a), a, r))
+        keep.append((U.ark_number(a), a, r, o))
     keep.sort(key=lambda t: (t[0], t[1]))
     nums = collections.defaultdict(set)
-    for _, a, r in keep:
+    for _, a, r, _o in keep:
         for i in U.isbns(r):
             nums[i].add(U.volume_number(r))
     boxset = {i for i, ns in nums.items() if len(ns) > 1}
-    groups = collections.defaultdict(list)
-    for n, a, r in keep:
-        groups[(L.fold(U.series(r) or U.title(r), False), U.pubfam(U.publisher(r)))].append((n, a, r))
+
+    def sig(r):
+        return (L.fold(U.series(r) or U.title(r), False), U.pubfam(U.publisher(r)))
+    groups, head_sigs = collections.defaultdict(list), collections.defaultdict(set)
+    for m in keep:
+        h = U.head_number(m[2])
+        if h is not None:
+            groups[("h", "%08d" % h, "")].append(m)
+            head_sigs[sig(m[2])].add(("h", "%08d" % h, ""))
+    for m in keep:
+        if U.head_number(m[2]) is None:
+            hs = head_sigs.get(sig(m[2]), set())
+            groups[next(iter(hs)) if len(hs) == 1 else ("s",) + sig(m[2])].append(m)
     lines, lost = [], []
-    for s, members in sorted(groups.items()):
-        key = "bnf:" + members[0][1]                # lowest record number (sorted)
+    for g, members in sorted(groups.items()):
+        members.sort(key=lambda t: (t[0], t[1]))
         vols, by_isbn = [], {}
-        for n, a, r in members:
+        for n, a, r, _o in members:
             isb = [i for i in U.isbns(r) if i not in boxset]
             twin = next((by_isbn[i] for i in isb if i in by_isbn), None)
             if twin is not None:
@@ -392,11 +422,14 @@ def bnf_lines(recs):
             vols.append(v)
         one_shot = len(members) == 1 and not U.series(members[0][2])
         kept, l2 = _number_volumes(vols, one_shot)
+        # the key: the lowest record number among the KEPT volumes' members (never a dropped record)
+        pool = [m[4:] for v in kept for m in v["members"]] or [members[0][1]]
+        key = "bnf:" + min(pool, key=lambda a: (U.ark_number(a), a))
         lost += [(m, f, key) for v, f in l2 for m in v["members"]]
         if not kept:
             continue
-        rs = [r for _, _, r in members]
-        origin = _majority(U.origin(r) for r in rs)
+        rs = [r for _, _, r, _o in members]
+        origin = _majority(o for _, _, _, o in members)
         pubs = collections.Counter(U.publisher(r) for r in rs if U.publisher(r))
         pub = pubs.most_common(1)[0][0] if pubs else None
         titles = [t for t in dict.fromkeys([U.series(rs[0]), U.title(rs[0])] + [U.series(r) for r in rs]) if t]
@@ -413,7 +446,7 @@ def bnf_lines(recs):
         if any(f == DUP for _, f in l2):
             _review(ln, "duplicate_numbers")
         lines.append(ln)
-    return lines, lost, _stats(recs, len(keep), drop, lines)
+    return lines, lost, _stats(recs, len(keep), drop, lines, origin_inherited=inherited)
 
 
 # ---- the Ize order (§7) -------------------------------------------------------------------------------------
@@ -421,8 +454,11 @@ def bnf_lines(recs):
 def resolve_media(lines, isbn_medium):
     """A LoC line with no medium (and no review reason), in the §7 order:
       1. an existing OpenTome line holds one of its ISBNs -> that line's medium class;
-      2. a DNB or BnF KR/CN line of this build with the same folded title -> its medium;
+      2. DNB / BnF KR/CN lines of this build with the same folded title, all of ONE comic medium
+         (manhwa / manhua) -> that medium; a title match to a novel line (alone or beside a comic
+         line: Ize prints both) resolves nothing;
       3. otherwise it stays None -- build_krcn sends it to review (reason 'ize-medium').
+    Sets medium_via 'isbn' | 'title' on the lines it resolves.
     A line in review (medium None) is never a title source. A later LoC upgrade of the record
     classifies it on its own (a refresh, §7)."""
     by_title = collections.defaultdict(set)
@@ -441,5 +477,5 @@ def resolve_media(lines, isbn_medium):
             ln["medium_via"] = "isbn"
             continue
         got = by_title.get(L.fold(ln["name"] or "", False), set())
-        if len(got) == 1:
+        if len(got) == 1 and next(iter(got)) in COMIC_MEDIA:
             ln["medium"], ln["medium_via"] = next(iter(got)), "title"

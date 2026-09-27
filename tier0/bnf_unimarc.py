@@ -146,7 +146,18 @@ def volume_number(r):
 
 
 def series(r):
-    return M.clean(M.first(r, "461", "t") or M.first(r, "225", "a") or "") or None
+    """461 $t, else 225 $a -- but 225 $a only when the record also has a 225 $v or a 461: a bare 225 $a
+    is a publisher's collection ('KBL', 'Petit Pierre & Ieiazel' one-shots), not a series."""
+    t = M.first(r, "461", "t")
+    if not t and (M.subs(r, "225", "v") or M.fields(r, "461")):
+        t = M.first(r, "225", "a")
+    return M.clean(t or "") or None
+
+
+def head_number(r):
+    """461 $0: the record number (8 digits) of the series head this volume hangs under, or None."""
+    v = (M.first(r, "461", "0") or "").strip()
+    return int(v) if re.fullmatch(r"\d{8}", v) else None
 
 
 def publisher(r):
