@@ -8,8 +8,9 @@ rule was. Verification COVERAGE, not the rule, was the limiting factor.
   EN -> Open Library   free, no key, batched, day-precision dates (20/20 on probe)
   FR -> BnF SRU        free, no auth, exact ISBN match, UNIMARC
 
-Library of Congress was tried first for EN and rejected: its SRU returned zero
-records even for control queries it certainly holds.
+Library of Congress was rejected here once: its SRU answered "zero records" even for control
+queries. That was SRU diagnostic 61 ("First record position out of range", HTTP 200), which
+the KR/CN round's LoC client pages through (tier0/loc_sru.py, docs/krcn-design.md §3).
 """
 import datetime, json, os, re, sqlite3, sys, time
 import urllib.parse, urllib.request, urllib.error
@@ -105,7 +106,91 @@ def _claim(db, vid, field, value, source, url, licence=None):
         VALUES('volume',?,?,?,?,?,?,?)""", (vid, field, value, source, url, licence, NOW))
 
 
-def enrich_openlibrary(db, batch=50, limit=None, market="EN"):
+import hashlib
+import verify as _V
+
+OL_API = "https://openlibrary.org/api/books?bibkeys=%s&format=json&jscmd=data"
+
+
+def ol_url(isbns):
+    return OL_API % ",".join("ISBN:" + x for x in isbns)
+
+
+def ol_isbn_path(isbn):
+    """The per-ISBN entry: the cache file of the SINGLE-ISBN url -- the answer Open Library gives
+    for that url ({'ISBN:<isbn>': rec}, or {} when it holds nothing). tier1/covers.py reads it as
+    it reads any batch. Keyed per ISBN, so adding ISBNs never re-keys anything (krcn-design §12)."""
+    return os.path.join(_V.CACHE, hashlib.sha256(ol_url([isbn]).encode()).hexdigest()[:32] + ".json")
+
+
+def ol_entry(isbn):
+    """-> the per-ISBN record ({} = asked, not held), or None when there is no entry."""
+    p = ol_isbn_path(isbn)
+    if not os.path.exists(p):
+        return None
+    with open(p, encoding="utf8") as f:
+        d = json.load(f)
+    return d.get("ISBN:" + isbn, {}) if d else {}
+
+
+def _put(isbn, rec):
+    p = ol_isbn_path(isbn)
+    if os.path.exists(p):
+        return False
+    tmp = p + ".part"
+    with open(tmp, "w", encoding="utf8") as f:
+        json.dump({"ISBN:" + isbn: rec} if rec else {}, f, ensure_ascii=False)
+    os.replace(tmp, p)
+    return True
+
+
+def ol_adopt(legacy, batch=50):
+    """Split cached legacy batches into per-ISBN entries -- offline, zero requests.
+    Positive: every record of every cached Open Library batch response in .cache/*.json.
+    Negative: the ISBNs a REBUILDABLE batch asked for and did not get -- the sorted 50-chunks of
+    `legacy` (what the pre-round code requested); sha256 urls cannot be inverted, so no other
+    batch can say what it asked for. Never overwrites an entry. -> (positive, negative) written."""
+    import glob
+    pos = neg = 0
+    for f in glob.glob(os.path.join(_V.CACHE, "*.json")):
+        try:
+            with open(f, encoding="utf8") as fh:
+                d = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if isinstance(d, dict) and d and all(k.startswith("ISBN:") for k in list(d)[:3]):
+            for k, rec in d.items():
+                pos += _put(k.split(":", 1)[1], rec)
+    legacy = sorted(set(legacy))
+    for i in range(0, len(legacy), batch):
+        chunk = legacy[i:i + batch]
+        p = os.path.join(_V.CACHE, hashlib.sha256(ol_url(chunk).encode()).hexdigest()[:32] + ".json")
+        if not os.path.exists(p):
+            continue
+        with open(p, encoding="utf8") as fh:
+            d = json.load(fh)
+        if not isinstance(d, dict) or "_error" in d or "_http_error" in d:
+            continue
+        for x in chunk:
+            if "ISBN:" + x not in d:
+                neg += _put(x, None)
+    return pos, neg
+
+
+def legacy_isbns(db, market):
+    """The market's ISBNs as the pre-round code saw them: every volume ISBN, minus those stage 3f
+    (tier0/build_krcn.py) introduced -- created volumes' and filled isbn13 values."""
+    have = {r[0] for r in db.execute("""SELECT DISTINCT v.isbn13 FROM volume v JOIN release_line rl
+        ON rl.id=v.release_line_id WHERE rl.market=? AND v.isbn13 IS NOT NULL""", (market,))}
+    try:
+        new = {r[0] for r in db.execute("""SELECT isbn13 FROM krcn_member WHERE isbn13 IS NOT NULL
+                                           AND (fate='created' OR filled LIKE '%isbn13%')""")}
+    except sqlite3.OperationalError:
+        new = set()
+    return sorted(have - new)
+
+
+def enrich_openlibrary(db, batch=50, limit=None, market="EN", plan=False):
     rows = db.execute("""SELECT v.id, v.isbn13 FROM volume v
         JOIN release_line rl ON rl.id=v.release_line_id
         WHERE rl.market=? AND v.isbn13 IS NOT NULL
@@ -117,30 +202,35 @@ def enrich_openlibrary(db, batch=50, limit=None, market="EN"):
     for vid, isbn in rows:
         by.setdefault(isbn, []).append(vid)
     isbns = sorted(by)
-    print(f"  Open Library[{market}]: {len(isbns):,} distinct ISBNs in {len(isbns)//batch+1} batches", flush=True)
-    hit = ins = 0
-    for i in range(0, len(isbns), batch):
-        chunk = isbns[i:i+batch]
-        url = ("https://openlibrary.org/api/books?bibkeys=" +
-               ",".join("ISBN:"+x for x in chunk) + "&format=json&jscmd=data")
-        d = _fetch(url, interval=0.6)
+    ol_adopt(legacy_isbns(db, market), batch)
+    missing = [x for x in isbns if ol_entry(x) is None]
+    if plan:
+        return {"isbns": len(isbns), "have": len(isbns) - len(missing), "missing": len(missing),
+                "requests": -(-len(missing) // batch)}
+    print(f"  Open Library[{market}]: {len(isbns):,} distinct ISBNs, {len(missing):,} without a "
+          f"per-ISBN entry -> {-(-len(missing) // batch)} batch request(s)", flush=True)
+    for i in range(0, len(missing), batch):
+        chunk = missing[i:i + batch]
+        d = _fetch(ol_url(chunk), interval=0.6)
         if not isinstance(d, dict) or "_error" in d or "_http_error" in d:
+            continue                       # a failed fetch writes nothing -- not even negatives
+        for x in chunk:
+            _put(x, d.get("ISBN:" + x))
+    hit = ins = 0
+    for isbn in isbns:
+        rec = ol_entry(isbn)
+        if not rec:
             continue
-        for key, rec in d.items():
-            isbn = key.split(":", 1)[1]
-            hit += 1
-            iso, prec = parse_ol_date(rec.get("publish_date"), market)
-            for vid in by.get(isbn, []):
-                if iso:
-                    _claim(db, vid, "release_date", iso, "openlibrary",
-                           f"https://openlibrary.org/isbn/{isbn}")
-                    ins += 1
-                if rec.get("number_of_pages"):
-                    _claim(db, vid, "page_count", str(rec["number_of_pages"]),
-                           "openlibrary", f"https://openlibrary.org/isbn/{isbn}")
-        db.commit()
-        if (i//batch) % 20 == 0 and i:
-            print(f"    {i:,}/{len(isbns):,}  found={hit:,} claims={ins:,}", flush=True)
+        hit += 1
+        iso, prec = parse_ol_date(rec.get("publish_date"), market)
+        for vid in by[isbn]:
+            if iso:
+                _claim(db, vid, "release_date", iso, "openlibrary", f"https://openlibrary.org/isbn/{isbn}")
+                ins += 1
+            if rec.get("number_of_pages"):
+                _claim(db, vid, "page_count", str(rec["number_of_pages"]), "openlibrary",
+                       f"https://openlibrary.org/isbn/{isbn}")
+    db.commit()
     return len(isbns), hit, ins
 
 
@@ -219,6 +309,10 @@ if __name__ == "__main__":
     which = sys.argv[2] if len(sys.argv) > 2 else "ol"
     lim = int(sys.argv[3]) if len(sys.argv) > 3 else None
     db = sqlite3.connect(p)
+    if which == "plan":
+        for m in ("EN", "FR"):
+            print("Open Library plan %s:" % m, enrich_openlibrary(db, market=m, plan=True))
+        raise SystemExit(0)
     if which in ("ol", "both"):
         print("openlibrary:", enrich_openlibrary(db, limit=lim, market="EN"))
     if which in ("olfr", "both"):

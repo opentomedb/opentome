@@ -163,6 +163,79 @@ t = L.link(idx2, ["Tower of God"], ["SIU"], name="Tower of God", full_names=True
 eq("full names: 'SIU' against a work credited SIU + another creator -> high", (t[0], t[1], t[3]),
    ("high", "w_tog", "title+author"))
 
+# ---- Task 4: Open Library per-ISBN cache keys -------------------------------------------------------
+import hashlib, verify as V, enrich_more as EM
+
+_ol_tmp = tempfile.mkdtemp(prefix="krcn-ol-")
+_saved_ol = (V.CACHE, V.urllib.request.urlopen)
+V.CACHE = _ol_tmp
+OL_CALLS = []
+
+
+class _OLResp:
+    def __init__(self, d):
+        self.d = json.dumps(d).encode()
+
+    def read(self):
+        return self.d
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+OL_DB = {"9780000000002": {"publish_date": "March 2, 2021", "number_of_pages": 320},
+         "9780000000019": {"publish_date": "2020"},
+         "9780000000040": {"publish_date": "Sep 02, 2020", "number_of_pages": 192}}
+
+
+def ol_urlopen(req, timeout=None):
+    OL_CALLS.append(req.full_url)
+    want = re.search(r"bibkeys=([^&]+)", req.full_url).group(1).split(",")
+    return _OLResp({k: OL_DB[k[5:]] for k in want if k[5:] in OL_DB})
+
+
+V.urllib.request.urlopen = ol_urlopen
+try:
+    A_, B_, C_, D_ = "9780000000002", "9780000000019", "9780000000026", "9780000000040"
+    # a legacy batch the old code fetched for [A, B, C]: the answer holds A and B only
+    legacy = EM.ol_url([A_, B_, C_])
+    with open(os.path.join(_ol_tmp, hashlib.sha256(legacy.encode()).hexdigest()[:32] + ".json"), "w") as f:
+        json.dump({"ISBN:" + A_: OL_DB[A_], "ISBN:" + B_: OL_DB[B_]}, f)
+    pos, neg = EM.ol_adopt([A_, B_, C_])
+    eq("adopt: A and B positive, C negative (asked, not held)", (pos, neg), (2, 1))
+    eq("adopt: C's entry is {} (covers.py skips it)", EM.ol_entry(C_), {})
+    eq("adopt: zero requests", OL_CALLS, [])
+    db = schema_db()
+    db.execute("INSERT INTO work VALUES('w1','T',NULL,NULL,NULL,NULL,'x','x')")
+    line_row(db, "rl_e", "w1", "manhwa", "EN", "en")
+    for n, i in enumerate((A_, B_, C_, D_), 1):
+        db.execute("INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at) "
+                   "VALUES(?,?,?,?,'x','x')", ("v%d" % n, "rl_e", str(n), i))
+    eq("plan: 4 ISBNs, 3 have entries, 1 missing, 1 request",
+       EM.enrich_openlibrary(db, market="EN", plan=True), {"isbns": 4, "have": 3, "missing": 1, "requests": 1})
+    eq("plan: zero requests", OL_CALLS, [])
+    EM.enrich_openlibrary(db, market="EN")
+    eq("only the uncached ISBN is fetched, alone (its URL IS its per-ISBN key)", OL_CALLS, [EM.ol_url([D_])])
+    claims = sorted(db.execute("SELECT entity_id, field, value FROM claim WHERE source='openlibrary'"))
+    eq("claims from per-ISBN entries (day, year, day; pages)", claims,
+       [("v1", "page_count", "320"), ("v1", "release_date", "2021-03-02"), ("v2", "release_date", "2020"),
+        ("v4", "page_count", "192"), ("v4", "release_date", "2020-09-02")])
+    n = len(OL_CALLS)
+    db.execute("DELETE FROM claim")
+    EM.enrich_openlibrary(db, market="EN")
+    eq("rerun: zero requests", len(OL_CALLS) - n, 0)
+    V.urllib.request.urlopen = lambda req, timeout=None: (_ for _ in ()).throw(OSError("down"))
+    E_ = "9780000000057"
+    db.execute("INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at) "
+               "VALUES('v5','rl_e','5',?,'x','x')", (E_,))
+    EM.enrich_openlibrary(db, market="EN")
+    eq("a failed fetch writes no negative entry", EM.ol_entry(E_), None)
+finally:
+    V.CACHE, V.urllib.request.urlopen = _saved_ol
+
 # ==== summary ====
 print()
 if FAILS:
