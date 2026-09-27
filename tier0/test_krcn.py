@@ -1392,12 +1392,14 @@ eq("ruling 4: Cambria / Cambridge share the family 'cambri'",
    (LM.pubfam("Cambria Press"), LM.pubfam("Cambridge University Press")), ("cambri", "cambri"))
 lines, _, _ = KL.loc_lines({"pa": PA, "pb": PB})
 eq("ruling 4: ... but two different titles stay two lines", sorted(l["name"] for l in lines), ["Moon river", "Sun valley"])
+eq("ruling 4 (BnF): Saphira / Saphir Éditions share the family 'saphir'",
+   (U.pubfam("Saphira"), U.pubfam("Saphir Éditions")), ("saphir", "saphir"))
 bl = KL.bnf_lines({U.ark(r): r for r in (
     brec(("010", [("a", isbn13("97823", 1))]), ("101", [("a", "fre"), ("c", "kor")]), ("200", [("a", "Chiro"), ("h", "1")]),
-         ("210", [("c", "Samji"), ("d", "2009")]), cf3="http://catalogue.bnf.fr/ark:/12148/cb40000001x"),
+         ("210", [("c", "Saphira"), ("d", "2006")]), cf3="http://catalogue.bnf.fr/ark:/12148/cb40000001x"),
     brec(("010", [("a", isbn13("97823", 2))]), ("101", [("a", "fre"), ("c", "kor")]), ("200", [("a", "Veritas"), ("h", "2")]),
-         ("210", [("c", "Samji Éditions"), ("d", "2009")]), cf3="http://catalogue.bnf.fr/ark:/12148/cb40000002x"))})[0]
-eq("ruling 4 (BnF): one family, two titles -> two lines", sorted(l["name"] for l in bl), ["Chiro", "Veritas"])
+         ("210", [("c", "Saphir Éditions"), ("d", "2006")]), cf3="http://catalogue.bnf.fr/ark:/12148/cb40000002x"))})[0]
+eq("ruling 4 (BnF): ... but two different titles stay two lines", sorted(l["name"] for l in bl), ["Chiro", "Veritas"])
 eq("BnF family: an 'Éd.' word is dropped ('Éd. Ki-oon' = 'Ki-oon', Warlord), 'Pika éd.' = 'pika'",
    (U.pubfam("Éd. Ki-Oon"), U.pubfam("Ki-oon"), U.pubfam("Pika éd.")), ("kion", "kion", "pika"))
 
@@ -1430,7 +1432,8 @@ dp = {p["cf"]["001"]: p for p in (
     drec("1306452414", ("245", [("a", "Solo leveling"), ("c", "Story: Chugong ; Artwork: Peperon")]),
          ("700", [("a", "Peperon"), ("4", "ill")]), parent=True),
     drec("1398947172", ("245", [("a", "Penelope - das Böse ist dem Tod geweiht"), ("b", "Roman")]), parent=True),
-    drec("1380593565", ("245", [("a", "The Horizon")]), parent=True))}
+    drec("1380593565", ("245", [("a", "The Horizon")]), parent=True),
+    drec("1326442465", ("245", [("a", "Ennead")]), ("100", [("a", "Mojito"), ("4", "aut"), ("4", "art")]), parent=True))}
 dr = {r["cf"]["001"]: r for r in (
     # dnb:1235188582 -- Solo Leveling novel, vols 1-7 'K' / XAMG, vol 8 'Solo Leveling Roman 08' 741.5
     kv("1219161251", "1", "1235188582", "Solo leveling", 382, AUT, ddc="K"),
@@ -1475,6 +1478,8 @@ dr = {r["cf"]["001"]: r for r in (
          ("245", [("a", "Control zeichn"), ("n", "1"), ("c", "Text: A ; Zeichnungen: B")]), ("264", [("b", "C Lines")]),
          ("020", [("a", isbn13("97837539", 11))]), ("300", [("a", "360 Seiten")]), ("773", [("w", "(DE-101)1500000010")])),
     kv("1500000021", "1", "1500000020", "Control short", 250),
+    # dnb:1326442465 -- Ennead: writer-only volumes (324 pages), the 'art' credit sits on the set record only
+    kv("1326442466", "1", "1326442465", "Ennead", 324, ("100", [("a", "Mojito"), ("4", "aut")])),
     drec("1500000031", ("041", [("a", "ger"), ("h", "kor")]), ("082", [("a", "741.5")]),
          ("245", [("a", "Control adaptation"), ("n", "1"), ("c", "Zeichnungen: B ; nach dem Roman von A")]),
          ("264", [("b", "C Lines")]), ("020", [("a", isbn13("97837539", 31))]), ("300", [("a", "360 Seiten")]),
@@ -1485,6 +1490,7 @@ got = {k: (by[k]["medium"], by[k]["medium_why"], by[k]["medium_guess"], by[k]["c
 eq("ruling 3: the real cases and the controls",
    got, {"dnb:1235188582": ("novel", None, None, False),        # (a) Roman on a member's 245 $a
          "dnb:1306452414": ("novel", None, None, False),        # (a) Roman in a member's 490, despite an illustrator
+         "dnb:1326442465": ("manhwa", None, None, True),        # the illustrator credit on the set record counts
          "dnb:1380593565": (None, "writer_only", "manhwa", True),   # (b)
          "dnb:1395619670": (None, "duplicate_numbers", "novel", False),  # (c) before (a)
          "dnb:1398947172": ("novel", None, None, False),        # (a) Roman in the set record's 245 $b

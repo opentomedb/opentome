@@ -124,8 +124,8 @@ def dnb_lines(recs, parents):
     manga -> manhwa (kor) / manhua (chi); light_novel -> novel (§7). Then ruling 3, in this order:
       (c) a volume number left over twice (shape_line's duplicate fate) -> review 'duplicate_numbers';
       (a) a 'Roman' token on any member (or the parent set record) -> novel;
-      (b) a comic-classed line with no illustrator credit on any member and median pages >= 320
-          -> review 'writer_only'."""
+      (b) a comic-classed line with no illustrator credit on any member or on the parent set record
+          (8 lines credit 'art' only there) and median pages >= 320 -> review 'writer_only'."""
     allparents = dict(parents)
     allparents.update({k: r for k, r in recs.items() if M.is_parent(r)})
     kept, drop = B.select(recs, allparents, in_scope=M.krcn_in_scope)
@@ -141,7 +141,8 @@ def dnb_lines(recs, parents):
         origins = [M.krcn_origin(r) for r in rs]
         origin = _majority(o for o, _ in origins)
         parent = allparents.get(key[4:])
-        roman = any(_roman(r) for r in rs + ([parent] if parent is not None else []))
+        withp = rs + ([parent] if parent is not None else [])
+        roman = any(_roman(r) for r in withp)
         prose = ln["medium"] == "light_novel" or roman
         pages = [g["pages"] for g in ln["vols"] if g["pages"]]
         out = {
@@ -162,7 +163,7 @@ def dnb_lines(recs, parents):
         if any(f == DUP for _, f in l2):
             _review(out, "duplicate_numbers")
         elif not prose and pages and statistics.median(pages) >= WRITER_ONLY_PAGES and \
-                not any(_illustrator(r) for r in rs):
+                not any(_illustrator(r) for r in withp):
             _review(out, "writer_only")
         lines.append(out)
     return lines, lost, _stats(recs, len(kept), drop, lines)
