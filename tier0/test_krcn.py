@@ -689,6 +689,181 @@ eq("040 $a DLC with a non-LoC $d (OCoLC) is still LoC-created (§2)",
    LM.is_dlc(lrec("", "", ("040", [("a", "DLC"), ("b", "eng"), ("c", "DLC"), ("d", "OCoLC"), ("d", "DLC")]))), True)
 
 
+# ---- Task 7: lib_sru (against a fake SRU server), BnF parsing, BnF channels -----------------------------
+import email.message, urllib.error, urllib.parse
+import lib_sru as SRU, bnf_unimarc as U, bnf_sru as BS
+
+
+def mxc_rec(i, extra=""):
+    return ('<mxc:record xmlns:mxc="info:lc/xmlns/marcxchange-v2"><mxc:leader>     cam  22        450 </mxc:leader>'
+            '<mxc:controlfield tag="001">FRBNF%08d0000000</mxc:controlfield><mxc:controlfield tag="003">'
+            'http://catalogue.bnf.fr/ark:/12148/cb%08dx</mxc:controlfield>%s</mxc:record>' % (i, i, extra))
+
+
+FAKE = {"ids": list(range(1, 6)), "refuse": 0, "diag": None, "fail_page": None, "short": False}
+FCALLS, FAT, CLOCK = [], [], [2_000_000.0]
+
+
+class _R:
+    def __init__(self, t):
+        self.t = t.encode()
+
+    def read(self):
+        return self.t
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def fake_sru(req, timeout=None):
+    FCALLS.append(req.full_url)
+    FAT.append(CLOCK[0])
+    UA_SEEN.append(req.get_header("User-agent"))
+    if FAKE["refuse"]:
+        FAKE["refuse"] -= 1
+        h = email.message.Message()
+        h["Retry-After"] = "7"
+        raise urllib.error.HTTPError(req.full_url, 429, "Too Many", h, None)
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(req.full_url).query)
+    start, size = int(q["startRecord"][0]), int(q["maximumRecords"][0])
+    if FAKE["diag"] or (FAKE["fail_page"] and start == FAKE["fail_page"]):
+        return _R('<srw:searchRetrieveResponse xmlns:srw="x"><srw:numberOfRecords>%d</srw:numberOfRecords>'
+                  '<srw:diagnostics><sd:diagnostic xmlns:sd="y"><sd:uri>info:srw/diagnostic/1/%s</sd:uri>'
+                  '<sd:message>boom</sd:message></sd:diagnostic></srw:diagnostics></srw:searchRetrieveResponse>'
+                  % (len(FAKE["ids"]), FAKE["diag"] or "61"))
+    ids = FAKE["ids"][start - 1:start - 1 + size]
+    if FAKE["short"]:
+        ids = ids[:-1]
+    return _R('<srw:searchRetrieveResponse xmlns:srw="x"><srw:numberOfRecords>%d</srw:numberOfRecords><srw:records>%s'
+              '</srw:records></srw:searchRetrieveResponse>' % (len(FAKE["ids"]), "".join(mxc_rec(i) for i in ids)))
+
+
+def fsleep(s):
+    SLEEPS2.append(s)
+    CLOCK[0] += s
+
+
+UA_SEEN, SLEEPS2 = [], []
+_src_tmp = tempfile.mkdtemp(prefix="krcn-sru-")
+T = SRU.Source("tst", "http://x.invalid/sru", "1.2", "unimarcxchange", 2, "test data", budget=0)
+T.relocate(_src_tmp, _src_tmp)
+T.offline, T.refresh_days, T.urlopen, T.sleep, T.now = False, 0, fake_sru, fsleep, lambda: CLOCK[0]
+n, pages = T.search("q1")
+eq("cold search: every page (5 records at 2 per page = 3 requests), complete", (n, T.distinct(pages), len(FCALLS)), (5, 5, 3))
+eq("throttle: >= 3 s between requests", min(b - a for a, b in zip(FAT, FAT[1:])) >= 3.0, True)
+eq("descriptive User-Agent", "OpenTome/0.1" in UA_SEEN[0] and ">=3s" in UA_SEEN[0], True)
+eq("manifest written after completeness", json.load(open(T.sets_path))["q1"]["n"], 5)
+k = len(FCALLS)
+T.search("q1")
+eq("rerun: zero requests", len(FCALLS) - k, 0)
+eq("netlog: one line per live request", sum(1 for _ in open(T.netlog)), len(FCALLS))
+FAKE["short"] = True
+try:
+    T.search("q2")
+    eq("a page short of records: incomplete", "no exception", "SourceIncomplete")
+except SRU.SourceIncomplete:
+    eq("a page short of records: incomplete, nothing cached", T.cached_set("q2"), None)
+FAKE["short"] = False
+FAKE["refuse"] = 1
+T.search("q3")
+eq("one 429: waits out Retry-After (7 s), then succeeds", 7 in SLEEPS2, True)
+FAKE["refuse"] = 1
+try:
+    T.search("q4")
+    eq("a second 429 in the run stops it", "no exception", "SourceIncomplete")
+except SRU.SourceIncomplete as e:
+    eq("a second 429 in the run stops it (no cached set: incomplete)", "SourceThrottled" in str(e), True)
+T.refusals = 0
+FAKE["diag"] = "10"
+u = T.url_for("q5", 1, 1)
+try:
+    T.get(u)
+    eq("a diagnostic raises", "no exception", "SourceDiagnostic")
+except SRU.SourceDiagnostic as e:
+    eq("a diagnostic raises with its code, and is not cached", (e.code, os.path.exists(T.cache_path(u))), ("10", False))
+FAKE["diag"] = None
+T.offline = True
+try:
+    T.search("q-never")
+    eq("offline: a miss raises", "no exception", "SourceOfflineMiss")
+except SRU.SourceOfflineMiss:
+    eq("offline: a miss raises", True, True)
+T.offline, T.refresh_days = False, 1
+CLOCK[0] += 3 * 86400                               # q1 is stale now
+FAKE["ids"], FAKE["fail_page"] = list(range(1, 7)), 3
+n, pages = T.search("q1", refresh=True)
+eq("refresh fails on page 2 (bounded retry spent): the previous complete set is kept, whole",
+   (n, T.distinct(pages), bool(T.degraded), "q1" in T.degraded_queries), (5, 5, True, True))
+FAKE["fail_page"] = None
+T.degraded, T.degraded_queries = None, []
+T.budget, T.live = 1, 1
+try:
+    T.fetch(T.url_for("q6"))
+    eq("budget: <NAME>_MAX_REQUESTS stops the run", "no exception", "SourceBudget")
+except SRU.SourceBudget:
+    eq("budget: <NAME>_MAX_REQUESTS stops the run", True, True)
+
+# BnF records, transcribed from spike cache c03c4c6db8ca8f4a16acb184655af793.xml (Kbooks), 27560a21… (Xiao Pan),
+# 2086741f… (Tokebi)
+def bdf(tag, *subs):
+    return '<mxc:datafield tag="%s" ind1=" " ind2=" ">%s</mxc:datafield>' % (
+        tag, "".join('<mxc:subfield code="%s">%s</mxc:subfield>' % s for s in subs))
+
+
+GAMER = ('<srw:searchRetrieveResponse xmlns:srw="x"><srw:numberOfRecords>1</srw:numberOfRecords><srw:records>'
+         '<mxc:record xmlns:mxc="info:lc/xmlns/marcxchange-v2"><mxc:leader>     cam  22        450 </mxc:leader>'
+         '<mxc:controlfield tag="001">FRBNF472537730000009</mxc:controlfield>'
+         '<mxc:controlfield tag="003">http://catalogue.bnf.fr/ark:/12148/cb47253773p</mxc:controlfield>'
+         + bdf("010", ("a", "978-2-38288-037-1"), ("b", "br."), ("d", "14,95 EUR"))
+         + bdf("100", ("a", "20230525d2023    m  y0frey50      ba")) + bdf("101", ("a", "fre"), ("c", "kor"))
+         + bdf("200", ("a", "The gamer"), ("h", "1"), ("b", "Texte imprimé"), ("f", "histoire, Seong Sang-Yeong"))
+         + bdf("214", ("a", "Paris"), ("c", "Kbooks"), ("d", "DL 2023"))
+         + bdf("215", ("a", "1 vol. (235 p.)"), ("c", "ill. en coul."))
+         + bdf("461", ("0", "47268502"), ("t", "The gamer"), ("v", "1"))
+         + bdf("700", ("a", "Seong"), ("b", "Sang-Yeong"), ("4", "070")) + bdf("702", ("a", "Sang-A"), ("4", "440"))
+         + bdf("856", ("u", "770731"), ("b", "Première de couverture"))
+         + '</mxc:record></srw:records></srw:searchRetrieveResponse>')
+g = U.records(GAMER)[0]
+eq("ark from 003, https url", (U.ark(g), U.url(U.ark(g))),
+   ("ark:/12148/cb47253773p", "https://catalogue.bnf.fr/ark:/12148/cb47253773p"))
+eq("ark order is numeric, check character ignored", U.ark_number("ark:/12148/cb47253773p"), 47253773)
+eq("ISBN (hyphens) -> 13", U.isbns(g), ["9782382880371"])
+eq("origin 101 $c kor; monograph; not a set record", (U.origin(g), U.is_monograph(g), U.is_set_record(g)), ("kor", True, False))
+eq("volume 200 $h, series 461 $t, publisher, year from 214 $d", (U.volume_number(g), U.series(g), U.publisher(g), U.year(g)),
+   ("1", "The gamer", "Kbooks", "2023"))
+eq("pages '1 vol. (235 p.)'", U.pages(g), 235)
+eq("creators 070 + 440", U.creators(g), ["Seong Sang-Yeong", "Sang-A"])
+eq("Kbooks family", (U.pubfam("Kbooks"), U.pubfam("Delcourt-Kbooks"), U.pubfam("Groupe Delcourt-Kbooks")),
+   ("kbooks", "kbooks", "kbooks"))
+
+
+def brec(*fields, leader="     cam  22        450 ", cf3="http://catalogue.bnf.fr/ark:/12148/cb00000001x"):
+    return {"leader": leader, "cf": {"001": "FRBNF1", "003": cf3}, "df": [(t, " ", " ", list(s)) for t, s in fields]}
+
+
+box = brec(("010", [("a", "978-2-38288-170-5"), ("b", "rel. sous étui")]), ("200", [("a", "Solo leveling"), ("h", "Volumes 4-6")]),
+           ("215", [("a", "3 vol. (258, 258, 268 p.)")]))
+eq("'Volumes 4-6', 'sous étui': a box, not a volume", U.excluded_kind(box), "bundle")
+eq("a 3-volume extent gives no page count", U.pages(box), None)
+jen = brec(("010", [("a", "2-940380-07-4")]), ("101", [("a", "fre"), ("c", "chi")]), ("200", [("a", "Jenni")]),
+           ("210", [("c", "Xiao Pan"), ("d", "2006")]), ("215", [("a", "226 p.")]))
+eq("ISBN-10 converted; chi origin; one-shot (no number)", (U.isbns(jen), U.origin(jen), U.volume_number(jen)),
+   (["9782940380077"], "chi", None))
+niu = brec(("101", [("a", "fre")]), ("200", [("a", "Niumao"), ("h", "2")]))
+eq("no 101 $c: out of scope (the French manhua gap, §4)", U.origin(niu), None)
+omega = brec(("101", [("a", "fre"), ("c", "kor")]), ("200", [("a", "Omega")]), ("210", [("c", "Tokebi"), ("d", "2003-")]),
+             ("454", [("t", "The hum")]), leader="     nam  22        450 ")
+eq("an open-dated record with no 200 $h is a set record (P8)", U.is_set_record(omega), True)
+eq("original title 454 $t", U.original_titles(omega), ["The hum"])
+src = open(os.path.join(HERE, "bnf_unimarc.py"), encoding="utf8").read()
+eq("bnf_unimarc never names 856", '"856"' in src or "'856'" in src, False)
+eq("BnF channels: the §4 allowlist, 8 channels", len(BS.CHANNELS), 8)
+eq("BnF page size 500, budget 60, >= 3 s", (BS.BNF.page, BS.BNF.budget >= 20, BS.BNF.interval >= 3.0), (500, True, True))
+
+
 # ==== summary ====
 print()
 if FAILS:
