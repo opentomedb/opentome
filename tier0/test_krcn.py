@@ -82,9 +82,10 @@ tier, work, _, via = L.link(idx, ["Bastard", "후레자식"], [], ["후레자식
 eq("a line carrying only the Hangul original links through it", (tier, work), ("medium", "w_kr1"))
 
 # ---- Task 3: KR/CN work set, out-of-scope, JP guard, full names ------------------------------------
-def line_row(db, rid, wid, medium, market, lang):
+def line_row(db, rid, wid, medium, market, lang, source="wikipedia"):
     db.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at) "
                "VALUES(?,?,?,?,?,'x','x')", (rid, wid, medium, market, lang))
+    db.execute("INSERT INTO claim VALUES('release_line',?,'publisher','x',?,NULL,'facts_only','x')", (rid, source))
 
 db = schema_db()
 for wid, title in (("w_wind", "Wind Breaker"), ("w_mag", "Ultramarine Magmell"), ("w_priest", "Priest"),
@@ -115,11 +116,13 @@ idx.add_krcn_work("w_new")
 eq("add_krcn_work extends the set", "w_new" in idx.krcn_works, True)
 
 eq("full_splits: 'Park, Jin-hwan'", L.full_splits("Park, Jin-hwan"), {("park", "jinhwan")})
-eq("full_splits: 'Park Jin Hwan' (either order)", L.full_splits("Park Jin Hwan"), {("park", "jinhwan"), ("hwan", "parkjin")})
+eq("full_splits: 'Park Jin Hwan' (either order, or joined)", L.full_splits("Park Jin Hwan"),
+   {("park", "jinhwan"), ("hwan", "parkjin"), ("parkjinhwan", "")})
 eq("same_person (JP rule) accepts Park = Park (the §10 defect)",
    L.same_person(L.name_key("Park, Jin-hwan"), L.name_key("Park Sun-young")), True)
 eq("same_full: Park, Jin-hwan != Park Sun-young", L.same_full("Park, Jin-hwan", "Park Sun-young"), False)
 eq("same_full: Chugong = Chu-Gong", L.same_full("Chugong", "Chu-Gong"), True)
+eq("same_full: Chugong = Chu Gong (the joined split)", L.same_full("Chugong", "Chu Gong"), True)
 eq("same_full: 'Kim, Carnby' = 'Carnby Kim'", L.same_full("Kim, Carnby", "Carnby Kim"), True)
 eq("same_full: 'Dubu (Redice Studio)' = 'Dubu'", L.same_full("Dubu (Redice Studio)", "Dubu"), True)
 t = L.link(idx, ["Priest"], ["Park, Jin-hwan"], name="Priest", full_names=True)
@@ -129,6 +132,25 @@ t = L.link(idx, ["Solo Leveling"], ["Chu-Gong"], name="Solo Leveling", full_name
 eq("full names: Chu-Gong matches Chugong -> high", (t[0], t[1], t[3]), ("high", "w_sl", "title+author"))
 t = L.link(idx, ["Priest"], ["Park, Jin-hwan"], name="Priest")
 eq("JP rule unchanged by default (family name within one edit)", t[0], "high")
+
+# a line stage 3f loads (DE / manhwa, a dnb line_name claim) onto a KR-market work tagged manga
+# (King of Hell) must not move the work into out_of_scope: the work sets read Wikipedia lines only
+line_row(db, "rl_h_de", "w_hell", "manhwa", "DE", "de", source="dnb")
+db.execute("INSERT INTO claim VALUES('release_line','rl_h_de','line_name','King of Hell','dnb',NULL,'cc0','x')")
+db.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at) "
+           "VALUES('rl_noclaim','w_ouro','manhwa','DE','de','x','x')")      # no claim at all: not Wikipedia
+db.execute("INSERT INTO work VALUES('w_tog','Tower of God',NULL,NULL,NULL,NULL,'x','x')")
+line_row(db, "rl_t1", "w_tog", "manhwa", "EN", "en")
+db.execute("""INSERT INTO claim VALUES('work','w_tog','author','["SIU", "Kim Min-soo"]','wikipedia',NULL,'facts_only','x')""")
+idx2 = L.Index(db)
+eq("a 3f-loaded DE/manhwa line (dnb claim) leaves out_of_scope unchanged",
+   idx2.out_of_scope, {"w_mag", "w_priest", "w_sl", "w_tog"})
+eq("... and the KR/CN / JP work sets", (idx2.krcn_works, idx2.jp_works),
+   ({"w_wind", "w_mag", "w_priest", "w_hell", "w_sl", "w_tog"}, {"w_wind", "w_ouro"}))
+eq("author_raw keeps a short pen name name_key drops ('SIU')", "SIU" in idx2.author_raw["w_tog"], True)
+t = L.link(idx2, ["Tower of God"], ["SIU"], name="Tower of God", full_names=True)
+eq("full names: 'SIU' against a work credited SIU + another creator -> high", (t[0], t[1], t[3]),
+   ("high", "w_tog", "title+author"))
 
 # ==== summary ====
 print()
