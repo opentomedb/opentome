@@ -1,6 +1,6 @@
 # KR/CN coverage — licensed print editions of manhwa and manhua (design, 2026-09-27)
 
-Status: DRAFT for Nick. Decisions 1–3 below are his (2026-09-27, binding). Points marked **NICK** are still open, and each carries a recommendation.
+Status: DRAFT, revised after review (2026-09-27). Decisions 1–3 below are Nick's (2026-09-27, binding). Every point the first draft left open is resolved by the rulings R1–R7 at the end of this spec, and the review's fixes are folded into the sections they touch.
 
 This spec follows `docs/dnb-design.md` and uses the same structure. Sources studied: the source research (`~/Claude/scratch/mangarr-session/krcn/sources.md`) and this round's spike. The spike code, caches and netlog are in `~/Claude/scratch/mangarr-session/krcn/`: `sru.py`, `loc_analyze.py`, `loc_yield.py`, `dnb_spike.py`, `bnf_analyze.py`, `combine.py`, `cache/` and `netlog.tsv`. The DNB responses are in the repo's `.cache/`, fetched through `tier0/dnb_sru`.
 
@@ -10,7 +10,7 @@ The spike wrote to the repo only in these gitignored places:
 - DNB cache files in `.cache/`: 7 count probes and 5 parent batches. The batches were fetched outside `.cache/dnb-parents.json`, so production's own chunking will re-fetch about 5 batches.
 - Appended lines in `build/dnb-netlog.tsv`.
 
-`docs/superpowers/` is gitignored, so this spec is local-only, like its sibling specs.
+This spec is tracked at `docs/krcn-design.md` (branch `krcn`).
 
 Requests made in the spike:
 
@@ -28,13 +28,13 @@ The segment is larger than the catalogue suggests. Today OpenTome has 54 works w
 
 - **DNB:** 396 German lines / 1,644 volumes [M], run through the existing DNB parser and clustering unchanged.
 - **BnF:** 203 French lines / 1,278 volumes [M] from publisher channels, filtered on UNIMARC `101 $c`.
-- **LoC, DLC-created records only:** 74 new English lines / 386 volumes, plus ISBNs for 107 of the 235 volume ISBNs already on existing EN KR/CN lines [M].
+- **LoC, DLC-created records only:** 74 new English lines / 386 volumes, plus ISBNs for 107 of the 235 volume ISBNs already on existing EN KR/CN lines [M]. This is a lower bound: the spike never got `97988554*` records 301–400 (§3).
 
-Only 11–23 lines per market link to works OpenTome already has. The rest cluster into roughly 520 candidate new works [E], and **only ~72 of them have an English line** [E]. So most new works are German- or French-anchored. They cannot bind to AniList the way existing works do (the resolver binds English lines only), and Mangarr cannot reach them today (its ranking is English-only). The round is therefore worth doing, but three things have to land with it:
+Only 11–23 lines per market link to works OpenTome already has. The rest cluster into roughly 520 candidate new works [E]. Only 72 of them have an English line [E], and 57 remain after the Ize review (§7) [E, provisional]. Under R6 only candidate works with an English line export; the ~448 without one are built, gated and written to `build/krcn-held.tsv`. Three things land with the round:
 
-- a stricter bar for creating a work than for linking one;
-- an id rule for works that are born from library records and later meet a Wikipedia article;
-- a Mangarr follow-up so that works without an English line are reachable.
+- a stricter bar for creating a work than for linking one (§9);
+- an id rule for works and lines that are born from library records and later meet a Wikipedia article (R1, §8–9, `docs/id-scheme.md`);
+- the hold (R6). The Mangarr consumer round and AniList binding for works without an English line follow this round (R3).
 
 ## Decisions (Nick, 2026-09-27 — binding)
 
@@ -44,7 +44,7 @@ Only 11–23 lines per market link to works OpenTome already has. The rest clust
 2. **Library of Congress records are treated as US-government public domain, but only records whose `040 $a` is `DLC`** (created by LoC). All other LoC records are unverified and excluded. A LICENSE-DATA row is added.
 3. **Publisher sites stay "cited, never fetched"** (`docs/legal-position.md`). The **National Library of Korea is out of scope.**
 
-Decisions that follow from the spike but are Nick's to confirm (**NICK**) are collected in §15.
+The points the spike raised are resolved by R1–R7 (end of this spec); §15 lists them.
 
 ## 1. Baseline — what exists (checked 2026-09-27, not remembered)
 
@@ -58,7 +58,7 @@ Another **14 works carry a `ko` / `zh` line but no manhwa/manhua medium** [M]: I
 
 **What the medium label currently touches.**
 - `dnb_link.Index.non_japanese` is the set of works with a manhwa/manhua/webtoon line. It sends a German DNB line that links to such a work to `out_of_scope`. Today that affects 2 lines (Ultramarine Magmell, Priest; 9 volumes) [M].
-- The same set wrongly contains the 5 mixed works above, so a German line of their Japanese side would also be dropped. Today there are 0 such lines [M], so this is a latent defect only.
+- The same set wrongly contains the 5 mixed works above, so a German line of their Japanese side would also be dropped. Today there are 0 such lines [M], so this is a latent defect only. §10's "KR/CN line and no JP-market line" test fixes it.
 - `release_lines.MEDIUM_HINTS` maps a "webtoon" heading to `manhwa`. The artifact has **0 `webtoon` lines** [M].
 - Korean and Chinese prose is `novel` (ko 6, en 3 lines) [M].
 
@@ -71,7 +71,7 @@ Another **14 works carry a `ko` / `zh` line but no manhwa/manhua medium** [M]: I
 **LoC was rejected once.** `tier1/enrich_more.py`'s docstring says LoC SRU "returned zero records even for control queries". Here is what differs now:
 - The endpoint is `http://lx2.loc.gov:210/lcdb` with the `bath.isbn` index.
 - The control `bath.isbn=9781975319434` returns the Solo Leveling set record [M].
-- The gateway answers **"First record position out of range" on 42 of 137 requests** [M]. All of these were HTTP 200, all were record pages, and all 40 count probes succeeded.
+- The gateway answers **"First record position out of range" (SRU diagnostic 61) on 42 of 137 requests** [M]. All of these were HTTP 200, all were record pages, and all 40 count probes succeeded.
 
 The earlier "zero records" was almost certainly this diagnostic. §3 handles it, and the canary gate in §13 keeps a silent zero from ever shipping.
 
@@ -88,7 +88,7 @@ The earlier "zero records" was almost certainly this diagnostic. §3 handles it,
 
 **The LoC licence rests on 17 USC §105** (US government works). It is Nick's decision, not a stated LoC licence: MDSConnect says only "research and development usage".
 
-**A non-DLC record is not read at all.** It is not a twin, not a classification hint, and not linker evidence. A DLC record whose `040 $d` lists modifying agencies other than LoC is still DLC-created and is kept.
+**A non-DLC record is not read at all.** It is not a twin, not a classification hint, and not linker evidence. A DLC record whose `040 $d` lists modifying agencies other than LoC is still DLC-created and is kept. No switch for non-DLC records is built (R4).
 
 **The license change is three edits and one gate.**
 - `LICENCE["loc"] = "us_gov_pd"`.
@@ -119,31 +119,35 @@ All three sources share the following:
 **DNB.** Nothing changes; the client is `tier0/dnb_sru.py`. Parents come through `dnb_enumerate.fetch_parents` and its `.cache/dnb-parents.json` index. The 129 KR/CN parents missing from the index cost 5 batches [M].
 
 **LoC** (`http://lx2.loc.gov:210/lcdb`, SRU 1.1, `recordSchema=marcxml`):
-- `maximumRecords=100` works [M]. No key is needed and no limit is documented.
-- **Diagnostic retry.**
-  - An HTTP 200 response carrying `<diag:message>First record position out of range` is a transient failure. It is never cached; it is retried up to 3 times, 10 s apart.
-  - In the spike every page recovered within 3 attempts except one: `bath.isbn=97988554*` records 301–400 failed on all 5 attempts [M].
-  - A page that still fails leaves its result set incomplete. The existing DNB rule then applies: the build fails, or on a refresh run it keeps the previous complete set and marks the build degraded (`meta.loc_degraded`), and publishing is refused.
-  - Page size made no difference: pages of 50 failed as well [M].
+- `maximumRecords=100` is the starting page size [M]. No key is needed and no limit is documented.
+- **What diagnostic 61 is (R7).** An HTTP 200 response carrying `<diag:message>First record position out of range` is a failed page. It is never cached. The spike shows it is page-size-dependent and partly transient, not a deep-position window [M, netlog]:
+  - It fired at `startRecord=1` on small sets: `978168579*` (63 records), Graphic novels + China (91), Graphic novels + Korea (116), webcomics (137), `978159182*` (89). All of these sets were pageable.
+  - Three pages failed 3 times at 100 per page and then succeeded at 50 per page (netlog 11:03:45–11:04:05).
+  - `978159182*` page 1 and `9781975*` at 1501 later succeeded unchanged.
+  - The one page that never recovered, `97988554*` records 301–400 (5 attempts), was only ever tried at 100 per page. The spike's `97988554*` set is therefore short by up to 100 records, and the spike's EN counts are a lower bound.
+  - Slicing alone cannot fix a failure at `startRecord=1` on a 63-record set.
+- **The paging ladder (R7).** For each page:
+  1. Retry at the same size: at most 3 attempts, 10 s apart.
+  2. Then page the same record range at a smaller size: 100 → 50 → 25. Each size gets the same bounded retry.
+  3. Then slice the query and page each slice with the same ladder. An ISBN stem is sliced into its ten next-digit prefixes (`97988554*` → `979885540*` … `979885549*`). A subject channel is sliced by year, with a remainder slice for records without one (the `not jhr>0` pattern of `dnb_enumerate.run_channel`).
+- **Completeness.** Every slice is complete only when its distinct records equal its `numberOfRecords`. A set record matches every prefix its volume ISBNs fall under, so ISBN-prefix slices overlap; the distinct records across all slices must equal the stem's `numberOfRecords` (the stem's count probe succeeds even when its pages fail). A result set, sliced or not, is cached whole or not at all.
+- **Degraded mode (one rule).** When the ladder is exhausted on a set, the build uses the previous complete cached set, sets `meta.loc_degraded`, and publishing is refused. When there is no cached set, the stage fails.
 - **Canary.** Each run first sends `bath.isbn=9781975319434` and must get exactly 1 record with `040 $a DLC`; otherwise the stage fails.
-- **Refresh.** ECIP records at encoding level `5` are upgraded later. Suggested window: `LOC_REFRESH_DAYS=28` on all channels [E: ~40 pages ≈ 60 requests with retries per refresh].
+- **Refresh.** ECIP records at encoding level `5` are upgraded later. Suggested window: `LOC_REFRESH_DAYS=28` on all channels. The request cost of a refresh is recomputed after R7.
 
 **BnF** (`https://catalogue.bnf.fr/api/SRU`, SRU 1.2, `recordSchema=unimarcxchange`):
 - `maximumRecords=500` works (330 records in one 1.9 MB response) [M]. The first run is about 12 requests [M-scaled].
 - Note: the existing per-ISBN enrichment throttles BnF at 1.0 s (`enrich_more._fetch_xml`). The new channel uses 3 s.
 
 **Seed the CI cache before the first CI build.** This is the HANDOFF rule, and it applies here harder than it did for DNB:
+- Build the seed with the **production** clients. R7's page sizes and slices change the URLs, and the spike's cache lives outside `.cache/`, so none of the spike's LoC or BnF responses can be reused.
 - Regenerate `opentome-cache.tar.zst` from the **full** local `.cache`, never append. It must hold the new DNB `spo=kor` / `spo=chi` slices, their parent batches, and the LoC and BnF result sets.
 - Upload it as the `seed` asset, then run the seed-cache workflow.
-- Without the seed, a cold CI build has no complete earlier result sets, and one persistently failing LoC page fails it. The spike saw one such page: `97988554*` records 301–400 failed on all 5 attempts.
+- `catalogue.yml` gains `LOC_OFFLINE` / `BNF_OFFLINE` and the `LOC_REFRESH_DAYS` / `BNF_REFRESH_DAYS` settings.
+- Confirm that GitHub Actions runners reach `lx2.loc.gov:210` (plain HTTP on a non-standard port) before CI depends on it. If they do not, LoC is refreshed locally only and CI builds with `LOC_OFFLINE=1` against the seed.
+- Without the seed, a cold CI build pages every set, and any set that exhausts the ladder fails the stage.
 
-**Budget of a cold first run [E]:**
-- DNB: ~70 requests (spo slices, parents, counts).
-- LoC: ~130 (channels below plus retries).
-- BnF: ~15.
-- AniList: see §11.
-
-A rerun is zero requests.
+**Budget:** recompute after R7. A rerun is zero requests.
 
 ## 4. Enumeration
 
@@ -151,7 +155,7 @@ A rerun is zero requests.
 The existing machinery handles this, with new channels and the origin rule inverted.
 1. `spo=kor and bbg=A*` — 2,273 records [M] (1,565 with `sgt=741.5` [M]).
 2. `spo=chi and bbg=A*` — 2,646 records [M] (250 with `sgt=741.5` [M]). This channel is mostly Chinese literature, and the classifier drops that (§7).
-3. The existing imprint channel (`dnb_enumerate.IMPRINT_Q`, already cached): records with no `041 $h` whose `245 $c` says "aus dem Koreanischen / Chinesischen" or whose keyword (`653`) says manhwa / webtoon / manhua — 42 records [M].
+3. The existing imprint channel (`dnb_enumerate.IMPRINT_Q`, already cached): records with no `041 $h` whose `245 $c` says "aus dem Koreanischen / Chinesischen" or whose keyword (`653`) says manhwa / webtoon / manhua — 42 records [M]. §10 says how the two builds split this channel.
    - `sw=Manhwa`, `sw=Webtoon` and `sw=Manhua` return 0 [M]. `653` keywords are not in the `sw` index.
 
 Each channel is sliced by `jhr` with the `not jhr>0` remainder, exactly as `dnb_enumerate.run_channel` does. Parents come from `773 $w`.
@@ -193,7 +197,7 @@ Total: 4,959 records [M]; 373 parent sets known after the fetch.
 - **Not usable:**
   - `dc.publisher` returns nothing (source research).
   - `cql.anywhere="Ize Press"` returns 4 of the 55 Ize records [M].
-- The spike paged 3,236 distinct records [M]. The channels also held 337 Korean-language and 95 Chinese-language originals (§16).
+- The spike paged 3,236 distinct records [M], short of `97988554*` records 301–400 (§3). The channels also held 337 Korean-language and 95 Chinese-language originals (§16).
 - **Headline LoC metrics [M]:**
 
 | Set | Records | DLC (`040 $a`) | Origin evidence | Other |
@@ -217,13 +221,12 @@ Channels [M counts; share with `101 $c kor`]:
 | `"Kotoon"` | 98 | 35; 54 have no `101 $c` |
 | `"Ki-oon" and ...manhwa` | 572 | 54 |
 | `"Pika" and ...manhwa` | 1,333 | 13 |
-| `"Delcourt" and ...manhwa` | 805 | 0 |
 
-- `bib.subject all "manhwa"` is contaminated. It returns 12,966 records per the source research, and Delcourt's 805 "manhwa" hits hold 0 Korean records.
+- `bib.subject all "manhwa"` is contaminated. It returns 12,966 records per the source research, and the spike's Delcourt + manhwa probe (805 records) held 0 Korean records [M]. Delcourt is therefore not a channel.
 - `bib.subject all "webtoon"` / `"manhua"` return 0, and `"bandes dessinées coréennes"` returns 0 [M].
 - **Chinese in French is a gap:** Xiao Pan has 39 records, of which 4 carry `101 $c chi` and 35 have none [M]. The `101 $c` filter misses most French manhua.
 - Webtoon Factory has 1 record and Verytoon 0 [M].
-- Total: 1,304 KR/CN records (kor 1,300, chi 4) out of 4,285 paged [M].
+- Total: 1,304 KR/CN records (kor 1,300, chi 4) out of 4,285 paged, the Delcourt probe included [M].
 - 137 of the 203 lines date from 2003–2014 (the Tokebi / Saphira / Samji era) [M].
 - The channel list is an allowlist in code. Adding an imprint is a one-line change plus a count probe; it is not a recurring manual step.
 
@@ -233,9 +236,10 @@ Channels [M counts; share with `101 $c kor`]:
 
 **LoC** is MARC21 slim in the same namespace, so `dnb_marc.records()` parses it [M]. The differences, each of which needs its own function or rule:
 
+- **`010 $a` (LCCN).** Normalised before any use as a key: blanks removed, anything from a `/` on dropped, and a hyphenated form (`2021-12345`) turned into the year followed by the serial zero-padded to 6 digits (`2021012345`). An alphabetic prefix is kept, lowercased.
 - **`020`.**
   - `$q` holds the volume: `v. 1`, `(v. 1 ;` or `v. 14 ;`, followed by the binding (`trade paperback`, `hardcover`). The parse is `^\W*v\.\s*(\d+)`.
-  - 18 set records carry at least 2 `$q v. N` ISBNs, covering 114 volumes [M]. 23 volume numbers carry two ISBNs (hardcover and paperback) [M]. The volume keeps the ISBN an existing OpenTome volume already has, otherwise the paperback (`$q` contains "paperback"), otherwise the first listed. The second ISBN is stored as a claim `isbn13_alt` and not exported in v1.
+  - 18 set records carry at least 2 `$q v. N` ISBNs, covering 114 volumes [M]. 23 volume numbers carry two ISBNs (hardcover and paperback) [M]. The volume keeps the ISBN an existing OpenTome volume already has, otherwise the paperback (`$q` contains "paperback"), otherwise the first listed. The second ISBN is not stored.
   - `$z` is never read, as for DNB.
 - **Encoding level.** `leader/17` = `5` (ECIP preliminary) on 40 of the 55 Ize records [M]. These have no `041`, `082`, `050` or `655` and carry `300 "volumes cm"`. `leader/17 = 8` is CIP (announcement), with the same meaning as DNB's `is_announcement`.
 - **`263`.** YYMM (`2610` = 2026-10), **not** DNB's YYYYMM, and `1111` means unknown [M: 7 CIP records with a real 263; `1111` on 7 Ize records]. `dnb_marc.planned_month` would reject YYMM, so LoC needs its own parser with a `1111` guard.
@@ -244,13 +248,14 @@ Channels [M counts; share with `101 $c kor`]:
   - Date type `s`/`t` (single volume): date1 is that volume's year.
 - **Classification signals.** `082` (741.5 vs 895.7x / 895.1x); `050` (`PN6790` / **`PN8323`** is used for manhwa/webcomics — Solo Leveling, Tower of God [M] — vs `PL9xx` / `PL2xxx`); `655` LCGFT ("Comics (Graphic works)", "Graphic novels", "Manhwa", "Webcomics" vs "Fantasy fiction", "Light novels"); `650 "Comic books, strips, etc."`.
 - **Origin.** `041 $h kor|chi`, else a "Translated from the Korean/Chinese" note (`500`/`546`/`245 $c`). The `008/35-37` language gives Korean-language *originals* (out of scope).
-- **Titles.** `245 $a` (strip the ISBD " /" and " :"), `$n`/`$p`, `490`/`830 $v`, `246`, and the original title in `240` or `765 $t`, present on 44 of 75 comic records [M]. `880` vernacular (Hangul/Hanzi) is on only 4 of 75 [M]. Romanisation is ALA-LC (`Chinjihan kŏn`), so it does not key against DNB's (§9).
+- **Titles.** `245 $a` (strip the ISBD " /" and " :"), `$n`/`$p`, `490`/`830 $v`, `246`, and the original title in `240` or `765 $t`, present on 44 of 75 comic records [M]. `880` vernacular (Hangul/Hanzi) is on only 4 of 75 [M]. Romanisation is ALA-LC (`Chinjihan kŏn`), so it does not key against DNB's (§10).
 - **Creators.** `100`/`700` with `$4` / `$e` (`dnb_marc.creators()` applies, `trl` dropped).
 - **Pages.** `300 $a "283 pages"`, only on single-volume records: 22 of 75 [M].
 - **Not read.** `520`, `856`, `906`, `923`, `925`, `955`.
-- **Source URL.** `https://lccn.loc.gov/<010 $a>`.
+- **Source URL.** `https://lccn.loc.gov/<normalised LCCN>`.
 
 **BnF** (UNIMARC via marcxchange). Field map:
+- `003` the record's ark, `ark:/12148/cb<8 digits><check character>`
 - `010 $a` ISBN (89% of KR records) [M]
 - `100 $a/9-12` date
 - `101 $a` text language / **`$c` original language**
@@ -261,7 +266,7 @@ Channels [M counts; share with `101 $c kor`]:
 - `454 $t` / `500 $a` original or uniform title (29%) [M]
 - `700`/`701`/`702 $a $b $4`
 
-Extend `enrich_more`'s field reader into a `tier0/bnf_unimarc.py` module with the same pure-function shape as `dnb_marc`. Source URL: the record's ark (`003`).
+Extend `enrich_more`'s field reader into a `tier0/bnf_unimarc.py` module with the same pure-function shape as `dnb_marc`. Source URL: the record's ark URL (`https://catalogue.bnf.fr/<ark>`).
 
 ## 6. Scope of a record
 
@@ -292,19 +297,29 @@ A record is in scope when **all** of the following hold:
     1. an existing OpenTome line it attaches to by ISBN;
     2. a same-work line classified in DNB or BnF (title key match);
     3. otherwise it goes to **review**.
-  - Measured: 20 of 35 unclassified Ize lines resolve through (2), and 15 go to review [M].
+  - Measured: 20 of 35 unclassified Ize lines resolve through (2), and 15 go to review [M]. The 20 meet §9's explicit-origin criterion only through their DE/FR sibling, never on their own.
   - A re-run after LoC upgrades the record (a refresh) classifies it on its own.
 - **BnF.** Every KR record in the publisher channels is a comic; the channels are comic imprints. A `608 "Bandes dessinées"` form appears on 291 of 1,304 [M] and is supporting evidence only.
 
-**Novels.** A `novel` line ships **only when it links to a work that also has a comic line** (existing or created in this round). This matches the existing ko/en `novel` lines of Solo Leveling, ORV, Villains and TBATE. No work is ever created from prose alone.
+**Novels.** A `novel` line exports **only when it links to an exported work that also has a comic line** (an existing work, or a new work exported under R6). Otherwise it is held with its cluster. This matches the existing ko/en `novel` lines of Solo Leveling, ORV, Villains and TBATE. No work is ever created from prose alone.
 - Measured: 16 German novel lines / 51 volumes (Bramble / TOKYOPOP danmei novels: Grandmaster of Demonic Cultivation, Heaven Official's Blessing, …) and 188 English prose records, most of them Korean literary fiction [M].
 
 ## 8. Lines and clustering
 
-**Line keys come from source data only, as with DNB, so relinking a line never re-keys it.**
+**Natural line keys come from source data only, as with DNB, so relinking a line never re-keys it.**
 - **DNB:** `dnb:<parent IDN>` or `dnb:<lowest member IDN>`, the existing rule, with publisher families extended to the KR imprints (papertoons, C Lines, Manhwa Cult, Altraverse).
-- **LoC:** a set record, i.e. at least 2 ISBNs with `$q v. N`, **is** a line: `loc:<LCCN>`. Single-volume records cluster by folded `490`/`830` series, else by the folded bare title, plus the publisher family (Ize = Yen Press/Ize Press = Yen); key `loc:<lowest member LCCN>`.
-- **BnF:** by folded `461 $t` / `225 $a`, else `200 $a`, plus the publisher family (Kbooks = Delcourt-Kbooks = Groupe Delcourt-Kbooks). Key `bnf:<lowest member ark>`.
+- **LoC:** a set record, i.e. at least 2 ISBNs with `$q v. N`, **is** a line: `loc:<LCCN>`. Single-volume records cluster by folded `490`/`830` series, else by the folded bare title, plus the publisher family (Ize = Yen Press/Ize Press = Yen); key `loc:<lowest member LCCN>`. LCCNs are normalised (§5), and "lowest" is the string order of the normalised form.
+- **BnF:** by folded `461 $t` / `225 $a`, else `200 $a`, plus the publisher family (Kbooks = Delcourt-Kbooks = Groupe Delcourt-Kbooks). Key `bnf:<lowest member ark>`. Arks are ordered by the numeric value of their 8-digit record number; the check character is ignored.
+
+**Line identity after the first publish (the carry comes first).** A natural key is minted into an `rl_` id only when no carried line matches. Otherwise a new stem, channel or slice that finds an older record would change the lowest member LCCN/ark and re-key a published line.
+- **Carry lookup before minting.** The carry holds no LCCN or ark, so member overlap is evaluated through what each member put into the carry: its volume ISBNs, or, for a member without an ISBN, its volume number within a carried line of the same source and work. A built library line whose members hold a strict majority of a carried library line's volumes takes that line's `tome_id`. Its natural key is recorded in staging but is not re-hashed.
+- **Merges, in any direction.** This covers `build_dnb.assign_roles`, stage 4c and a library line meeting a Wikipedia line. When two lines turn out to be one edition:
+  - a carried id wins over an uncarried one;
+  - when both are carried, the lower `id_map` integer (the older line) wins, and the other gets `id_redirect(reason='duplicate_merge')`;
+  - when neither is carried (both new in the same build), the existing rule applies: the Wikipedia line keeps its id.
+- So a carried library line survives when Wikipedia later gains the same edition. The Wikipedia newcomer merges into it, its own id is never published, and no redirect is written.
+- **Order.** R1 adoption, for lines and works, is applied **before** stage 4c and the carried-id stage 7b. Otherwise 7b would see the library id as lost, write library → wiki redirects and count them as moved.
+- The rule is written into `docs/id-scheme.md`. Id generation is no longer derivable from the natural key alone.
 
 **Merge with existing lines.** This reuses `build_dnb.assign_roles`: a new line holding a strict majority of the smaller side's shared ISBNs merges and keeps the existing `rl_` id; a second such line becomes a sibling. The existing DE/FR/EN line ids must survive.
 - DNB: 1 merged (Solo Leveling), 1 sibling [M].
@@ -340,37 +355,55 @@ All measured [M]. The measure replay therefore cannot flip on these three.
    - Measured false "new" works that this catches: DE *Raeliana* (Altraverse, 9 vols) is the existing *Why Raeliana Ended Up at the Duke's Mansion*.
    - DE *Athanasia – plötzlich Prinzessin* (9 vols) is the existing *Who Made Me a Princess*. The guard does **not** catch it. It carries only a syllable-split romanised original title ("Eo neu nal gong ju ga doe eo beo lyeoss da") and syllable-split creators ("Seu pun" = Spoon) [M]. This is the class of error the review file exists for.
 
-**What the work id hashes.** `w_<hash("krcn|" + anchor line key)>`. The anchor is the cluster's English line when there is one (`loc:<LCCN>`), else the German one (`dnb:<IDN>`), else the French one (`bnf:<ark>`). Library works are created **after** Wikipedia works and linking (a stage `3f`), so a work Wikipedia knows is never duplicated in the same build.
+**The hold (R6).** A cluster that meets all four but has no English line is **held**: it is built, gated and written to `build/krcn-held.tsv`, and it is not exported. Gates:
+- No library-created work is exported without an English line. This applies to works created in the current build; a carried library work keeps exporting even when a later build loses its English line (below).
+- A held cluster never reaches `work`, `release_line` or `id_map`: no `tome_id`, no `tome_work_id`, no integer is issued for it. It lives only in the `krcn_line` / `krcn_member` staging and the hold file.
+- A published line or work is never demoted to held. It keeps shipping under its published work, the equivalent of DNB's role `kept`.
+- Checks that apply to held clusters: the staged measure counts (§13, `krcn_line` incl. held), the hold file itself (every held cluster with its lines, member keys, reason and candidate title keys), and criteria 1–4 above, evaluated and reported so the later round starts from a checked set. Held clusters never reach the artifact; the §13 check that none of them holds an id reads the `krcn_line` staging through the catalogue path, as the `loc_member` check does.
+
+**Flood gate.** A refresh build may create at most `MAX_NEW_LIBRARY_WORKS = 20` new library works (the pattern of `MAX_MOVED_IDS` in `export/test_artifact.py`). The first build is gated instead by the new-work fixture (§13).
+
+**What the work id hashes.** `w_<hash("krcn|" + anchor line key)>`. Only exported works get an id, and every one has an English line: the anchor is its English line (lowest key if several). Library works are created **after** Wikipedia works and linking (a stage `3f`), so a work Wikipedia knows is never duplicated in the same build.
 
 **Frozen through the carry.**
-- Rule: once published, a library work keeps its id. The anchor can change later (an English LoC line appears for a German-anchored work), and re-hashing would then re-key the work.
+- Rule: once published, a library work keeps its id. The anchor can change later (the anchor LoC line re-keys, splits, or merges into a Wikipedia line), and re-hashing would then re-key the work.
 - So stage 3f first reads the carry: every line whose `tome_id` shipped under a library work id keeps that `tome_work_id`.
 - When two carried library works turn out to be one, the **older** keeps its id. "Older" means the lower minimum line integer in `id_map`, which is issue order, is carried, and is deterministic. The other gets `id_redirect(reason='duplicate_merge')`.
 - `carried_ids.py` 7b already writes work redirects and gates orphans.
 
-**When a Wikipedia article later covers a library work.** **NICK** decides; see §15-1.
-- `docs/id-scheme.md` says to keep the older id, which here is the library id. `work_identity.py` would instead issue `w_<hash(wiki key)>`, and 7b would redirect library → wiki: the opposite.
-- Recommendation: an **adoption rule**. When a Wikipedia work absorbs lines that shipped under a library work id, the Wikipedia work publishes under the carried library id; the wiki id is internal and never published. It is implemented as an internal→public work-id map in the export (the `id_map` pattern), so no redirect row is written.
-- The alternative, the redirect, is simpler, but it breaks "keep the older id" and makes consumers follow a redirect.
+**When a Wikipedia article later covers a library work.** Resolved by R1–R3: the adoption rule.
+- When a Wikipedia work absorbs lines that shipped under a library work id, the Wikipedia work publishes under the carried library id. The wiki id is internal and never published. It is implemented as an internal → public work-id map in the export (the `id_map` pattern), so no redirect row is written.
+- When the Wikipedia work's id was itself already published, both are public and the `id_map` "older" rule above decides; the other id is redirected with `duplicate_merge`.
+- Adoption runs before stage 4c and 7b (§8). `docs/id-scheme.md` states the rule.
 
 **Titles of a library work.**
-- `primary_title`: the English line's title; else a romanised original title that appears on two or more records; else the anchor line's own title.
+- `primary_title`: the anchor (English) line's title.
 - `work_title`: official titles per language (`en` / `de` / `fr` from each line), plus the original title as `romanized` (with its romanisation system unknown).
 - `native_title` from `880` / Hangul `246` (DNB *Bastard* carries 후레자식 in `246` [M]), when present.
 - Measured: 248 of 372 German new-work candidate lines carry an original title [M]. Many are German titles over English ones ("Overgeared", "The remarried empress" ship under their English title in German).
 
-**Series integers and status.** New lines get integers through `id_map` as usual. Work `status` is left NULL (libraries do not say "completed").
+**Series integers and status.** New exported lines get integers through `id_map` as usual. Work `status` is left NULL (libraries do not say "completed").
 
 ## 10. Cross-market linking
 
 **Linker changes** (`tier0/dnb_link.py`, shared by all three sources; each needs a test):
-- **Hangul is dropped today.** `fold('나 혼자만 레벨업')` returns `''` [M]: NFD splits Hangul into jamo, and the kept range covers only kana and CJK. The fix: recompose (NFC) before the character filter and keep U+AC00–D7A3. `Index._add` gains Hangul keys.
+- **Hangul is dropped today.** `fold('나 혼자만 레벨업')` returns `''` [M]: NFD splits Hangul into jamo, and the kept range covers only kana and CJK.
+  - The fix keeps the existing NFD step and strips combining marks as today, then recomposes with **NFC after the strip**, then filters with U+AC00–D7A3 added to the kept range. Replacing the NFD step instead would keep dakuten and re-key Japanese strings.
+  - `Index._add` gains Hangul keys.
+  - `MIN_KEY = 3` would drop 2-syllable Hangul titles. A key made only of Hangul syllables is admitted at 2 characters, for exact-equality linking only, never for the containment guard. Kana/CJK and Latin keys keep `MIN_KEY = 3`, so no Japanese key changes.
+  - Traditional and Simplified Hanzi never key together. This is a known limit of the round; a Taiwanese and a mainland edition link only through an English title, an ISBN or a pin.
 - **KR/CN names need a full-name match.** `same_person` accepts a shared family name within one edit at 4+ letters. That is fine for Japanese names, but Park, Zhang, Wang and Chugong/Chu-Gong all pass [M]: `Park, Jin-hwan` = `Park Sun-young` evaluates True.
   - For a KR/CN line, author evidence requires the whole token set to be equal (after dropping hyphens and spaces inside given names).
   - This matters less than it sounds: only 5 of the 54 KR/CN works have any author claim [M], so KR/CN links are title-only (medium tier) in practice.
 - **Japanese-work guard.** A KR/CN line whose best candidate is a work with a JP line and no KR/CN line goes to review. Measured: DNB *Ouroboros* (papertoons, Korean) linked at medium to the Japanese *Ouroboros* [M]; this is the Wind Breaker collision shape.
-- **The KR/CN work set replaces `Index.non_japanese`.** A work is KR/CN when it has a manhwa/manhua line, **or** a KR/CN/TW market line, **or** it was created in this round. This fixes the German round's latent drop of the mixed JP works (§1) and admits the 14 ko/zh works tagged `manga`, such as King of Hell, which the DNB spike linked [M].
+- **The KR/CN work set and the JP out-of-scope test.**
+  - The KR/CN work set is what the KR/CN linker and guards use. A work is in it when it has a manhwa/manhua line, **or** a KR/CN/TW market line, **or** it was created in this round. This admits the 14 ko/zh works tagged `manga`, such as King of Hell, which the DNB spike linked [M].
+  - The German JP round's `out_of_scope` test (today `Index.non_japanese`) becomes: the work **has a KR/CN line and no JP-market line**. Adding OR-conditions alone would not fix the §1 latent drop, because Wind Breaker and the other mixed works keep their manhwa lines. The new test fixes it.
+  - The wider set can flip a JP-channel German line to `out_of_scope` without changing its key or tier. So the §13 replay gate also requires 0 changed roles and 0 changed exported flags.
 - **Romanised original titles do not key across libraries.** DNB syllable-splits ("Tem ppal" for Overgeared, "Eo neu nal gong ju ga …"), LoC uses ALA-LC (ŏ/ŭ, `Chinjihan kŏn`), and BnF often has none. Original titles key **within** a library only. Across libraries only the English title (which DE/FR records often carry verbatim), Hangul/Hanzi, and ISBN-free author sets link.
+- **Relay translations stay out this round.** German editions of KR/CN works translated from the Japanese (`041 $h jpn`: Ultramarine Magmell, Priest; 2 lines / 9 volumes [M]) come through the JP build's `spo=jpn` channels, where they are `out_of_scope` today, and the KR/CN build does not read those channels. `dnb_link.py`'s comment that they wait for this round is stale and is corrected in Phase A.
+  - **Gate:** `dnb_line` and `krcn_line` keys are disjoint. Both builds mint `dnb:` keys into the same `rl_` namespace.
+  - `IMPRINT_Q` is read by both builds. The KR/CN build takes only its records with a KR/CN origin statement or a manhwa/webtoon/manhua keyword; the JP build leaves exactly those records out. The disjointness gate enforces the split.
 
 **Measured linker results** (existing works; ground truth by eye, no labelled set yet):
 - **DNB:** 17 lines linked to 17 existing KR/CN works (Solo Leveling, TRK, ORV ×2, Villains ("Penelope – Das Böse ist dem Tod geweiht"), Sweet Home, Viral Hit, …). All 17 look right; 1 wrong (Ouroboros, blocked by the guard above). Plus 4 lines to KR/CN works tagged `manga` (King of Hell ×2, Love Is an Illusion!, Biao Ren), and 1 review (*Bastard*: Hangul key lost) [M].
@@ -381,25 +414,25 @@ All measured [M]. The measure replay therefore cannot flip on these three.
 **A German or French line to an English-anchored new work.** Library works are built in one pass over all three sources:
 1. Cluster the unlinked lines of all markets by folded English title and Hangul/Hanzi keys. Titles only; a romanised key only within one library.
 2. Attach clusters to existing works when the linker says so.
-3. Create the rest.
+3. Create the clusters that have an English line and meet §9; hold the rest.
 
 Measured cross-market shape of the 628 new-work candidate lines [E: title-key clustering, precision unmeasured]:
 
-| Markets | Candidate works |
-|---|---:|
-| DE only | 292 |
-| FR only | 133 |
-| EN only | 42 |
-| DE + EN | 25 |
-| DE + FR | 23 |
-| EN + FR | 3 |
-| DE + EN + FR | 2 |
-| **Total** | **520** |
+| Markets | Candidate works | Under R6 |
+|---|---:|---|
+| DE only | 292 | held |
+| FR only | 133 | held |
+| EN only | 42 | exported (27 after the Ize review) |
+| DE + EN | 25 | exported |
+| DE + FR | 23 | held |
+| EN + FR | 3 | exported |
+| DE + EN + FR | 2 | exported |
+| **Total** | **520** | **72 with an EN line (57 exported [E, provisional]); 448 held** |
 
-- **Only 72 of the 520 have an English line** [E].
+- The 15 EN-only clusters that drop out are the Ize level-5 lines of §7 that go to review.
 - *A Business Proposal* EN/DE/FR, *Hanami* EN/FR, *Moon Boy* = *Le garçon de la lune*, *Level Up with the Gods* and *Under the Oak Tree* cluster correctly. So does *Astelle und der geheime Sohn des Kaisers* = *Comment cacher le fils de l'empereur*, through a shared original title [M examples].
 
-**Works with no English line.** They ship. They are German- and French-anchored works, which is decision 1. Their consequences for AniList (§11) and Mangarr (§14) are the price.
+**Works with no English line.** They are held (R6) and never loaded into `work` / `release_line`.
 
 ## 11. AniList binding of new works
 
@@ -410,16 +443,11 @@ Existing practice is `export/resolve_anilist.py` stage 8a:
 - then `corrections/anilist.json` pins.
 
 **New English lines join automatically.**
-- 74 new EN lines need about 74–300 searches, i.e. about 10–40 requests [E]. None are cached (0 of 74 names) [M].
+- About 60 exported new EN lines [E] need about 60–240 searches, i.e. about 8–30 requests [E]. None are cached (0 of the spike's 74 names) [M].
 - AniList `volumes` is typically null for webtoons. The volume rule skips null, so binding falls to title equality alone. The existing R1 guard (a synonym never beats a primary title) still applies.
 - `format_not: NOVEL` also admits `MANHWA`-country entries; AniList's format for manhwa is `MANGA`. Mangarr does not request `countryOfOrigin` either (§14).
 
-**Works with only DE/FR lines (~448 [E]) do not bind under the existing practice.** **NICK** decides; see §15-3.
-- Recommendation: keep the practice (English lines only) this round.
-- Binding a German or French line by its title would search localized titles ("Athanasia – plötzlich Prinzessin"), which AniList mostly does not hold. The ranker's title-equality rules would leave most unbound, and any bind found through an alias is exactly the fuzzy guess the resolver refuses.
-- Mangarr also never looks a line up **by** `anilist_id` (§14), so a binding on a German line would not be read today.
-- Revisit after Mangarr follow-up M1 lands, with a replay-measured rule, for example: bind a DE/FR line only on exact English-title equality with an English title the DNB/BnF record itself carries.
-- Pins in `corrections/anilist.json` remain the per-work manual path.
+**Works with only DE/FR lines (~448 [E]).** Held under R6; binding follows the Mangarr consumer round (R3). Pins in `corrections/anilist.json` remain the per-work manual path for exported works.
 
 ## 12. Dates
 
@@ -439,55 +467,73 @@ Existing practice is `export/resolve_anilist.py` stage 8a:
   - Expect most new English volumes to ship undated or year-dated. The existing 979 volumes of EN KR/CN lines are 104/104 day-dated only because Wikipedia dates them [M].
 - **Resolve.** The existing tier2/resolve rule, extended to `loc` and `bnf`: a bare library year never beats a finer date it disagrees with.
 
-**Enrichment hazard (must be fixed first).** `enrich_openlibrary` batches the **sorted** market ISBN list 50 per URL, the same shape as the openBD gotcha in HANDOFF.
+**Enrichment hazard (must be fixed first, Phase A).** `enrich_openlibrary` batches the **sorted** market ISBN list 50 per URL, the same shape as the openBD gotcha in HANDOFF.
 - The hazard is already live on today's corpus. Locally, only 64 of the 515 current EN batch URLs and 76 of the 337 FR batch URLs are cached **before** anything is added [M]. The local cache is not CI's.
-- This round's ISBNs make it worse. The 436 new EN ISBNs leave 5 of those 64 cached EN batch URLs intact. The 1,087 new FR ISBNs leave 45 of 358 FR batch URLs cached [M, offline].
-- The cache that matters is CI's seed. Size the burst against the seed before the first build.
-- Online, every re-keyed batch is an Open Library request on an API that asks bulk users to use the dumps. Offline, a re-keyed batch silently drops dates.
-- Fix: batch the new round's ISBNs **separately** (their own sorted list, their own URLs) so existing batches keep their URLs. Better, per-ISBN cache keys. Either way, before this round's first build.
-- Likewise `enrich_bnf` would issue one SRU call per new FR volume (~1,100 [E]) for data the BnF line source already has. Skip volumes whose line source is `bnf`.
+- Any added ISBN shifts every later batch URL. Batching the new ISBNs separately would only move the problem to the next build, and LoC also adds ISBNs to existing volumes (107 fills [M]).
+- **Fix: per-ISBN cache keys.** The per-ISBN cache is derived offline from the cached batch responses: each ISBN a cached batch asked for gets its own entry, and an ISBN the batch asked for but the response does not hold gets a negative entry. The network still batches 50 per request, but only for ISBNs with no entry, and it stores the results per ISBN. Adding ISBNs then costs `ceil(new / 50)` requests and never re-keys anything.
+- **Burst under R6 [E]:** EN about 360 new ISBNs (the spike's 436 less the Ize review lines), about 8 requests. FR about 90 (59 on title-linked lines, 7 new on attached lines, ~25 on new-work siblings), about 2 requests. The ~1,087 FR ISBNs of held lines are not enriched until they export.
+- Likewise `enrich_bnf` would issue one SRU call per new FR volume for data the BnF line source already has. Skip volumes whose line source is `bnf`.
 
 ## 13. Gates
 
 **Contract** (`export/test_artifact.py`, new rules):
-- Every `loc` claim is `us_gov_pd`, and its source record's `040 $a` is `DLC`. A staging table `loc_member(lccn, f040a, line_key, volume_id, fate)` makes this checkable.
+- Every `loc` claim is `us_gov_pd`, and its source record's `040 $a` is `DLC`. A staging table `loc_member(lccn, f040a, line_key, volume_id, fate)` makes this checkable. The check reads the catalogue, so the test takes the catalogue path (as the existing `dnb_member` checks do).
 - No `loc` claim from a `520`, `856` or `955` field.
+- Every `loc` `source_url` is `https://lccn.loc.gov/…`; every `bnf` line-source `source_url` is an ark URL.
+- No cover and no `856`-derived field from `dnb`, `loc` or `bnf`.
+- `meta.attribution` names the Library of Congress.
 - No `loc` date on a volume that came from a set record.
 - No `loc` `published` date from a record at encoding level `5` or `8`. Such a record dates a volume only as `projected` (from `263`).
 - `loc`, `bnf` and `dnb` published dates are year precision; projected dates are month precision and never override published or on_sale.
 - No volume dated from a `263 1111`.
 - **Every library-created work has at least one line with explicit KR/CN origin and at least one comic line.** No library-created work has a JP-market line.
+- **R6.** No library work created in this build is exported without an English line. No held cluster has a `tome_id`, `tome_work_id` or `id_map` integer (read from the `krcn_line` staging through the catalogue path). No carried line or work is absent from the export because it was held (never demoted).
+- **Flood gate.** At most `MAX_NEW_LIBRARY_WORKS` new library works in a refresh build.
 - No `novel` line in a work without a comic line.
+- `dnb_line` and `krcn_line` keys are disjoint (§10).
 - The existing ids survive:
   - the EN/FR/DE lines of the 54 KR/CN works (a fixture of their ids, like `de_lines_pre_dnb.json`);
   - the 3 library-fixture lines.
 - The linker fixture (§10): 0 wrong on `must_link` / `must_not_link`.
+- **New-work fixture.** Every exported new work of the first build (~57 [E]) is labelled by eye, as `must_create` (with its lines) or `must_not_create` (with the existing work or the reason). 0 wrong before the first publish; later builds must keep it.
 - `clean_claim` contains the `loc` claims (the view lists `us_gov_pd`).
 
-**Canary.** The LoC control query returns 1 DLC record, otherwise the stage fails. A result set counts as complete only when its distinct records equal `numberOfRecords`.
+**Canary.** The LoC control query returns 1 DLC record, otherwise the stage fails. A result set, or each of its slices, counts as complete only when its distinct records equal `numberOfRecords` (§3).
 
-**Measure** (`export/measure_library.py`, set after the first real build; values below are from the spike):
+**Measure** (`export/measure_library.py`). Two sets of floors.
 
-| Market | Line floor | Volume floor | Other floors |
-|---|---|---|---|
-| DE KR/CN (spike: 396 lines / 1,644 volumes, minus review) | 300 | 1,250 | deposited-year coverage ≥ 95% (spike: 100%); page coverage ≥ 90% (spike: 97.5%); announced-only volumes reported, not gated |
-| FR KR/CN (spike: 203 / 1,278) | 160 | 1,000 | year coverage ≥ 95%; pages reported, not gated (64%) |
-| EN KR/CN (spike: 74 + existing) | 60 new | — | date coverage reported only (Open Library-bound, §12) |
+*Staged floors* gate what the build **built**: `krcn_line` including held and review lines. They are set now from the spike, at about 75–80% of it:
 
-- Library works: count reported; at least 72 with an English line.
+| Market | Spike (built) | Line floor | Volume floor | Other floors |
+|---|---|---|---|---|
+| DE KR/CN | 396 lines / 1,644 volumes | 300 | 1,250 | deposited-year coverage ≥ 95% (spike: 100%); page coverage ≥ 90% (spike: 97.5%); announced-only volumes reported, not gated |
+| FR KR/CN | 203 / 1,278 | 160 | 1,000 | year coverage ≥ 95%; pages reported, not gated (64%) |
+| EN KR/CN (LoC DLC) | 85 / ~470 (a lower bound, §3) | 65 | 360 | date coverage reported only (Open Library-bound, §12) |
+
+*Exported floors* gate what the artifact **ships**. They are set from the first real build: the procedure is to run the first full build, measure the exported `krcn_line` lines and volumes per market and the exported new works, and set each floor at about 85% of the measured value, in the same commit that records the measurement. Until then these provisional values [E, provisional] apply. They come from the spike under R6 rules, before the explicit-origin check on the EN comic lines and before the containment guard, which the spike did not apply to new-work clusters:
+
+| Exported | Spike under R6 | Provisional floor (~85%) |
+|---|---|---|
+| DE lines / volumes | 53 / 321 (23 / 150 to existing works, 30 / 171 new-work siblings) | 45 / 273 |
+| FR lines / volumes | 29 / 191 (21 / 166 to existing works, 8 / 25 siblings) | 25 / 162 |
+| EN lines / volumes | 70 / 398 (11 / 87 to existing works, 59 / 311 new-work lines) | 59 / 338 |
+| New library works | 57 | 48 |
+
+- Held clusters are reported (spike: 448 clusters, 516 lines, 2,404 volumes), not gated.
 - The idempotent reload gives the same ids (`same_ids` pattern).
 - The library replay, including Solo Leveling ×2 and TBATE, is unchanged.
 
 **The existing German gates must not blur.**
 - `measure_de`'s link rate today is 1,455 exported / 4,340 DNB lines = 33.5% [M], against a 30% floor.
-- If the ~396 KR/CN lines join `dnb_line` with only the ~23 linked ones counted as exported, the rate drops to about 31.2% [E]. That still passes, but only by about a point, and it mixes two populations.
+- If the ~396 KR/CN lines joined `dnb_line` with only the ~23 linked ones counted as exported, the rate would drop to about 31.2% [E]. That would still pass, but only by about a point, and it mixes two populations.
 - KR/CN lines therefore get their own staging (`krcn_line` / `krcn_member`, one table set for all three sources) and their own meta key (`krcn_lines`). The German JP gates stay exactly as they are.
+- `measure_de` reads every `language='de'` series, but its announced set comes only from `dnb_member`. It must union in `krcn_member`, or undated KR/CN announcements count as deposited-undated.
 
 **The `fold()` change must not move the German JP round.** `dnb_link.fold` also feeds `build_dnb` cluster keys, and a re-cluster can change a line's lowest member IDN, and with it the line id. Two gates:
 - `fold()` must return byte-identical output for every string with no Hangul, checked over all catalogue strings plus all DNB strings (the narrow-fold method).
-- A replay of the German JP build must show 0 changed `dnb_line` keys and 0 changed tiers.
+- A replay of the German JP build must show 0 changed `dnb_line` keys, 0 changed tiers, 0 changed roles and 0 changed exported flags. Roles and exported flags cover the new JP out-of-scope test (§10).
 
-The carried-id gate (7b) already covers every market and every entity; its caps apply as they are. **Watch:** a first KR/CN build moves no carried id, but a refresh that re-clusters DE KR/CN lines counts toward the retired-line cap of 10.
+The carried-id gate (7b) already covers every market and every entity; its caps apply as they are. **Watch:** a first KR/CN build moves no carried id, but a refresh that re-clusters DE KR/CN lines counts toward the retired-line cap of 10. The carry lookup before minting (§8) keeps such a re-cluster from re-keying a published line.
 
 ## 14. Mangarr follow-ups (a separate Mangarr task; not implemented here)
 
@@ -508,7 +554,7 @@ Read on 2026-09-27; line numbers are as of that read. Nothing in Mangarr filters
 2. **M2 — works without an English line.**
    - `Rank` keeps only `language == "en"` lines (L238).
    - With the default English-only Preferred Edition chain, `EditionRequestFor` returns null (`BookInfoProxy` L224-226). The series then falls back to live sources with `TomeLineId = null` (Provider L1464), and a light novel gets `NotInCatalogue` (L680-689).
-   - This needs a policy: fall back to the work's `is_main` line in the chain's languages, or in all languages. The ~448 DE/FR-only works are unreachable until it lands. `EditionResolver` L131-141 should also resolve an anchorless work by `anilist_id` / `tome_work_id`, not only by title.
+   - This needs a policy: fall back to the work's `is_main` line in the chain's languages, or in all languages. The ~448 DE/FR-only works are held until it lands. `EditionResolver` L131-141 should also resolve an anchorless work by `anilist_id` / `tome_work_id`, not only by title.
 3. **M3 — `IsCounterpart` without `orig_series_id`.** It returns false (`EditionResolver` L234-238).
    - New works have no KR/CN original line, so `pick_origin` (`to_mangarr.py`) finds no ORIGIN market and every line's `orig_series_id` is NULL.
    - Fall back to `is_main` or the work's origin by `country`.
@@ -523,69 +569,96 @@ Read on 2026-09-27; line numbers are as of that read. Nothing in Mangarr filters
 7. **M7 — Collections.** `CollectionController` L100/132 uses English-only `Rank`, so no collection forms for a work without an English line.
 8. **M8 — tests.** Nothing tests `medium` = manhwa/manhua. Add cases to `GcdRankFixture` (a de-only work), `EditionResolverFixture` (ko origin; `anilist_id` on a non-en line), and `MangaSeriesMetadataProviderFixture`.
 
+**Notes for the Mangarr round.**
+- The exported DE/FR siblings of new works have a NULL `orig_series_id` (M3), so a user whose Preferred Edition chain starts with de or fr does not get them as counterparts until M3 lands.
+- Most new English volumes are undated or year-dated (§12). A consumer that treats an undated volume as missing will search for it.
+
 OpenTome does not emit `webtoon` (§7), so the webtoon-vs-print ranking question the Mangarr read raised does not arise.
 
-## 15. Open points for Nick (with recommendations)
+## 15. Resolved points (were open for Nick)
 
-The first three block shipping.
-
-1. **A library work later covered by Wikipedia** (§9). This is a public-contract question.
-   - Recommendation: the adoption rule. The library id stays public and no redirect is written, which keeps the older id.
-2. **The review path.** The linker, containment guard, JP guard and Ize-medium rules send lines to review files (`build/krcn-review.tsv`): at least 1 DE + 2 FR + 15 Ize + containment hits [M], plus German-titled duplicates like *Athanasia* [E: tens].
-   - As with `dnb-review.tsv`, there is no correction type for "link this library line" yet.
-   - Recommendation: add `corrections/lines.json` `link_work` (library line key → work id) this round. Without it, a reviewed line can never ship.
-3. **AniList and reachability for works without an English line** (§11, Mangarr M2): about 448 works.
-   - Recommendation: bind English lines only this round, which is the existing practice.
-   - Schedule Mangarr M1/M2 as the follow-up that makes these works reachable. Until then they serve only users whose Preferred Edition chain includes de/fr, and only by title.
-4. **Confirm the measured cost of decision 2** (§2). The DLC-only rule excludes 73 new English lines / 218 volumes, including the WEBTOON Unscrolled (Tower of God, Noblesse), Inklore, Seven Seas and Drawn & Quarterly lines.
-   - Recommendation: keep the rule. Fill important gaps with per-title `corrections/*.json` entries that cite the publisher page (facts, not fetched). Say plainly in the README that English KR/CN coverage is Ize/Yen-heavy.
-5. **Scope of pre-2015 French manhwa** (Tokebi / Saphira / Samji: 137 of 203 FR lines, mostly long-finished runs) [M].
-   - Recommendation: include them. They are real print lines and cost nothing extra.
+1. **A library work later covered by Wikipedia** (§9). Resolved by R1: the adoption rule. The library id stays public and no redirect is written, which keeps the older id. Lines follow the same rule (§8).
+2. **The review path.** The linker, containment guard, JP guard and Ize-medium rules send lines to review files (`build/krcn-review.tsv`): at least 1 DE + 2 FR + 15 Ize + containment hits [M], plus German-titled duplicates like *Athanasia* [E: tens]. Resolved by R2: `corrections/lines.json` gains `link_work` (library line key → work id) this round, so a reviewed line can ship.
+3. **AniList and reachability for works without an English line** (§11, Mangarr M2): about 448 works. Resolved by R3 and R6: English lines bind as today; works without one are held until the Mangarr consumer round, and their binding is added then.
+4. **The measured cost of decision 2** (§2): 73 new English lines / 218 volumes, including the WEBTOON Unscrolled (Tower of God, Noblesse), Inklore, Seven Seas and Drawn & Quarterly lines. Resolved by R4: DLC-only, no switch. Important gaps can be filled with per-title `corrections/*.json` entries that cite the publisher page (facts, not fetched). The README says plainly that English KR/CN coverage is Ize/Yen-heavy.
+5. **Scope of pre-2015 French manhwa** (Tokebi / Saphira / Samji: 137 of 203 FR lines, mostly long-finished runs) [M]. Resolved by R5: included.
 
 ## 16. Out of scope
 
 - The National Library of Korea (decision 3).
 - **Korean- and Chinese-language originals held by LoC:** 337 Korean and 95 Chinese records in the channels paged [M], many DLC gifts from the Publication Industry Promotion Agency of Korea. A later round could build KR/CN origin lines from them, which would also give new works an `orig_series_id` (Mangarr M3).
-- Non-DLC LoC records. Publisher sites (cited only). MangaUpdates (worklist only; not stored).
+- Non-DLC LoC records (R4). Nick has been asked whether they may be included as bare facts (ISBN, volume number, title, year); a yes becomes a later follow-up task, not part of this plan.
+- Works with no English line: built and held (R6), not exported.
+- Relay translations (`041 $h jpn` German editions of KR/CN works, §10).
+- Publisher sites (cited only). MangaUpdates (worklist only; not stored).
 - Digital-only webtoons.
 - A `webtoon` medium value.
 - Retagging existing Wikipedia KR lines tagged `manga`: Solo Leveling DE / ko `manga`, I Love Amy, King of Hell, … This is `corrections/lines.json` medium overrides, one entry each, and not re-keying.
 - Splitting the 5 mixed JP/KR works (Wind Breaker, Pandemonium, …). This is a separate work-identity fix: split and redirect.
 - French manhua beyond the `101 $c` filter (Xiao Pan: 35 of 39 records carry no `101 $c`).
+- Traditional/Simplified Hanzi key folding (§10).
 
 ## 17. Scale and yield
+
+Built (staged in `krcn_line`, held and review lines included):
 
 | Market / source | Records | Lines | Volumes | To existing works | New-work lines | ISBN / date / pages |
 |---|---|---|---|---|---|---|
 | DE / DNB | 4,959 [M] | 396 [M] | 1,644 [M] | 23 lines (17 works) [M] | 355 comic (1,433 vols) + 16 novel (51) [M] | 100% / 80.2% year / 97.5% [M] |
 | FR / BnF | 1,304 KR/CN of 4,285 [M] | 203 [M] | 1,278 [M] | 21 lines (18 works) [M] | 180 (1,104 vols) [M] | 89% / 100% year / 64% [M] |
 | EN / LoC (DLC only) | 214 DLC of 324 translated KR/CN-origin records; 54 Ize (all DLC) [M] | 85 [M] | ~470 [M] | 11 lines (ISBN fill: 107/235) [M] | 74 (386 vols; 35 of them medium-unresolved) [M] | 100% / year on single-volume records only / 29% of comic records [M] |
-| **New works** | — | — | — | — | **~520 [E]** (72 with an EN line, ~448 DE/FR-only) | — |
+
+Exported and held under R6 [E, provisional; spike clustering, before the explicit-origin check on EN comic lines and the containment guard on new-work clusters]:
+
+| | Works | DE lines / vols | FR lines / vols | EN lines / vols |
+|---|---:|---|---|---|
+| Lines to existing works | — | 23 / 150 | 21 / 166 | 11 / 87 |
+| New works, exported | 57 | 30 / 171 | 8 / 25 | 59 / 311 |
+| **Exported total** | **57 new** | **53 / 321** | **29 / 191** | **70 / 398** |
+| Held (`krcn-held.tsv`) | 448 | 342 / 1,317 | 174 / 1,087 | — |
+| Review (Ize level 5, §7) | — | — | — | 15 / 75 |
 
 - Existing KR/CN works touched: DE 17, FR 18, EN 9 (distinct works) [M].
-- After review and the containment guard, expect roughly 400–480 new works, 550–620 new lines and 3,000–3,300 new volumes [E].
-- The catalogue's DE market grows by about 25% in lines. The first EN/FR KR/CN lines outside Wikipedia appear.
+- New lines in the artifact [E]: DE about 52 (the linked lines less the Solo Leveling merge, plus the siblings), about 3.6% of today's 1,459 DE lines; FR about 19 (10 of the 21 linked lines attach to existing FR lines); EN about 60 (10 of the 11 linked lines attach).
+- The first EN/FR KR/CN lines outside Wikipedia appear.
 
 ## 18. Risks
 
-- **LoC gateway diagnostics** (31% of requests) [M]. A permanently failing page (one did [M]) blocks a result set. The mitigations are the degraded-refresh rule and a **complete CI cache seed** (§3); a first run must retry until complete, or fail.
+- **LoC gateway diagnostics** (31% of requests) [M]. They are page-size-dependent and partly transient (§3). The mitigations are the R7 ladder (bounded retry, smaller pages, then slices), per-slice completeness, the degraded mode (cached set, `meta.loc_degraded`, no publish) and a **complete CI cache seed** built with the production client (§3).
 - **ISBN-stem enumeration is incomplete by construction.** New imprints and registrant blocks appear (Seven Seas moved to 979-8-88843 / 979-8-89160, which LoC barely holds). The subject channels are the safety net. Report per-channel counts in `build/loc-report.json` so a new stem is noticed.
 - **Level-5 ECIP records** lack origin and class (40 of 55 Ize) [M]. The medium depends on cross-market evidence or a later LoC upgrade.
-- **False new works** (German/French titles of existing works; *Athanasia*) [M]. Ids are permanent, so every false new work becomes a merge plus a redirect later. The containment guard and review file are the defence. Precision is not yet measured: build a labelled sample of ~50 new-work clusters before the first publish, as DNB's labelled set did.
+- **False new works** (German/French titles of existing works; *Athanasia*) [M]. Ids are permanent, so every false new work becomes a merge plus a redirect later. The defences are the containment guard, the review file, the hold (R6: no work is created from DE/FR titles alone this round) and the new-work fixture (§13), which labels every exported new work before the first publish.
 - **Romanisation mismatch** between libraries (§10): cross-market clustering leans on English titles.
-- **Open Library batch re-key** (§12) and a BnF per-ISBN burst: fix before the first build.
+- **Open Library batch re-key** (§12): per-ISBN cache keys, before the first build (Phase A).
 - **Dates:** EN mostly undated or year-only. A consumer that treats undated as missing will search for them (the same caveat as the 879 undated DE volumes).
 - **Mixed JP/KR works** already in the catalogue (Wind Breaker) can attract KR lines to a JP-anchored work. The JP guard sends these to review, but the existing mixed work stays mixed until split.
 - **The legal basis of the LoC rule is Nick's inference** (17 USC §105), not a published LoC licence. Record it as such in legal-position.md.
 
+## 19. Phasing
+
+**Phase A — changes to existing code, each gated against the current German JP build.**
+- `fold()`: NFC after the combining-mark strip, Hangul range, the 2-syllable Hangul key rule; the byte-identical gate and the German JP replay gate (0 changed keys, tiers, roles, exported flags).
+- The KR/CN work set and the JP out-of-scope test ("has a KR/CN line and no JP-market line"); correct `dnb_link.py`'s stale relay-translation comment.
+- `same_person`: the full-name rule for KR/CN lines.
+- Open Library per-ISBN cache keys, derived offline from the cached batches.
+- `corrections/lines.json` `link_work` (R2).
+
+**Phase B — the sources and the new works.**
+- Clients: LoC with the R7 ladder, slices and canary; BnF channels with `tier0/bnf_unimarc.py`; the DNB `spo=kor` / `spo=chi` channels and the `IMPRINT_Q` split.
+- `krcn_line` / `krcn_member` / `loc_member` staging, line keys with LCCN normalisation and ark ordering, the carry lookup before minting.
+- Stage 3f: work creation (§9), the adoption rule for works and lines before 4c/7b, the hold file, the flood gate.
+- Licence row, attribution, `clean_claim`; AniList for the new EN lines.
+- The gates of §13, the new-work and linker fixtures, the CI seed and `catalogue.yml` settings.
+- The first real build, then the exported floors from its measurement.
+
 ## Rulings (controller, 2026-09-27 — Nick: "Continue with your recs")
 
-- **R1 Work ids.** A library-created KR/CN work keeps its id when Wikipedia later covers the same work (adopt; no redirect), per the id-scheme's "keep the older id".
+- **R1 Work ids.** A library-created KR/CN work keeps its id when Wikipedia later covers the same work (adopt; no redirect), per the id-scheme's "keep the older id". After review: the same rule holds for lines (§8), adoption runs before 4c/7b, and `docs/id-scheme.md` states it.
 - **R2 Review path.** Add a `link_work` correction type in this round, so a reviewed low/ambiguous line can ship.
 - **R3 AniList binding.** Bind new works that have an English line (as today). Works with no English line wait for the Mangarr consumer round (find-by-anilist-id, non-English-only works), which follows this round; their binding is added then.
-- **R4 LoC scope (controller ruling, stricter than Nick's approval — he approved "LoC records are public domain"; the DLC-only limit came from the source research).** Build with LoC-created records only (040 $a DLC); the parser reads both record kinds and a single switch includes non-DLC records limited to bare facts (ISBN, volume number, title, year) if Nick chooses. Cost of DLC-only: 73 English lines / 218 volumes (WEBTOON Unscrolled incl. Tower of God and Noblesse, Inklore, Seven Seas) wait for a later licence review.
+- **R4 LoC scope (controller ruling, stricter than Nick's approval — he approved "LoC records are public domain"; the DLC-only limit came from the source research).** Build with LoC-created records only (`040 $a DLC`). No switch for non-DLC records is built (cut after review). Nick has been asked whether non-DLC LoC records may be included as bare facts (ISBN, volume number, title, year); a yes is a later follow-up task, not this plan. Cost of DLC-only: 73 English lines / 218 volumes (WEBTOON Unscrolled incl. Tower of God and Noblesse, Inklore, Seven Seas) wait for that decision.
 - **R5 French backlist.** Pre-2015 French manhwa (137 of 203 FR lines) are included.
-- **Pre-build items** (plan tasks): regenerate the CI cache seed from the full local `.cache`; batch the new ISBNs separately in the Open Library enrichment; the Hangul fold() change leaves every non-Hangul key byte-identical, gated by a German JP replay.
-- **Sequence:** this OpenTome round → publish → Mangarr consumer round (find line by anilist_id, non-English-only works, IsCounterpart without orig_series_id, AniList countryOfOrigin, KR/CN volume tokens + Hangul, japaneseTotal naming, Collections) → AniList binding for non-English-only works.
-- **R6 Hold works with no English line (controller, 2026-09-27, after review).** ~425 DE-only / FR-only candidate works [E] cannot be joined across markets reliably (German vs French titles, romanisation mismatch) and ids are a public contract — a wrong split becomes a published merge + redirect. This round builds and gates them but EXPORTS only: lines linked to existing works (DE 23 / FR 21 / EN 11 [M]) and new works that have an English line (~72 [E]) with their DE/FR siblings. The rest go to a hold file (`build/krcn-held.tsv`, like dnb-review.tsv) until the Mangarr consumer round + AniList binding can join them (DNB decision-1 precedent). Mangarr cannot reach them before that round anyway.
-- **R7 LoC paging.** The 42 "SRU errors" [M] are all diagnostic 61 "First record position out of range" at deep start positions although numberOfRecords is larger — a server-side reachable-window limit, not flakiness. The client slices queries (narrower ISBN prefixes / subject+year) until each set is fully pageable, asserts distinct records == announced count per slice (DNB-style completeness), caches whole sets only, and has a degraded mode (cached set, else fail the stage) before CI depends on it.
+- **Pre-build items** (plan tasks): regenerate the CI cache seed from the full local `.cache`, built with the production clients; per-ISBN cache keys in the Open Library enrichment; the Hangul fold() change leaves every non-Hangul key byte-identical, gated by a German JP replay (0 changed keys, tiers, roles, exported flags).
+- **Sequence:** this OpenTome round (Phase A, then Phase B) → publish → Mangarr consumer round (find line by anilist_id, non-English-only works, IsCounterpart without orig_series_id, AniList countryOfOrigin, KR/CN volume tokens + Hangul, japaneseTotal naming, Collections) → AniList binding for non-English-only works.
+- **R6 Hold works with no English line (controller, 2026-09-27, after review).** ~448 candidate works without an English line (DE-only 292, FR-only 133, DE+FR 23) [E] cannot be joined across markets reliably (German vs French titles, romanisation mismatch), and ids are a public contract — a wrong split becomes a published merge + redirect. This round builds and gates them but EXPORTS only: lines linked to existing works (DE 23 / FR 21 / EN 11 [M]) and new works that have an English line (72 clusters [E]; 57 after the Ize review (§7) [E, provisional]) with their DE/FR siblings. The rest go to a hold file (`build/krcn-held.tsv`, like dnb-review.tsv) until the Mangarr consumer round + AniList binding can join them (DNB decision-1 precedent). Gates in §9 and §13: no exported work created in the build without an EN line; held clusters get no ids or integers; a published line or work is never demoted to held.
+- **R7 LoC paging (rewritten after review).** The 42 SRU diagnostics [M] are all diagnostic 61 "First record position out of range". The spike shows them page-size-dependent and partly transient, not a deep-position window: they fired at `startRecord=1` on sets of 63–137 records, three pages that failed 3 times at 100 per page succeeded at 50, and two failed pages later succeeded unchanged. The client pages each page through a ladder: bounded retry at the same size, then a smaller page (100 → 50 → 25), then slices (narrower ISBN prefixes, subject + year). It asserts distinct records == announced count per slice (DNB-style completeness) and caches whole sets only. Degraded mode is one rule: use the previous complete cached set, set `meta.loc_degraded`, and refuse to publish; with no cached set, the stage fails. All of this is in place before CI depends on LoC (§3).
