@@ -18,6 +18,9 @@ build/opentome.db or the carry: snapshots run stage 3e on a COPY under build/krc
         `plan` and any live `ol`/`both`/`olfr` run, the new code's `ol_adopt` WRITES newly-derived
         per-ISBN entries into .cache/ as it runs -- from cached batch responses already on disk,
         zero network. Fails unless every old claim is reproduced with the same value.
+    python3 tier0/krcn_replay.py imprint-split
+        §10 disjointness, offline: no cached DNB record (the imprint channel + the spo=kor / spo=chi
+        channels) is in scope for both the JP round (origin_in_scope) and the KR/CN round (krcn_in_scope).
 
 catalogue defaults to build/opentome.db, carry to build/alias-fix/carry.sqlite (opentome-2026-09-25).
 """
@@ -213,6 +216,24 @@ def ol_gate(cat=CAT):
     print("ol-gate ok: every old Open Library claim reproduced")
 
 
+def imprint_split():
+    """§10: no DNB record is in scope for BOTH the JP round (dnb_marc.origin_in_scope) and the
+    KR/CN round (krcn_in_scope) -- over the cached imprint channel and the two KR/CN channels."""
+    os.environ["DNB_OFFLINE"] = "1"
+    import dnb_enumerate as E, dnb_marc as M
+    both, n = [], 0
+    for name, base, fine_from, coarse in [E.CHANNELS[1]] + E.KRCN_CHANNELS:
+        got, _, _ = E.run_channel(name, base, fine_from, coarse, verbose=False)
+        for k, r in got.items():
+            n += 1
+            if not M.is_parent(r) and M.origin_in_scope(r) and M.krcn_in_scope(r):
+                both.append(k)
+    print("  records checked %d, in scope for both rounds %d %s" % (n, len(both), both[:10]))
+    if both:
+        raise SystemExit("imprint-split FAILED")
+    print("imprint-split ok")
+
+
 if __name__ == "__main__":
     a = sys.argv[1:]
     if not a:
@@ -225,5 +246,7 @@ if __name__ == "__main__":
         jp_diff(a[1], a[2])
     elif a[0] == "ol-gate":
         ol_gate(*a[1:2])
+    elif a[0] == "imprint-split":
+        imprint_split()
     else:
         raise SystemExit(__doc__)

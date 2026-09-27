@@ -38,6 +38,7 @@ UA = ("OpenTome/0.1 (open manga/light-novel catalogue; CC0 DNB bibliographic dat
 INTERVAL = max(3.0, float(os.environ.get("DNB_INTERVAL", "3.0") or 3.0))
 OFFLINE = os.environ.get("DNB_OFFLINE", "0") == "1"
 REFRESH_DAYS = float(os.environ.get("DNB_REFRESH_DAYS", "0") or 0)
+MAX_REQUESTS = int(os.environ.get("DNB_MAX_REQUESTS", "0") or 0)    # 0 = no cap
 MAX_RETRY_AFTER = 600          # a Retry-After beyond 10 minutes stops the run instead
 PAGE = 100                     # DNB's maximumRecords ceiling
 
@@ -150,6 +151,8 @@ def get(url, refresh=False, force=False):
 def _live(url):
     """One polite live request -> the response text (checked, NOT cached: callers store)."""
     for attempt in range(3):
+        if MAX_REQUESTS and live_requests[0] >= MAX_REQUESTS:
+            raise DnbThrottled("DNB_MAX_REQUESTS=%d reached -- stopping (see build/dnb-netlog.tsv)" % MAX_REQUESTS)
         _throttle()
         t0 = time.time()
         live_requests[0] += 1
