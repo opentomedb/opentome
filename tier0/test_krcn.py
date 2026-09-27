@@ -47,6 +47,34 @@ eq("has_hangul: kana / Latin", R.has_hangul("ガンダム Übel Blatt"), False)
 eq("fold_v1 is the pre-round fold (Hangul dropped)", R.fold_v1("나 혼자만 레벨업"), "")
 eq("fold_v1 kana voicing dropped", R.fold_v1("ガンダム"), R.fold_v1("カンタム"))
 
+# ---- Task 2: fold() keeps Hangul ------------------------------------------------------------------
+import dnb_link as L
+
+eq("fold keeps Hangul syllables (NFD split them, NFC restores)", L.fold("나 혼자만 레벨업"), "나혼자만레벨업")
+eq("fold of NFD Hangul input", L.fold(unicodedata.normalize("NFD", "나 혼자만 레벨업")), "나혼자만레벨업")
+eq("DNB Bastard's 246 (spike dnb_lines.json dnb:1380595053)", L.fold("후레자식"), "후레자식")
+SAMPLES = ["ガンダム", "Übel Blatt", "Jeanne d’Arc", "Kaiju No. 8 – Band 16 (Finale)", "\x98Die\x9c Welt",
+           "Détective Conan Tome 3", "ＡＢＣ", "Ranma ½", "Shaman King × 2", "One Piece & Co", "Monster Mädchen 21",
+           "ワンピース", "進撃の巨人", "Kōsuke Fujishima", "L'Attaque des Titans vol. 3", "Taboo Tattoo #4"]
+for s in SAMPLES:
+    eq("fold unchanged without Hangul: %r" % s, (L.fold(s), L.fold(s, False)), (R.fold_v1(s), R.fold_v1(s, False)))
+eq("key_ok: 2-syllable Hangul key admitted", L.key_ok("괴물"), True)
+eq("key_ok: 1-syllable Hangul key refused", L.key_ok("괴"), False)
+eq("key_ok: 2-letter Latin key refused (MIN_KEY 3 unchanged)", L.key_ok("ab"), False)
+eq("key_ok: 2-kanji key refused (MIN_KEY 3 unchanged)", L.key_ok("巨人"), False)
+eq("keys(): the 2-syllable Hangul title keys", L.keys(["괴물"]), {"괴물"})
+eq("keys(): mixed Hangul + Latin under 3 is not Hangul-only", L.keys(["괴a"]), set())
+
+db = schema_db()
+db.execute("INSERT INTO work VALUES('w_kr1','Bastard (manhwa)',NULL,NULL,NULL,NULL,'x','x')")
+db.execute("INSERT INTO work_title VALUES('w_kr1','ko','후레자식','official')")
+db.execute("INSERT INTO work_title VALUES('w_kr1','ko','괴물','alias')")
+idx = L.Index(db)
+eq("Index._add keeps a Hangul official key", idx.official.get("후레자식"), {"w_kr1"})
+eq("Index._add keeps a 2-syllable Hangul alias key", idx.alias.get("괴물"), {"w_kr1"})
+tier, work, _, via = L.link(idx, ["Bastard", "후레자식"], [], ["후레자식"], "Bastard")
+eq("a line carrying only the Hangul original links through it", (tier, work), ("medium", "w_kr1"))
+
 # ==== summary ====
 print()
 if FAILS:
