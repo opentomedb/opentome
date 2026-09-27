@@ -1669,6 +1669,185 @@ eq("both reasons kept, '+'-joined in rule order", [(l["medium"], l["medium_why"]
    [(None, "duplicate_numbers+both", ["duplicate_numbers", "both"])])
 eq("stats count the joined reason", lb[2]["review"], {"duplicate_numbers+both": 1})
 
+# ---- Task 11: identity ------------------------------------------------------------------------------------
+import krcn_identity as KI
+from load import _id
+
+
+def carry_file(name, lines, works=(), krcn_lines=None, ints=None):
+    """lines: [(tome_id, work, name, medium, language, [(number, isbn)])] -> a minimal carried artifact."""
+    p = os.path.join(tempfile.mkdtemp(prefix="krcn-carry-"), name + ".sqlite")
+    A = sqlite3.connect(p)
+    A.executescript("""CREATE TABLE series (gcd_series_id INTEGER PRIMARY KEY, name TEXT, tome_id TEXT,
+                         tome_work_id TEXT, medium TEXT, language TEXT, country TEXT);
+                       CREATE TABLE volumes (gcd_series_id INTEGER, tome_id TEXT, volume_number INTEGER, isbn13 TEXT,
+                         release_date_raw TEXT);
+                       CREATE TABLE id_map (opentome_id TEXT PRIMARY KEY, int_id INTEGER, kind TEXT);
+                       CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);""")
+    for k, (tid, w, nm, med, lang, vols) in enumerate(lines, 1):
+        i = (ints or {}).get(tid, k * 10)
+        A.execute("INSERT INTO series VALUES(?,?,?,?,?,?,NULL)", (i, nm, tid, w, med, lang))
+        A.execute("INSERT INTO id_map VALUES(?,?,'release_line')", (tid, i))
+        for n, isbn in vols:
+            A.execute("INSERT INTO volumes VALUES(?,?,?,?,NULL)", (i, _id("v_", tid, n), int(n), isbn))
+    if krcn_lines is not None:
+        A.execute("INSERT INTO meta VALUES('krcn_ids',?)", (json.dumps({"works": list(works), "lines": krcn_lines}),))
+    A.commit()
+    return p
+
+
+def bl(key, source, name, vols):
+    return {"key": key, "source": source, "name": name,
+            "vols": [{"number": n, "isbns": [i] if i else []} for n, i in vols]}
+
+
+I5 = [("%d" % n, "97984009%05d" % n) for n in range(1, 6)]
+eq("no carry: every id minted from its key", (lambda l: (KI.line_ids([l], None), l["tome_id"], l["carried"]))(
+    bl("loc:2023941160", "loc", "Semantic error", I5))[1:], (_id("rl_", "loc:2023941160"), False))
+K = KI.read_carry(carry_file("c1", [("rl_old", "w_lib", "Semantic error", "manhwa", "en", I5)],
+                             works=["w_lib"], krcn_lines={"rl_old": "loc"}))
+ln = bl("loc:2022000001", "loc", "Semantic error", I5 + [("6", "9798400900006")])  # an older record joined: key moved
+KI.line_ids([ln], K)
+eq("carry lookup: the re-keyed line keeps its published id (strict majority of ISBNs)", (ln["tome_id"], ln["carried"]),
+   ("rl_old", True))
+ln = bl("loc:2022000001", "loc", "Semantic error", I5[:2])
+KI.line_ids([ln], K)
+eq("2 of 5: no majority -> minted", ln["tome_id"], _id("rl_", "loc:2022000001"))
+ln = bl("dnb:1", "dnb", "Semantic error", I5)
+KI.line_ids([ln], K)
+eq("another source never takes a carried library line", ln["tome_id"], _id("rl_", "dnb:1"))
+K2 = KI.read_carry(carry_file("c2", [("rl_a", "w_1", "X", "manhwa", "en", I5[:3]), ("rl_b", "w_1", "X", "manhwa", "en", I5[3:])],
+                              works=["w_1"], krcn_lines={"rl_a": "loc", "rl_b": "loc"}, ints={"rl_a": 20, "rl_b": 10}))
+ln = bl("loc:9", "loc", "X", I5)
+KI.line_ids([ln], K2)
+eq("two carried lines merge: the older integer's id wins, the other is absorbed", (ln["tome_id"], ln["absorbed_ids"]),
+   ("rl_b", ["rl_a"]))
+K3 = KI.read_carry(carry_file("c3", [("rl_r", "w_2", "Raeliana", "manhwa", "de", [("1", None), ("2", None)])],
+                              works=["w_2"], krcn_lines={"rl_r": "dnb"}))
+ln = bl("dnb:77", "dnb", "Raeliana", [("1", None), ("2", None)])
+KI.line_ids([ln], K3)
+eq("no ISBNs anywhere: volume numbers + the same folded name", ln["tome_id"], "rl_r")
+eq("older(): lowest carried integer; a work's is its lines' minimum", (KI.older(["rl_a", "rl_b"], K2), KI.older(["w_1"], K2)),
+   ("rl_b", "w_1"))
+
+# attach in any direction
+E = {"rl_x": {"work": "w_wiki", "medium": "manhwa", "vols": {"1": ("v1", "a1"), "2": ("v2", "a2"), "3": ("v3", "a3")}}}
+e_isbn = {"a1": ("rl_x", "v1"), "a2": ("rl_x", "v2"), "a3": ("rl_x", "v3")}
+
+
+def att(carried_lib, x_carried, ints):
+    K_ = {"series_ids": ({"rl_lib"} if carried_lib else set()) | ({"rl_x"} if x_carried else set()),
+          "int": ints, "works": set(), "lines": {}}
+    a = {"key": "loc:1", "tome_id": "rl_lib", "carried": carried_lib,
+         "vols": [{"number": n, "isbns": [i]} for n, i in (("1", "a1"), ("2", "a2"), ("3", "a3"))]}
+    b = {"key": "loc:2", "tome_id": "rl_lib2", "carried": False, "vols": [{"number": "1", "isbns": ["a1"]}]}
+    KI.attach_roles([a, b], E, e_isbn, K_)
+    return a.get("role"), a.get("target"), b.get("role"), a.get("work")
+
+
+eq("new library line + an existing line: merged into it (the existing id kept)", att(False, False, {})[:1], ("merged",))
+eq("a carried library line + an uncarried Wikipedia newcomer: the library line adopts it (R1)",
+   att(True, False, {"rl_lib": 5}), ("adopting", "rl_x", "sibling", "w_wiki"))
+eq("both carried: the older integer wins (library 5 < wiki 9)", att(True, True, {"rl_lib": 5, "rl_x": 9})[0], "adopting")
+eq("both carried: the older integer wins (wiki 3 < library 5)", att(True, True, {"rl_lib": 5, "rl_x": 3})[0], "merged")
+
+# rename_work and adopt_line on a real schema
+db = schema_db()
+db.execute("INSERT INTO work VALUES('w_wiki','Wiki',NULL,NULL,NULL,NULL,'x','x')")
+db.execute("INSERT INTO work_title VALUES('w_wiki','en','Wiki','official')")
+line_row(db, "rl_x", "w_wiki", "manhwa", "EN", "en")
+line_row(db, "rl_lib", "w_wiki", "manhwa", "EN", "en")
+db.execute("INSERT INTO claim VALUES('work','w_wiki','author','[\"A\"]','wikipedia',NULL,'facts_only','x')")
+KI.rename_work(db.cursor(), "w_wiki", "w_lib")
+eq("rename_work: every row follows", [db.execute(q).fetchone()[0] for q in (
+    "SELECT COUNT(*) FROM work WHERE id='w_lib'", "SELECT COUNT(*) FROM work_title WHERE work_id='w_lib'",
+    "SELECT COUNT(*) FROM release_line WHERE work_id='w_lib'", "SELECT COUNT(*) FROM claim WHERE entity_id='w_lib'",
+    "SELECT COUNT(*) FROM work WHERE id='w_wiki'")], [1, 1, 2, 1, 0])
+for vid, rid, n, isbn, date, prec in (("v_l1", "rl_lib", "1", "a1", "2021", "year"), ("v_x1", "rl_x", "1", "a1", "2021-03-02", "day"),
+                                      ("v_x2", "rl_x", "2", "a2", "2021-06-01", "day")):
+    db.execute("INSERT INTO volume(id,release_line_id,number,isbn13,release_date,release_date_precision,"
+               "release_date_type,created_at,updated_at) VALUES(?,?,?,?,?,?,'published','x','x')", (vid, rid, n, isbn, date, prec))
+    db.execute("INSERT INTO claim VALUES('volume',?,'release_date',?,?,NULL,'x','x')",
+               (vid, date, "loc" if rid == "rl_lib" else "wikipedia"))
+KI.adopt_line(db.cursor(), "rl_x", "rl_lib")
+eq("adopt_line: the internal line is gone", db.execute("SELECT COUNT(*) FROM release_line WHERE id='rl_x'").fetchone()[0], 0)
+eq("adopt_line: vol 1 keeps the public id, takes the finer Wikipedia date and its claim",
+   (db.execute("SELECT release_date FROM volume WHERE id='v_l1'").fetchone()[0],
+    sorted(r[0] for r in db.execute("SELECT source FROM claim WHERE entity_id='v_l1'"))), ("2021-03-02", ["loc", "wikipedia"]))
+eq("adopt_line: vol 2 moves over under the public line's volume id",
+   db.execute("SELECT id FROM volume WHERE release_line_id='rl_lib' AND number='2'").fetchone()[0], _id("v_", "rl_lib", "2"))
+
+# ---- Task 11 deviations: split collisions, dangling references, determinism -----------------------------------
+# A carried line minted from loc:100 split this build: loc:200 holds 3 of its 5 ISBNs and takes the id by the
+# carry lookup; loc:100 (2 of 5) would mint the same id again. One id for two lines is never emitted.
+rl100 = _id("rl_", "loc:100")
+K4 = KI.read_carry(carry_file("c4", [(rl100, "w_4", "Split", "manhwa", "en", I5)], works=["w_4"], krcn_lines={rl100: "loc"}))
+split = [bl("loc:100", "loc", "Split", I5[:2]), bl("loc:200", "loc", "Split", I5[2:])]
+try:
+    KI.line_ids(split, K4)
+    eq("a split of a carried line whose natural key re-mints the taken id: refused", "no error", "ValueError")
+except ValueError as e:
+    eq("a split of a carried line whose natural key re-mints the taken id: refused, naming the id and both keys",
+       (rl100 in str(e), "loc:100" in str(e), "loc:200" in str(e)), (True, True, True))
+eq("the same split with the natural-key line alone: it keeps its id by its key (no carry majority needed)",
+   (lambda l: (KI.line_ids([l], K4), l["tome_id"], l["carried"]))(bl("loc:100", "loc", "Split", I5[:2]))[1:], (rl100, True))
+K5 = KI.read_carry(carry_file("c5", [("rl_t", "w_5", "Tie", "manhwa", "en", I5[:4])], works=["w_5"], krcn_lines={"rl_t": "loc"}))
+tie = [bl("loc:7", "loc", "Tie", I5[:2]), bl("loc:8", "loc", "Tie", I5[2:4])]
+rep = KI.line_ids(tie, K5)
+eq("2 + 2 of 4: no strict majority for anyone -> not taken, both minted", ([l["tome_id"] for l in tie], rep["ambiguous"]),
+   ([_id("rl_", "loc:7"), _id("rl_", "loc:8")], []))
+rev = [dict(bl("loc:9", "loc", "X", I5[:3])), dict(bl("loc:10", "loc", "X", I5[3:]))]
+KI.line_ids(rev, K2)
+fwd = [dict(bl("loc:10", "loc", "X", I5[3:])), dict(bl("loc:9", "loc", "X", I5[:3]))]
+KI.line_ids(fwd, K2)
+eq("line_ids is order-independent", sorted((l["key"], l["tome_id"]) for l in rev), sorted((l["key"], l["tome_id"]) for l in fwd))
+eq("read_carry without meta krcn_ids: no library-born lines, so nothing is looked up",
+   KI.read_carry(carry_file("c6", [("rl_q", "w_q", "Q", "manga", "en", I5)]))["lines"], {})
+
+# existing_lines: two lines of one market sharing an ISBN -> the lowest line id holds it, whatever the row order
+for order in (("rl_b2", "rl_a2"), ("rl_a2", "rl_b2")):
+    dbe = schema_db()
+    dbe.execute("INSERT INTO work VALUES('w_e','E',NULL,NULL,NULL,NULL,'x','x')")
+    for rid in order:
+        line_row(dbe, rid, "w_e", "manhwa", "EN", "en")
+        dbe.execute("INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at) VALUES(?,?,'1','i1','x','x')",
+                    ("v_" + rid, rid))
+    E2, ei2 = KI.existing_lines(dbe, "EN")
+    eq("existing_lines: a shared ISBN goes to the lowest line id (%s first)" % order[0], (sorted(E2), ei2["i1"]),
+       (["rl_a2", "rl_b2"], ("rl_a2", "v_rl_a2")))
+
+# adopt_line / rename_work: redirects, compositions and DNB staging that name the internal ids follow them
+db2 = schema_db()
+db2.executescript(B.STAGING_DDL)
+db2.execute("INSERT INTO work VALUES('w_i','I',NULL,NULL,NULL,NULL,'x','x')")
+db2.execute("INSERT INTO work VALUES('w_p','P',NULL,NULL,NULL,NULL,'x','x')")
+line_row(db2, "rl_i", "w_i", "manhwa", "DE", "de")
+line_row(db2, "rl_p", "w_p", "manhwa", "DE", "de")
+for vid, rid, n in (("v_i1", "rl_i", "1"), ("v_i2", "rl_i", "2"), ("v_p1", "rl_p", "1")):
+    db2.execute("INSERT INTO volume(id,release_line_id,number,created_at,updated_at) VALUES(?,?,?,'x','x')", (vid, rid, n))
+for vid in ("v_i1", "v_p1"):
+    db2.execute("INSERT INTO composition VALUES(?,'chapter','[1,2]',NULL)", (vid,))
+db2.execute("INSERT INTO id_redirect VALUES('rl_old_de','rl_i','release_line','correction','x')")
+db2.execute("INSERT INTO id_redirect VALUES('v_old1','v_i1','volume','correction','x')")
+db2.execute("INSERT INTO id_redirect VALUES('v_old2','v_i2','volume','correction','x')")
+db2.execute("INSERT INTO id_redirect VALUES('w_old','w_i','work','duplicate_merge','x')")
+db2.execute("INSERT INTO dnb_line(key,rl_id,role,wiki_line,truth_work,exported) VALUES('dnb:5','rl_x5','sibling','rl_i','w_i',1)")
+c2 = db2.cursor()
+eq("adopt_line: one volume moved, one merged (identical composition rows collapse)", KI.adopt_line(c2, "rl_i", "rl_p"), (1, 1))
+KI.rename_work(c2, "w_i", "w_i2")
+eq("adopt_line / rename_work: every redirect still names a present id",
+   sorted(db2.execute("SELECT old_id, new_id FROM id_redirect")),
+   [("rl_old_de", "rl_p"), ("v_old1", "v_p1"), ("v_old2", _id("v_", "rl_p", "2")), ("w_old", "w_i2")])
+eq("adopt_line: the public volume keeps one composition row", db2.execute(
+    "SELECT volume_id, COUNT(*) FROM composition GROUP BY volume_id").fetchall(), [("v_p1", 1)])
+eq("adopt_line / rename_work: dnb_line's Wikipedia line and truth work follow",
+   db2.execute("SELECT wiki_line, truth_work FROM dnb_line").fetchone(), ("rl_p", "w_i2"))
+try:
+    KI.rename_work(c2, "w_i2", "w_p")
+    eq("rename_work onto an existing work: refused", "no error", "ValueError")
+except ValueError:
+    eq("rename_work onto an existing work: refused", True, True)
+
 # ==== summary ====
 print()
 if FAILS:
