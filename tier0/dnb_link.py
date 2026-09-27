@@ -46,6 +46,7 @@ LIST_PREFIX = re.compile(r"^(List of|Liste des|Liste der) .*? (chapters|volumes|
                          r"Bände|Kapitel) (of|de|du|des|d'|von) ", re.I)
 KRCN_MEDIA = ("manhwa", "manhua", "webtoon")
 KRCN_MARKETS = ("KR", "CN", "TW")
+WIKI_LINE = "id IN (SELECT entity_id FROM claim WHERE entity='release_line' AND source='wikipedia')"
 
 
 def fold(s, strip_vol=True):
@@ -136,6 +137,9 @@ class Index:
                         nk = name_key(n)
                         if nk:
                             self.authors[wid].add(nk)
+                        # the KR/CN full-name rule reads raw names, short pen names too ('SIU',
+                        # which name_key drops); only link(full_names=True) reads author_raw
+                        if full_splits(n):
                             self.author_raw[wid].add(n)
             else:
                 self._add(self.official, v, wid)
@@ -150,11 +154,11 @@ class Index:
         # JP-market line of a Japanese medium: Ultramarine Magmell's only JP line is its Japanese
         # edition of a Chinese manhua, which does not make it Japanese (ruling P1 of the KR/CN plan).
         self.krcn_works = {w for (w,) in db.execute(
-            "SELECT DISTINCT work_id FROM release_line WHERE medium IN (?,?,?) OR market IN (?,?,?)",
-            KRCN_MEDIA + KRCN_MARKETS)}
+            "SELECT DISTINCT work_id FROM release_line WHERE (medium IN (?,?,?) OR market IN (?,?,?)) AND "
+            + WIKI_LINE, KRCN_MEDIA + KRCN_MARKETS)}
         self.jp_works = {w for (w,) in db.execute(
-            "SELECT DISTINCT work_id FROM release_line WHERE market='JP' AND medium NOT IN (?,?,?)",
-            KRCN_MEDIA)}
+            "SELECT DISTINCT work_id FROM release_line WHERE market='JP' AND medium NOT IN (?,?,?) AND "
+            + WIKI_LINE, KRCN_MEDIA)}
         # The German JP round (build_dnb) sends a German line that links to a Korean / Chinese
         # work -- a manhwa / manhua / webtoon line and NO Japanese line -- to out_of_scope. German
         # editions relayed from the Japanese (041$h jpn: Ultramarine Magmell, Priest) stay out: the
@@ -163,8 +167,11 @@ class Index:
         # KR/CN set (KR/CN/TW markets too) is NOT used here: it flips the published German King of
         # Hell line (dnb:997592818, a ko-market work tagged manga) to out_of_scope and orphans its id
         # (measured while validating the plan, 2026-09-27) -- plan ruling P1.
+        # All three sets read Wikipedia-sourced lines only (WIKI_LINE), like the keys above: a DE
+        # manhwa line stage 3f loads onto King of Hell must not move its published German JP-round
+        # line to out_of_scope on a rerun of 3e.
         krcn_media = {w for (w,) in db.execute(
-            "SELECT DISTINCT work_id FROM release_line WHERE medium IN (?,?,?)", KRCN_MEDIA)}
+            "SELECT DISTINCT work_id FROM release_line WHERE medium IN (?,?,?) AND " + WIKI_LINE, KRCN_MEDIA)}
         self.out_of_scope = krcn_media - self.jp_works
 
     def add_krcn_work(self, w):
@@ -229,7 +236,8 @@ def full_splits(n):
     """A KR/CN creator's name as its possible (family, given) splits: diacritics stripped,
     lowercased, a bracketed studio dropped, hyphens and spaces inside the given name removed.
     'Park, Jin-hwan' -> {('park', 'jinhwan')}; 'Park Jin Hwan' -> {('park', 'jinhwan'),
-    ('hwan', 'parkjin')} (family first or last); 'Chu-Gong' -> {('chugong', '')}."""
+    ('hwan', 'parkjin'), ('parkjinhwan', '')} (family first or last, or one joined pen name);
+    'Chu-Gong' -> {('chugong', '')}, so 'Chu Gong' = 'Chugong'."""
     n = re.sub(r"\(.*?\)", " ", (n or "").replace("\x98", "").replace("\x9c", ""))
     n = "".join(c for c in unicodedata.normalize("NFD", n) if not unicodedata.combining(c)).lower()
     n = re.sub(r"(?<=[a-z])[-‐'’](?=[a-z])", "", n)
@@ -242,7 +250,7 @@ def full_splits(n):
         return set()
     if len(toks) == 1:
         return {(toks[0], "")}
-    return {(toks[0], "".join(toks[1:])), (toks[-1], "".join(toks[:-1]))}
+    return {(toks[0], "".join(toks[1:])), (toks[-1], "".join(toks[:-1])), ("".join(toks), "")}
 
 
 def same_full(a, b):
