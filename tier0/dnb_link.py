@@ -46,7 +46,11 @@ LIST_PREFIX = re.compile(r"^(List of|Liste des|Liste der) .*? (chapters|volumes|
                          r"Bände|Kapitel) (of|de|du|des|d'|von) ", re.I)
 KRCN_MEDIA = ("manhwa", "manhua", "webtoon")
 KRCN_MARKETS = ("KR", "CN", "TW")
-WIKI_LINE = "id IN (SELECT entity_id FROM claim WHERE entity='release_line' AND source='wikipedia')"
+# A release line that is not purely a library line: a Wikipedia claim (a DE Wikipedia line merged
+# with DNB claims still counts), or no claim from a library source (a correction-created line)
+NON_LIBRARY_LINE = ("(id IN (SELECT entity_id FROM claim WHERE entity='release_line' AND source='wikipedia') "
+                    "OR id NOT IN (SELECT entity_id FROM claim WHERE entity='release_line' "
+                    "AND source IN ('dnb','loc','bnf')))")
 
 
 def fold(s, strip_vol=True):
@@ -155,10 +159,10 @@ class Index:
         # edition of a Chinese manhua, which does not make it Japanese (ruling P1 of the KR/CN plan).
         self.krcn_works = {w for (w,) in db.execute(
             "SELECT DISTINCT work_id FROM release_line WHERE (medium IN (?,?,?) OR market IN (?,?,?)) AND "
-            + WIKI_LINE, KRCN_MEDIA + KRCN_MARKETS)}
+            + NON_LIBRARY_LINE, KRCN_MEDIA + KRCN_MARKETS)}
         self.jp_works = {w for (w,) in db.execute(
             "SELECT DISTINCT work_id FROM release_line WHERE market='JP' AND medium NOT IN (?,?,?) AND "
-            + WIKI_LINE, KRCN_MEDIA)}
+            + NON_LIBRARY_LINE, KRCN_MEDIA)}
         # The German JP round (build_dnb) sends a German line that links to a Korean / Chinese
         # work -- a manhwa / manhua / webtoon line and NO Japanese line -- to out_of_scope. German
         # editions relayed from the Japanese (041$h jpn: Ultramarine Magmell, Priest) stay out: the
@@ -167,11 +171,11 @@ class Index:
         # KR/CN set (KR/CN/TW markets too) is NOT used here: it flips the published German King of
         # Hell line (dnb:997592818, a ko-market work tagged manga) to out_of_scope and orphans its id
         # (measured while validating the plan, 2026-09-27) -- plan ruling P1.
-        # All three sets read Wikipedia-sourced lines only (WIKI_LINE), like the keys above: a DE
-        # manhwa line stage 3f loads onto King of Hell must not move its published German JP-round
-        # line to out_of_scope on a rerun of 3e.
+        # None of the three sets reads a library line (NON_LIBRARY_LINE: every claim from dnb / loc
+        # / bnf): a DE manhwa line stage 3f loads onto King of Hell must not move its published
+        # German JP-round line to out_of_scope on a rerun of 3e.
         krcn_media = {w for (w,) in db.execute(
-            "SELECT DISTINCT work_id FROM release_line WHERE medium IN (?,?,?) AND " + WIKI_LINE, KRCN_MEDIA)}
+            "SELECT DISTINCT work_id FROM release_line WHERE medium IN (?,?,?) AND " + NON_LIBRARY_LINE, KRCN_MEDIA)}
         self.out_of_scope = krcn_media - self.jp_works
 
     def add_krcn_work(self, w):
