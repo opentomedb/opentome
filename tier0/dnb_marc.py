@@ -292,6 +292,42 @@ def origin_in_scope(r):
     return not kw & {"manhwa", "webtoon", "manhua", "k-comic", "korea", "korean"}
 
 
+KRCN_STATEMENT = re.compile(r"aus dem (koreanischen|korean\.|chinesischen|chines\.)", re.I)
+
+
+def krcn_origin(r):
+    """The KR/CN round's origin test (docs/krcn-design.md §4, §9) -> (origin, explicit).
+    041$h kor / chi|zho -> explicit; any other 041$h (a relay from the Japanese, 041$h jpn) -> out.
+    No 041$h: 'aus dem Koreanischen / Chinesischen' (245$c / 500 / 546) -> explicit; a keyword
+    (653) manhwa / webtoon / k-comic -> ('kor', False), manhua -> ('chi', False) -- an imprint-style
+    signal, never enough to create a work (§9 criterion 2). The JP round's origin_in_scope leaves
+    out every record this admits (tier0/krcn_replay.py imprint-split checks it on real records).
+    A record naming Japanese among several origins (041$h chi + jpn: 17 Zen texts and art books in
+    the 2026-09-27 fetch) is the JP round's -- origin_in_scope admits it, so this round must not."""
+    langs = origin_languages(r)
+    if langs:
+        if "jpn" in langs:
+            return None, False
+        if "kor" in langs:
+            return "kor", True
+        if langs & {"chi", "zho"}:
+            return "chi", True
+        return None, False
+    m = KRCN_STATEMENT.search(" ".join(subs(r, "245", "c") + subs(r, "500", "a") + subs(r, "546", "a")))
+    if m:
+        return ("kor" if m.group(1).lower().startswith("korean") else "chi"), True
+    kw = {clean(v).lower() for v in subs(r, "653", "a")}
+    if kw & {"manhwa", "webtoon", "k-comic"}:
+        return "kor", False
+    if "manhua" in kw:
+        return "chi", False
+    return None, False
+
+
+def krcn_in_scope(r):
+    return krcn_origin(r)[0] is not None
+
+
 def thema(r):
     return [v.strip().upper() for v in subs(r, "926", "a")]
 

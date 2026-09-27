@@ -104,11 +104,13 @@ def pubkey(p):
 
 # ---- 2. select --------------------------------------------------------------------
 
-def select(recs, parents=None):
+def select(recs, parents=None, in_scope=None):
     """-> (kept volume dicts, Counter of drop reasons). A volume of a boxed set (the parent
     is a box: 'Behältnis', 'Kassette', 'Schuber', a bundle title) with no ISBN of its own is
     part of the box, not a volume, in v1; one with its own ISBN is a book, but the box never
-    becomes its line."""
+    becomes its line. in_scope: the origin predicate -- dnb_marc.origin_in_scope for the
+    JP round (the default), dnb_marc.krcn_in_scope for the KR/CN round (tier0/krcn_lines.py)."""
+    in_scope = in_scope or M.origin_in_scope
     boxes = {k for k, p in (parents or {}).items() if M.box_parent(p)}
     kept, drop = [], collections.Counter()
     for r in recs.values():
@@ -118,7 +120,7 @@ def select(recs, parents=None):
         if in_box and not M.isbns(r):
             drop["in_boxed_set"] += 1          # a volume of a box with no ISBN of its own
             continue
-        if not M.origin_in_scope(r):
+        if not in_scope(r):
             drop["origin_out_of_scope"] += 1
             continue
         cls = M.classify(r)

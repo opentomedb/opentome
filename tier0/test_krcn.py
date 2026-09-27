@@ -1253,6 +1253,40 @@ except LS.LocCanaryFailed as e:
     eq("canary: a malformed body fails the stage (LocCanaryFailed)", "malformed" in str(e), True)
 LRULE.pop("raw")
 
+# ---- Task 9: DNB KR/CN origin, select(in_scope=) --------------------------------------------------------
+def orec(*fields):
+    return drec("1", *fields)
+
+
+eq("041$h kor: explicit", M.krcn_origin(orec(("041", [("a", "ger"), ("h", "kor")]))), ("kor", True))
+eq("041$h chi: explicit", M.krcn_origin(orec(("041", [("a", "ger"), ("h", "chi")]))), ("chi", True))
+eq("041$h jpn (a relay translation): out", M.krcn_origin(orec(("041", [("a", "ger"), ("h", "jpn")]))), (None, False))
+eq("no 041, 'aus dem Koreanischen': explicit",
+   M.krcn_origin(orec(("245", [("a", "X"), ("c", "Text: A ; aus dem Koreanischen von Y")]))), ("kor", True))
+eq("no 041, 'aus dem Chinesischen': explicit",
+   M.krcn_origin(orec(("245", [("a", "X"), ("c", "aus dem Chinesischen von Z")]))), ("chi", True))
+eq("no 041, keyword Manhwa only: kor, NOT explicit (§9.2)", M.krcn_origin(orec(("653", [("a", "Manhwa")]))), ("kor", False))
+eq("no 041, keyword Manhua only: chi, not explicit", M.krcn_origin(orec(("653", [("a", "Manhua")]))), ("chi", False))
+eq("nothing said: out of the KR/CN round", M.krcn_origin(orec(("245", [("a", "X")]))), (None, False))
+# DNB 96968777X Hekigan-Roku (live spo=chi slice, 2026-09-27): 041 $a ger $h chi $h jpn -- 17 such
+# dual-origin records made imprint-split fail; a record naming Japanese among its origins is the JP round's
+DUAL = orec(("041", [("a", "ger"), ("h", "chi"), ("h", "jpn")]))
+eq("041$h chi + jpn (dual origin): the JP round's, out of the KR/CN round", M.krcn_origin(DUAL), (None, False))
+for r_ in (orec(("041", [("a", "ger"), ("h", "kor")])), orec(("245", [("a", "X"), ("c", "aus dem Koreanischen von Y")])),
+           orec(("653", [("a", "Webtoon")])), orec(("041", [("a", "ger"), ("h", "jpn")])), orec(("245", [("a", "X")])),
+           DUAL, orec(("041", [("a", "ger"), ("h", "jpn"), ("h", "kor")]))):
+    eq("never in scope for BOTH rounds", M.origin_in_scope(r_) and M.krcn_in_scope(r_), False)
+kr = {r["cf"]["001"]: r for r in (dvol("1310000001", "1", "9783753935898", "1210000000", origin=("h", "kor")),
+                                  dvol("1310000002", "1", "9783753935874", "1220000000"))}
+kept_default, _ = B.select(kr)
+kept_krcn, _ = B.select(kr, in_scope=M.krcn_in_scope)
+eq("select() default = the JP predicate; in_scope= the KR/CN one",
+   ([v["idn"] for v in kept_default], [v["idn"] for v in kept_krcn]), (["1310000002"], ["1310000001"]))
+import dnb_enumerate as E
+eq("KR/CN channels: spo=kor / spo=chi print, jhr-sliced from 2015 (P20)",
+   [(c[0], c[1], c[2], c[3]) for c in E.KRCN_CHANNELS],
+   [("print_kor", "spo=kor and bbg=A*", 2015, (2000, 2005, 2010)), ("print_chi", "spo=chi and bbg=A*", 2015, (2000, 2005, 2010))])
+
 # ==== summary ====
 print()
 if FAILS:

@@ -64,6 +64,14 @@ CHANNELS = [
     ("imprints", IMPRINT_Q, 2020, (2000, 2005, 2010, 2015)),
 ]
 
+# The KR/CN round (docs/krcn-design.md §4): Korean / Chinese original-language print books. 2,273 /
+# 2,646 records in the 2026-09-27 source research. jhr slices exactly as the JP channels; years
+# before 2015 in three coarse buckets (plan ruling P20).
+KRCN_CHANNELS = [
+    ("print_kor", "spo=kor and bbg=A*", 2015, (2000, 2005, 2010)),
+    ("print_chi", "spo=chi and bbg=A*", 2015, (2000, 2005, 2010)),
+]
+
 
 def _page(q, refresh=False, force=False):
     """A slice, whole: S.search() returns a complete page set (fresh, or the previous complete
@@ -194,6 +202,34 @@ def enumerate_all(verbose=True):
     return recs, parents, tally
 
 
+def enumerate_krcn(verbose=True):
+    """-> (recs, parents, tally) for the KR/CN round: the two KR/CN channels, plus the imprint
+    channel's records with no 041$h that dnb_marc.krcn_in_scope admits (§4.3 -- the JP round's
+    origin_in_scope leaves exactly those out). The imprint channel is the JP round's own cached
+    slices (refreshed by 3e first in a CI build), so it costs nothing extra."""
+    recs, tally = {}, {}
+    for name, base, fine_from, coarse in KRCN_CHANNELS:
+        got, gap, _ = run_channel(name, base, fine_from, coarse, verbose)
+        tally[name], tally[name + "_slice_gap"] = len(got), gap
+        for k, r in got.items():
+            recs.setdefault(k, r)
+    name, base, fine_from, coarse = CHANNELS[1]
+    got, gap, _ = run_channel(name, base, fine_from, coarse, verbose)
+    extra = {k: r for k, r in got.items() if not M.origin_languages(r) and M.krcn_in_scope(r)}
+    tally["imprints_krcn"], tally["imprints_slice_gap"] = len(extra), gap
+    for k, r in extra.items():
+        recs.setdefault(k, r)
+    want = {p for r in recs.values() if not M.is_parent(r) for p in M.parent_idns(r)}
+    parents = fetch_parents(recs, want, verbose)
+    tally.update(parents_fetched=len(parents), live_requests=S.live_requests[0],
+                 degraded=S.DEGRADED[0], degraded_queries=list(S.DEGRADED_QUERIES))
+    return recs, parents, tally
+
+
 if __name__ == "__main__":
-    recs, parents, tally = enumerate_all()
-    print("DNB enumeration:", tally)
+    if "--krcn" in sys.argv:
+        recs, parents, tally = enumerate_krcn()
+        print("DNB KR/CN enumeration:", tally)
+    else:
+        recs, parents, tally = enumerate_all()
+        print("DNB enumeration:", tally)
