@@ -44,6 +44,13 @@ Use `tome_id` alongside the fields integrators already carry (`tvdb_id`, `tmdb_i
 4. **Idempotent generation.** Ids derive from a stable natural key by hash, so
    re-ingesting the same source produces the same ids. Verified: reloading a populated
    database leaves the volume count unchanged.
+   **Since 2026-09-27 an id is no longer derivable from the natural key alone**
+   (`docs/krcn-design.md` §8–9). A work or line that shipped keeps its published id even when a
+   later build derives a different natural key for it: a library line whose lowest member
+   LCCN / ark changes, or a library-born work that a Wikipedia work later covers. The build looks
+   the entity up in the carry (the previous artifact) first and mints from the natural key only
+   when nothing carried matches. Re-running the same build on the same carry still gives the
+   same ids.
 
 `id_redirect` is a pipeline table (`schema/schema.sql`), and since 2026-09-24 the published
 `manga-metadata.sqlite` carries it too: `id_redirect(old_tome_id, new_tome_id, entity, reason,
@@ -67,14 +74,16 @@ linking stays published under its published work (role `kept`) rather than disap
 - **Ordering.** Ids are opaque. Do not sort by them, parse them, or infer recency.
 - **Meaning.** The hex carries no information. Do not derive anything from it.
 - **Stability of the natural key.** If a work's natural key genuinely changes (a merge, a
-  split), a *new* id is issued and the old one is written to `id_redirect`. The old id
+  split), a *new* id is issued and the old one is written to `id_redirect` (unless the carry
+  keeps the published id, Guarantee 4). The old id
   keeps resolving; it simply points somewhere new.
 
 ## Merges and splits
 
 | Event | Handling |
 |---|---|
-| Two records found to be the same work | Keep the older id. Write the newer to `id_redirect` with `reason='duplicate_merge'`. |
+| Two records found to be the same work | Keep the older id. Write the newer to `id_redirect` with `reason='duplicate_merge'`. "Older" between two published ids is the lower (minimum line) integer in `id_map`. |
+| A published work or line meets one whose id was never published (a library-born KR/CN work or line later covered by Wikipedia) | **Adoption:** the published id stays public and the merged entity ships under it; the unpublished id is internal only, so no redirect is written. Adoption runs before the carried-id stage, so it never counts as a move. |
 | One record found to be two works | Keep the original id on the larger part. Issue a new id for the split-off part. Write `reason='split'`. |
 | Wrong entity type | Issue a new id of the correct type; redirect the old with `reason='correction'`. |
 
