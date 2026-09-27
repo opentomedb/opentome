@@ -36,6 +36,7 @@ LOC = SRU.Source("loc", "http://lx2.loc.gov:210/lcdb", "1.1", "marcxml", 100,
 SIZES = (100, 50, 25)
 RETRIES = 3
 RETRY_WAIT = 10
+LADDERED = ("61", "short")         # diagnostic 61 and a short page go down the ladder; others raise
 MAX_DEPTH = 2
 CANARY = "bath.isbn=9781975319434"
 # Set by the Task 8 probe (Step 5); None = subject channels cannot be sliced (rung 3 unavailable).
@@ -74,9 +75,9 @@ def _retry61(fn):
         try:
             return fn()
         except SRU.SourceDiagnostic as e:
-            if e.code != "61":
+            if e.code not in LADDERED:
                 raise
-            print("    loc diagnostic 61 (attempt %d/%d): %s" % (attempt + 1, RETRIES, _where(e.url)), flush=True)
+            print("    loc diagnostic %s (attempt %d/%d): %s" % (e.code, attempt + 1, RETRIES, _where(e.url)), flush=True)
             if attempt == RETRIES - 1:
                 raise
             LOC.sleep(RETRY_WAIT)
@@ -87,17 +88,28 @@ def _count(query):
     return SRU.count(_retry61(lambda: LOC.get(LOC.url_for(query, 1, 1), force=True)))
 
 
+def _fetch_page(u, start, size, last):
+    """One live page; a page holding fewer records than its range is a failed page ('short'),
+    laddered like diagnostic 61 (live 2026-09-27: 97988554* paged 542 distinct of 562)."""
+    text = LOC.fetch(u)
+    got, want = len(SRU.ID_001.findall(text)), min(size, last - start + 1)
+    print("    loc page %s: %d records (numberOfRecords %d)" % (_where(u), got, SRU.count(text)), flush=True)
+    if got < want:
+        raise SRU.SourceDiagnostic("short", "%d records, the range holds %d" % (got, want), u)
+    return text
+
+
 def _page(query, start, size, last):
     """Records start .. min(start + size - 1, last), through rungs 1 and 2 -> [(url, text)]."""
     u = LOC.url_for(query, start, size)
     try:
-        return [(u, _retry61(lambda: LOC.fetch(u)))]
+        return [(u, _retry61(lambda: _fetch_page(u, start, size, last)))]
     except SRU.SourceDiagnostic as e:
-        if e.code != "61":
+        if e.code not in LADDERED:
             raise
     smaller = [s for s in SIZES if s < size]
     if not smaller:
-        raise LadderExhausted("%r records %d-%d: diagnostic 61 at every page size"
+        raise LadderExhausted("%r records %d-%d: diagnostic 61 / short page at every page size"
                               % (query, start, min(start + size - 1, last)))
     print("    loc ladder: %r records %d-%d re-paged at %d" % (query, start, min(start + size - 1, last), smaller[0]),
           flush=True)
@@ -112,6 +124,10 @@ def _ladder(query):
     staged = []
     for start in range(1, n + 1, SIZES[0]):
         staged += _page(query, start, SIZES[0], n)
+    got = LOC.distinct([t for _, t in staged])
+    if got != n:
+        # every page full, the union short: the set shifted between requests -> rung 3 (slices)
+        raise LadderExhausted("%r: pages hold %d distinct records, the set announces %d" % (query, got, n))
     return n, staged
 
 
