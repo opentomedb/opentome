@@ -1674,19 +1674,20 @@ import krcn_identity as KI
 from load import _id
 
 
-def carry_file(name, lines, works=(), krcn_lines=None, ints=None):
-    """lines: [(tome_id, work, name, medium, language, [(number, isbn)])] -> a minimal carried artifact."""
+def carry_file(name, lines, works=(), krcn_lines=None, ints=None, pubs=None):
+    """lines: [(tome_id, work, name, medium, language, [(number, isbn)])] -> a minimal carried artifact;
+    pubs: {tome_id: series.publisher}."""
     p = os.path.join(tempfile.mkdtemp(prefix="krcn-carry-"), name + ".sqlite")
     A = sqlite3.connect(p)
     A.executescript("""CREATE TABLE series (gcd_series_id INTEGER PRIMARY KEY, name TEXT, tome_id TEXT,
-                         tome_work_id TEXT, medium TEXT, language TEXT, country TEXT);
+                         tome_work_id TEXT, medium TEXT, language TEXT, country TEXT, publisher TEXT);
                        CREATE TABLE volumes (gcd_series_id INTEGER, tome_id TEXT, volume_number INTEGER, isbn13 TEXT,
                          release_date_raw TEXT);
                        CREATE TABLE id_map (opentome_id TEXT PRIMARY KEY, int_id INTEGER, kind TEXT);
                        CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);""")
     for k, (tid, w, nm, med, lang, vols) in enumerate(lines, 1):
         i = (ints or {}).get(tid, k * 10)
-        A.execute("INSERT INTO series VALUES(?,?,?,?,?,?,NULL)", (i, nm, tid, w, med, lang))
+        A.execute("INSERT INTO series VALUES(?,?,?,?,?,?,NULL,?)", (i, nm, tid, w, med, lang, (pubs or {}).get(tid)))
         A.execute("INSERT INTO id_map VALUES(?,?,'release_line')", (tid, i))
         for n, isbn in vols:
             A.execute("INSERT INTO volumes VALUES(?,?,?,?,NULL)", (i, _id("v_", tid, n), int(n), isbn))
@@ -1696,8 +1697,8 @@ def carry_file(name, lines, works=(), krcn_lines=None, ints=None):
     return p
 
 
-def bl(key, source, name, vols):
-    return {"key": key, "source": source, "name": name,
+def bl(key, source, name, vols, publisher=None):
+    return {"key": key, "source": source, "name": name, "publisher": publisher,
             "vols": [{"number": n, "isbns": [i] if i else []} for n, i in vols]}
 
 
@@ -1727,10 +1728,15 @@ KI.line_ids([ln], K2)
 eq("two carried lines merge: the older integer's id wins, the other is absorbed", (ln["tome_id"], ln["absorbed_ids"]),
    ("rl_b", ["rl_a"]))
 K3 = KI.read_carry(carry_file("c3", [("rl_r", "w_2", "Raeliana", "manhwa", "de", [("1", None), ("2", None)])],
-                              works=["w_2"], krcn_lines={"rl_r": "dnb"}))
-ln = bl("dnb:77", "dnb", "Raeliana", [("1", None), ("2", None)])
+                              works=["w_2"], krcn_lines={"rl_r": "dnb"}, pubs={"rl_r": "Altraverse"}))
+ln = bl("dnb:77", "dnb", "Raeliana", [("1", None), ("2", None)], "Altraverse GmbH")
 KI.line_ids([ln], K3)
-eq("no ISBNs anywhere: volume numbers + the same folded name", ln["tome_id"], "rl_r")
+eq("no ISBNs anywhere: volume numbers + the same folded name + the same publisher family (final ruling (b))",
+   ln["tome_id"], "rl_r")
+ln = bl("dnb:77", "dnb", "Raeliana", [("1", None), ("2", None)])
+KI.line_ids([ln], KI.read_carry(carry_file("c3b", [("rl_r", "w_2", "Raeliana", "manhwa", "de", [("1", None), ("2", None)])],
+                                           works=["w_2"], krcn_lines={"rl_r": "dnb"})))
+eq("... with no carried publisher and another minting key: minted (final ruling (c) fails)", ln["tome_id"], _id("rl_", "dnb:77"))
 eq("older(): lowest carried integer; a work's is its lines' minimum", (KI.older(["rl_a", "rl_b"], K2), KI.older(["w_1"], K2)),
    ("rl_b", "w_1"))
 
@@ -1827,7 +1833,12 @@ eq("tie, both holding volume 1: the lowest own key keeps the id",
 gate = [bl("loc:7", "loc", "Tie", I5[1:2]), bl("loc:8", "loc", "Tie", I5[:1])]
 KI.line_ids(gate, KI.read_carry(carry_file("c5b", [("rl_g", "w_5", "Tie", "manhwa", "en", I5)], works=["w_5"],
                                            krcn_lines={"rl_g": "loc"})))
-eq("1 + 1 of 5: plurality tie -> the part holding volume 1 keeps it (loc:8's own key is higher), the other splits",
+eq("1 + 1 of 5, no carried publisher: neither is a part (final ruling) -> both mint their keys, 7b decides rl_g",
+   [(l["tome_id"], l["carried"]) for l in gate], [(_id("rl_", "loc:7"), False), (_id("rl_", "loc:8"), False)])
+gate = [bl("loc:7", "loc", "Tie", I5[1:2], "Yen Press"), bl("loc:8", "loc", "Tie", I5[:1], "Ize Press")]
+KI.line_ids(gate, KI.read_carry(carry_file("c5c", [("rl_g", "w_5", "Tie", "manhwa", "en", I5)], works=["w_5"],
+                                           krcn_lines={"rl_g": "loc"}, pubs={"rl_g": "Yen Press"})))
+eq("1 + 1 of 5, same name + publisher family (Ize = Yen): the tie-break -> the part holding volume 1 keeps it",
    [(l["tome_id"], l["carried"]) for l in gate], [(KI.split_id("rl_g", "loc:7"), False), ("rl_g", True)])
 zero = [bl("loc:300", "loc", "Split", [("1", "9798400999993")]), bl("loc:200", "loc", "Split", I5[2:])]
 KI.line_ids(zero, K4)
@@ -1958,6 +1969,59 @@ db3.execute("UPDATE release_line SET parent_id='rl_i3' WHERE id IN ('rl_p3','rl_
 KI.adopt_line(db3.cursor(), "rl_i3", "rl_p3")
 eq("minor 2: adopt_line: the public line is not its own parent; the internal line's other child follows it",
    sorted(db3.execute("SELECT id, parent_id FROM release_line")), [("rl_c3", "rl_p3"), ("rl_p3", None)])
+
+# ---- Task 11 re-review: the FINAL lookup rule (controller ruling 2026-09-27, final) -------------------------------
+# N1 S7: a 1-volume carried line -- one stray ISBN (1 of 1) no longer takes it
+K7 = KI.read_carry(carry_file("c7s", [("rl_one", "w_7", "Solo", "manhwa", "en", I5[:1])], works=["w_7"],
+                              krcn_lines={"rl_one": "loc"}, pubs={"rl_one": "Yen Press"}))
+s7 = bl("loc:700", "loc", "An anthology", [("1", I5[0][1])], "Yen Press")
+KI.line_ids([s7], K7)
+eq("N1 S7: a stray line holding the one ISBN of a 1-volume carried line does not take it", s7["tome_id"], _id("rl_", "loc:700"))
+# N1 S5: the real minting line keeps T; a same-name stray with a LOWER key holding the same ISBN wins no tie
+t5 = _id("rl_", "loc:555")
+K5s = KI.read_carry(carry_file("c5s", [(t5, "w_5s", "Solo", "manhwa", "en", I5[:1])], works=["w_5s"], krcn_lines={t5: "loc"}))
+s5 = [bl("loc:0001", "loc", "Solo", [("1", I5[0][1])]), bl("loc:555", "loc", "Solo", [("1", I5[0][1])])]
+KI.line_ids(s5, K5s)
+eq("N1 S5: the real minting line keeps T (ruling (c)); the lower-key stray is no part and mints its own key",
+   [(l["key"], l["tome_id"], l["carried"]) for l in s5], [("loc:0001", _id("rl_", "loc:0001"), False), ("loc:555", t5, True)])
+# N2 S1 / S2: another publisher's same-name line
+KR = KI.read_carry(carry_file("cR", [("rl_rb", "w_r", "Rebirth", "manhwa", "en", I5)], works=["w_r"],
+                              krcn_lines={"rl_rb": "loc"}, pubs={"rl_rb": "Yen Press"}))
+r1 = bl("loc:801", "loc", "Rebirth", [("1", I5[0][1]), ("2", "9798400666662")], "Seven Seas Entertainment")
+KI.line_ids([r1], KR)
+eq("N2 S1: another publisher's 'Rebirth' holding 1 of 5 does not take T", r1["tome_id"], _id("rl_", "loc:801"))
+KR2 = KI.read_carry(carry_file("cR2", [("rl_rb2", "w_r", "Rebirth", "manhwa", "en", [("1", None), ("2", None)])], works=["w_r"],
+                               krcn_lines={"rl_rb2": "loc"}, pubs={"rl_rb2": "Yen Press"}))
+r2 = bl("loc:802", "loc", "Rebirth", [("1", None), ("2", None)], "Seven Seas Entertainment")
+KI.line_ids([r2], KR2)
+eq("N2 S2: another publisher, 0 ISBNs, bare vols 1-2 (same name): does not take T", r2["tome_id"], _id("rl_", "loc:802"))
+r2b = bl("loc:803", "loc", "Rebirth", [("1", None), ("2", None)], "Ize Press")
+KI.line_ids([r2b], KR2)
+eq("... the same bare vols under T's publisher family (Ize = Yen) do", r2b["tome_id"], "rl_rb2")
+r3 = bl("loc:804", "loc", "Rebirth", [("3", I5[2][1])], "Yen Press")
+KI.line_ids([r3], KR)
+eq("same name + same publisher family holding 1 of 5: a part, keeps T (ruling (b))", (r3["tome_id"], r3["carried"]), ("rl_rb", True))
+r4 = bl("loc:805", "loc", "Rebirth: the renamed edition", I5[:2], "Seven Seas Entertainment")
+KI.line_ids([r4], KR)
+eq("renamed, another publisher, 2 shared ISBNs: keeps T (ruling (a))", r4["tome_id"], "rl_rb")
+# volume-number evidence never satisfies (a)
+KV = KI.read_carry(carry_file("cV", [("rl_nv", "w_v", "Numbers", "manhwa", "en", [("1", I5[0][1]), ("2", None), ("3", None)])],
+                              works=["w_v"], krcn_lines={"rl_nv": "loc"}, pubs={"rl_nv": "Yen Press"}))
+nv = bl("loc:806", "loc", "Other name", [("1", I5[0][1]), ("2", None), ("3", None)], "Yen Press")
+KI.line_ids([nv], KV)
+eq("1 shared ISBN + 2 bare volume numbers (3 of 3 held) under another name: no part -- numbers never count for (a)",
+   nv["tome_id"], _id("rl_", "loc:806"))
+# (c) both ways: no carried publisher
+tc = _id("rl_", "loc:900")
+KCc = KI.read_carry(carry_file("cCc", [(tc, "w_c9", "Gamma", "manhwa", "en", I5)], works=["w_c9"], krcn_lines={tc: "loc"}))
+c1 = [bl("loc:900", "loc", "Gamma", I5[:1]), bl("loc:901", "loc", "Gamma", [("4", I5[3][1])])]
+KI.line_ids(c1, KCc)
+eq("(c) no carried publisher: the same name + the minting key keeps T; the same name under another key is no part",
+   [(l["tome_id"], l["carried"]) for l in c1], [(tc, True), (_id("rl_", "loc:901"), False)])
+c2 = [bl("loc:900", "loc", "Gamma renamed", I5[:1]), bl("loc:902", "loc", "Gamma", I5[1:4])]
+KI.line_ids(c2, KCc)
+eq("(c) the minting key under another name is no part; a 3-ISBN part keeps T and the key-maker takes the split form",
+   [(l["tome_id"], l["carried"]) for l in c2], [(KI.split_id(tc, "loc:900"), False), (tc, True)])
 
 # ==== summary ====
 print()
