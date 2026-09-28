@@ -769,7 +769,7 @@ def run_krcn(path, catalogue, carry=None):
     carried_ids = json.loads(_meta(C, "krcn_ids") or "null") if C else None
     url = "'https://lccn.loc.gov/' || m.lccn = x.source_url"
     # provenance: LoC-created records only (the 040 $a of the record each loc claim cites)
-    rule("loc_member rows whose 040 $a is not DLC", c("SELECT COUNT(*) FROM loc_member WHERE f040a<>'DLC'"))
+    rule("loc_member rows whose 040 $a is not DLC", c("SELECT COUNT(*) FROM loc_member WHERE COALESCE(f040a,'')<>'DLC'"))
     rule("loc claims whose record is not a DLC loc_member", c(
         """SELECT COUNT(*) FROM claim x WHERE lower(x.source)='loc'
            AND NOT EXISTS (SELECT 1 FROM loc_member m WHERE %s AND m.f040a='DLC')""" % url))
@@ -825,13 +825,14 @@ def run_krcn(path, catalogue, carry=None):
     labels = fx("krcn_linker_labels.json")
     try:
         gate = json.loads(_meta(cat, "krcn:stats"))["gate"]
+        gate["taken_weak"]                  # a missing list fails closed too, never reads as empty
     except (TypeError, ValueError, KeyError):
         gate = None
     if gate is None:
         rule("catalogue meta krcn:stats (the gate lists) missing: taken_weak unreadable", 1)
     else:
         ok = {tuple(p) for p in labels.get("taken_ok", [])}
-        weak = [t for t in gate.get("taken_weak", []) if (t[1], t[0]) not in ok]
+        weak = [t for t in gate["taken_weak"] if (t[1], t[0]) not in ok]
         rule("step-2 takes of a carried id without a strict ISBN majority (taken_weak), not confirmed in "
              "krcn_linker_labels.json taken_ok", len(weak), str(weak[:5]))
         for k in sorted(gate):
@@ -896,7 +897,11 @@ def carried_isbn_moved(db, cat, C, ids, carried_ids):
     present = {r[0] for r in db.execute("SELECT tome_id FROM volumes")}
     out = []
     for vid, isbn in scope:
-        others = now.get(isbn, set()) - {vid} - held_then.get(isbn, set())
+        # the carry's duplicate holders are exempt only while THIS volume still holds the ISBN: a carry
+        # duplicate whose ISBN left vid for the other holder is a move
+        others = now.get(isbn, set()) - {vid}
+        if vid in now.get(isbn, ()):
+            others -= held_then.get(isbn, set())
         if vid in present and others:
             out.append((vid, isbn, sorted(others)))
     return sorted(out)

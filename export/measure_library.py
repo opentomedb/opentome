@@ -304,6 +304,9 @@ def measure_krcn(art_path, catalogue, carry=None, check_ids=True):
             if den:
                 gate("%s staged %s coverage" % (m, kind.replace("_", " ")), num / den >= floor,
                      "%.1f%% (%d/%d; floor %.0f%%)" % (100 * num / den, num, den, 100 * floor))
+            elif v:                         # staged volumes but nothing to measure: fail, never skip
+                gate("%s staged %s coverage" % (m, kind.replace("_", " ")), False,
+                     "no volumes to measure (%s staged volumes; floor %.0f%%)" % (format(v, ","), 100 * floor))
         num, den = cov["year"]
         print("  info  %s staged volumes dated %.1f%% (%d/%d), announced-only %d" % (
             m, 100 * num / max(den, 1), num, den, len(vols) - len(dep)))

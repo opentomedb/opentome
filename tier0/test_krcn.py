@@ -3119,6 +3119,10 @@ def krcn_fails(mutate_cat=(), mutate_art=(), fx=None, carry=None, taken_weak=())
 has = lambda fails, s: any(s in f for f in fails)
 eq("a clean KR/CN build passes every rule", krcn_fails(), [])
 eq("a non-DLC loc_member fails", has(krcn_fails(["UPDATE loc_member SET f040a='ZCU' WHERE lccn='2023000077';"]), "not DLC"), True)
+eq("a loc_member row with a NULL 040 $a counts as not DLC", has(krcn_fails(
+    ["CREATE TABLE lm2 AS SELECT * FROM loc_member; DROP TABLE loc_member; ALTER TABLE lm2 RENAME TO loc_member;"
+     "INSERT INTO loc_member(lccn,number,f040a,set_record,member) VALUES('2023000078','2',NULL,0,'loc:2023000078');"]),
+    "not DLC"), True)
 eq("a loc claim citing a record that is no loc_member fails", has(krcn_fails(
     ["UPDATE claim SET source_url='https://lccn.loc.gov/2099000001' WHERE field='release_date';"]),
     "record is not a DLC loc_member"), True)
@@ -3186,6 +3190,8 @@ eq("taken_weak: a take confirmed in taken_ok [line key, carried id] passes", krc
     taken_weak=WEAK, fx=krcn_fx(new_works=LABELLED, taken_ok=[("loc:500", "rl_T")])), [])
 eq("taken_weak: a confirmation for another pair does not count", has(krcn_fails(
     taken_weak=WEAK, fx=krcn_fx(new_works=LABELLED, taken_ok=[("loc:500", "rl_U")])), "taken_weak"), True)
+eq("taken_weak: a krcn:stats gate without its taken_weak list fails closed", has(krcn_fails(
+    ["UPDATE meta SET value='{\"gate\": {\"adoption_isbn_clash\": []}}' WHERE key='krcn:stats';"]), "krcn:stats"), True)
 eq("taken_weak: a catalogue without meta krcn:stats fails closed", has(krcn_fails(["DELETE FROM meta WHERE key='krcn:stats';"]),
                                                                        "krcn:stats"), True)
 _gl = lambda ln: dict(ln, role="linked", work="w_x", exported=True, reason=None, via="title", tier="medium", link_work="w_x",
@@ -3215,9 +3221,11 @@ eq("carried volume gate: the ISBN of a present carried volume (a line of a touch
 eq("... not when the carried volume is gone (run_ids' redirect rules own that)", krcn_fails(carry=cw), [])
 cw2 = carry_file("cvol2", [("rl_w", "w_new", "Wiki", "manhwa", "en", [("1", "9798400900648")]),
                            ("rl_new", "w_new", "New", "manhwa", "en", [("1", "9798400900648")])])
-eq("... not when the other volume already held that ISBN in the carry (a pre-existing duplicate)",
-   krcn_fails(mutate_art=[PRESENT_W, "UPDATE volumes SET tome_id='%s' WHERE tome_id='v_n1';" % _id("v_", "rl_new", "1")],
-              carry=cw2), [])
+VN = "UPDATE volumes SET tome_id='%s' WHERE tome_id='v_n1';" % _id("v_", "rl_new", "1")
+eq("... not when an unchanged carry duplicate is still on both volumes (a pre-existing duplicate)",
+   krcn_fails(mutate_art=[PRESENT_W.replace("'%s',NULL" % VW, "'%s','9798400900648'" % VW), VN], carry=cw2), [])
+eq("... but a carry duplicate whose ISBN left the in-scope volume (still present) for the other one fails",
+   krcn_fails(mutate_art=[PRESENT_W, VN], carry=cw2), [MOVED])
 cw3 = carry_file("cvol3", [("rl_w", "w_other", "Wiki", "manga", "en", [("1", "9798400900648")])])
 eq("... and out of scope: a line of a work no KR/CN line touches",
    krcn_fails(mutate_art=[PRESENT_W.replace("'w_new'", "'w_other'")], carry=cw3), [])
@@ -3240,7 +3248,7 @@ eq("... and an ark-cited claim on the BnF-line volume passes",
 
 # ruling 6: a BnF child whose own 101 $c contradicts its KR/CN head -- the child's own origin wins
 def child(c):
-    kid = brec(("101", [("a", "fre"), ("c", c)]), ("010", [("a", isbn13("97823", 141))]), ("200", [("a", "Chonchu"), ("h", "9")]),
+    kid = brec(("101", [("a", "fre")] + ([("c", c)] if c else [])), ("010", [("a", isbn13("97823", 141))]), ("200", [("a", "Chonchu"), ("h", "9")]),
                ("210", [("c", "Tokebi"), ("d", "2004")]), ("461", [("0", "39026600"), ("t", "Chonchu"), ("v", "9")]),
                cf3="http://catalogue.bnf.fr/ark:/12148/cb39026900x")        # fr()'s record (the name was rebound since)
     res = KL.bnf_lines({U.ark(r): r for r in [HEAD, kid]})
@@ -3249,10 +3257,10 @@ def child(c):
 
 eq("BnF child 101 $c chi under a kor head (461 $0): its own origin wins -> manhua, nothing inherited",
    child("chi"), ([("cb39026900x", "chi", "manhua")], 0))
-_gap = child("jpn")
-if _gap != ([], 0):     # controller ruling 6: reported, krcn_lines' rulings are not changed in Task 15
-    print("  KNOWN GAP (not failed; Task 15 report): a BnF child whose own 101 $c is jpn under a kor head inherits the "
-          "head's origin: %r -- expected out of scope (own origin wins)" % (_gap,))
+eq("BnF child 101 $c jpn under a kor head: its own origin wins -> not KR/CN (out of scope), nothing inherited",
+   child("jpn"), ([], 0))
+eq("BnF child 101 $c fre under a kor head: not KR/CN either", child("fre"), ([], 0))
+eq("BnF child with no 101 $c under a kor head still inherits kor", child(None), ([("cb39026900x", "kor", "manhwa")], 1))
 
 # measure_krcn floors
 _saved_floors = (ML.KRCN_STAGED_FLOORS, ML.KRCN_EXPORTED_FLOORS, ML.KRCN_MIN_WORKS, ML.KRCN_STAGED_COVERAGE)
@@ -3260,6 +3268,7 @@ try:
     ML.KRCN_STAGED_FLOORS = {"DE": (1, 3), "FR": (0, 0), "EN": (1, 1)}
     ML.KRCN_EXPORTED_FLOORS = {"DE": (0, 0), "FR": (0, 0), "EN": (1, 1)}
     ML.KRCN_MIN_WORKS = 1
+    ML.KRCN_STAGED_COVERAGE = {}
     artp, catp = gate_pair()
 
     def mk():
@@ -3272,6 +3281,9 @@ try:
     ML.KRCN_STAGED_FLOORS = {"DE": (2, 3), "FR": (0, 0), "EN": (1, 2)}
     eq("measure_krcn: staged floors missed fail", mk(), ["DE staged lines", "EN staged volumes"])
     ML.KRCN_STAGED_FLOORS = {"DE": (1, 3), "FR": (0, 0), "EN": (1, 1)}
+    ML.KRCN_STAGED_COVERAGE = _saved_floors[3]
+    eq("measure_krcn: staged DE volumes but no krcn_member rows to measure coverage on fails (never skipped)", mk(),
+       ["DE staged deposited year coverage", "DE staged pages coverage"])
     sqlite3.connect(catp).executescript("""INSERT INTO krcn_member(member,line_key,number,fate,announced_only,dated,paged) VALUES
         ('dnb:78','dnb:77','1','line_held',0,0,1), ('dnb:79','dnb:77','2','line_held',0,1,1),
         ('dnb:80','dnb:77','3','line_held',1,0,1);""")
