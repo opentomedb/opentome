@@ -359,6 +359,7 @@ All measured [M]. The measure replay therefore cannot flip on these three.
 - No library-created work is exported without an English line. This applies to works created in the current build; a carried library work keeps exporting even when a later build loses its English line (below).
 - A held cluster never reaches `work`, `release_line` or `id_map`: no `tome_id`, no `tome_work_id`, no integer is issued for it. It lives only in the `krcn_line` / `krcn_member` staging and the hold file.
 - A published line or work is never demoted to held. It keeps shipping under its published work, the equivalent of DNB's role `kept`.
+  Gate (final review): 8c fails on a carried `krcn_line` row that does not export as held / review / unlinked; the fix is a `link_work` correction.
 - Checks that apply to held clusters: the staged measure counts (§13, `krcn_line` incl. held), the hold file itself (every held cluster with its lines, member keys, reason and candidate title keys), and criteria 1–4 above, evaluated and reported so the later round starts from a checked set. Held clusters never reach the artifact; the §13 check that none of them holds an id reads the `krcn_line` staging through the catalogue path, as the `loc_member` check does.
 
 **Flood gate.** A refresh build may create at most `MAX_NEW_LIBRARY_WORKS = 20` new library works (the pattern of `MAX_MOVED_IDS` in `export/test_artifact.py`). The first build is gated instead by the new-work fixture (§13).

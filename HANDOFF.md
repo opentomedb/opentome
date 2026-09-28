@@ -1,6 +1,6 @@
 # HANDOFF — OpenTome
 
-_Last updated: 2026-09-27_
+_Last updated: 2026-09-28_
 
 ## 2026-09-27 — branch `krcn`: Korean / Chinese editions (DNB, BnF, LoC)
 
@@ -36,9 +36,13 @@ Done (design `docs/krcn-design.md`, results `docs/krcn-market.md`):
 - Fixtures: `export/fixtures/krcn_lines_pre.json` (the 54 existing KR/CN works' EN/FR/DE line
   ids + the 3 library-fixture lines), `export/fixtures/krcn_linker_labels.json` (`must_link`/
   `must_not_link`, plus `taken_ok`), `export/fixtures/krcn_new_works.json` (empty until C5).
-- CI (this task): `LOC_REFRESH_DAYS`/`BNF_REFRESH_DAYS` = 28 on the weekly cron; a "LoC
-  reachability" and a "BnF reachability" step, each a single cached-record probe that sets
-  `LOC_OFFLINE=1`/`BNF_OFFLINE=1` on failure rather than failing the job; the KR/CN files
+- CI (this task): `LOC_REFRESH_DAYS`/`BNF_REFRESH_DAYS` = 28 on the weekly cron,
+  `LOC_MAX_REQUESTS` = 260; a "LoC reachability" and a "BnF reachability" step, each a single
+  probe that appends one line to `build/loc-netlog.tsv` / `bnf-netlog.tsv` (lib_sru's columns)
+  and on failure sets `LOC_OFFLINE=1`/`BNF_OFFLINE=1` plus `LOC_UNREACHABLE=1`/`BNF_UNREACHABLE=1`
+  rather than failing the job; the source cache is restored with `actions/cache/restore` and
+  saved with `actions/cache/save` after the rebuild whenever the run was not cancelled (a
+  failed gate no longer throws away that run's fetches); the KR/CN files
   (`krcn-review.tsv`, `krcn-held.tsv`, `krcn-new-works.tsv`, `krcn-report.json`,
   `loc-report.json`, `loc-netlog.tsv`, `bnf-netlog.tsv`) added to the run's uploaded artifact.
 - Docs: `docs/legal-position.md` (LoC row + the §105-inference note), README.md (LoC in the
@@ -101,7 +105,32 @@ Gotchas:
   non-KR/CN own origin, e.g. `jpn`/`fre` under a `kor` head, is `origin_out_of_scope`, never
   overridden). Measured exposure today: 0 of 3,438 cached BnF records hit the inheriting case
   with a non-empty non-KR/CN own origin.
-- **Only `taken_weak` blocks publishing** among `krcn-report.json`'s `gate` lists (the others --
+- **A carried KR/CN line never demotes.** 8c's `run_krcn` fails on any `krcn_line` row with
+  `carried=1`, `exported=0` and role `held` / `review` / `unlinked` (absorbed / merged rows stay
+  7b's). The fix for a real one is a `link_work` correction. Step 5 of `decide` first resolves the
+  line's published work through the carry's work `id_redirect` rows and the carry's adoptions.
+- **An adopted work is re-adopted every build, never split.** A catalogue line (Wikipedia, 3e)
+  whose published work is a library work id now sits under an internal Wikipedia work W: 3f
+  renames W back to the public id (step 7), and every placement of that public id -- a
+  `link_work`, a frozen cluster, a kept line -- goes to W first. `link_work` may name a
+  Wikipedia work, a published library-born work, or an adopted public id; 8c's `run_link_work`
+  reads the corrected work through `krcn:adopted` renames and counts `adopting` lines as shipped.
+- **`loc:offline` / `bnf:offline` are NOT blocking.** When CI's probe finds a gateway
+  unreachable, 3f records `{"reason": "unreachable", "stale_sets": N}` (N = result sets served
+  past their refresh window) in catalogue meta and `krcn-report.json` and prints a NOTE; the
+  export does not copy it and `publish.sh` does not refuse it (P13). Only `loc:degraded` /
+  `bnf:degraded` (a refresh that failed mid-run) still block. `unload` clears both.
+- **The CI cache is saved even when a gate fails** (not on a cancelled or timed-out run). A
+  failed build's LoC / BnF / DNB fetches therefore reach the next run; a set is only ever stored
+  whole, so nothing partial is saved.
+- **3e's DNB stop carries into 3f.** `build_krcn.run` seeds `dnb_sru.DEGRADED` from catalogue
+  meta `dnb:degraded` (3e's value; read after `unload`), so 3f serves stale DNB sets from the
+  cache instead of re-requesting DNB after 3e was throttled; the run is then DNB-degraded.
+- **3e's linker index skips 3f's works** (meta `krcn:works_made`), so a `KEEP_DB=1` rerun of 3e
+  after 3f reads the same index a fresh build's 3e reads. `same_ids` (8d) no longer rewrites
+  `build/loc-report.json`, and a reserved (JP-round) id is never taken in step 2 either.
+- **Only `taken_weak` and the demotion rule block publishing** among the KR/CN id checks; of
+  `krcn-report.json`'s `gate` lists only `taken_weak` blocks (the others --
   `left`, `kept_no_overlap`, `absorbed_weak`, `p22_thin`, `work_redirects`, `adopt_conflicts`,
   `carried_not_exported`, `carried_work_changed`, `hangul_only_authors`, `authors_differ`,
   `deferred_to_jp_round`, `jp_guard_overrides` and `adoption_isbn_clash` -- are informational,
