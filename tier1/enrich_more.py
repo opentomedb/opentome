@@ -387,10 +387,15 @@ def _fetch_xml(url, interval=1.0):
         req = urllib.request.Request(url, headers={"User-Agent": UA})
         with urllib.request.urlopen(req, timeout=30) as r:
             t = r.read().decode("utf8", "ignore")
-        open(key, "w", encoding="utf8").write(t)
-        return t
     except Exception:
         return None
+    # whole or not at all (a truncated XML would parse to fewer records next run, silently); a write
+    # error is not a network error: it propagates
+    tmp = key + ".part"
+    with open(tmp, "w", encoding="utf8") as f:
+        f.write(t)
+    os.replace(tmp, key)
+    return t
 
 
 if __name__ == "__main__":

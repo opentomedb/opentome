@@ -261,18 +261,28 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
     correction, a frozen cluster, a kept line -- so an adopted work never splits (final review)."""
     K = K or NO_K
     link_work, line_medium, jp_override = link_work or {}, line_medium or {}, jp_override or {}
-    # the carry's adoptions: [(public library work, the work now holding a line that shipped under it)]
-    re_adopt = sorted({(K["line_work"][r], w) for r, w in (present or {}).items()
-                       if K["line_work"].get(r) in K["works"] and K["line_work"][r] != w})
-    adopted = {}
+    # the carry's adoptions: {(public library work, the work now holding a line that shipped under it): lines}
+    re_lines = collections.defaultdict(list)
+    for r, w in sorted((present or {}).items()):
+        if K["line_work"].get(r) in K["works"] and K["line_work"][r] != w:
+            re_lines[(K["line_work"][r], w)].append(r)
+    re_adopt = sorted(re_lines)
+    adopted, by_public = {}, collections.defaultdict(list)
     for p_, w_ in re_adopt:
         adopted.setdefault(p_, w_)
+        by_public[p_].append(w_)
+    # one public id whose lines now sit under SEVERAL works: no work may take it silently (load stops the build)
+    ambiguous = {p_: {w_: re_lines[(p_, w_)] for w_ in ws} for p_, ws in by_public.items() if len(ws) > 1}
 
-    def home(w):
+    def redirected(w):
         seen = set()
         while w in K.get("redirect", {}) and w not in seen:
             seen.add(w)
             w = K["redirect"][w]
+        return w
+
+    def home(w):
+        w = redirected(w)
         return adopted.get(w, w)
     plan = {"works": {}, "clusters": [], "held": [], "adopt_works": [], "review": [], "adopt_conflicts": [],
             "jp_overrides": []}
@@ -293,10 +303,15 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
             ln["role"] = None
             # a Wikipedia work, a published library work (K works: library-born or adopted; decide
             # places it at its home), or one the carry redirected
-            if lw and (home(lw) in idx.name or lw in K["works"]):
+            # -- but never an id the carry redirected: 8c's run_link_work reads the work the line ships under
+            stale_red = redirected(lw) if lw and lw in K.get("redirect", {}) else None
+            if lw and not stale_red and (home(lw) in idx.name or lw in K["works"]):
                 ln.update(role="linked", work=home(lw), via="correction", link_work=lw)
             else:
-                if lw:
+                if stale_red:
+                    print("  STALE CORRECTION -- lines.json link_work %s -> %s: that work id was redirected (the carry's "
+                          "id_redirect) -- use %s" % (ln["key"], lw, stale_red))
+                elif lw:
                     print("  STALE CORRECTION -- lines.json link_work %s -> %s: not a work in the catalogue" % (ln["key"], lw))
                 tier, w, cands, via = _link(idx, ln)
                 ln.update(tier=tier, link_work=w, candidates=cands, via=via)
@@ -446,7 +461,9 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
                     ln["work"], ln["adopted_from"] = public, w_now
     # rename_work(W, public) needs `public` absent: a frozen work of this build, or two works adopting one
     # public id, would collide -- reported (gate_report adopt_conflicts), never resolved silently
-    plan["adopt_conflicts"] = sorted((w, p) for w, p in plan["adopt_works"] if p in plan["works"] or publics[p] > 1)
+    plan["adopt_conflicts"] = sorted({(w, p) for w, p in plan["adopt_works"] if p in plan["works"] or publics[p] > 1} |
+                                     {(w, p) for p, ws in ambiguous.items() for w in ws})
+    plan["adopt_ambiguous"] = ambiguous
     for ln in lines:
         ln["exported"] = ln["role"] in EXPORTED
         if not ln["exported"]:
@@ -771,11 +788,19 @@ def load(db, lines, lost, plan, K):
     'created' as vol_id (a merged line: v_(target, number)). -> Counter of volume fates."""
     n_pub = collections.Counter(p for _, p in plan["adopt_works"])
     clash = sorted(p for p, n in n_pub.items() if n > 1)
-    if clash:
+    ambiguous = plan.get("adopt_ambiguous") or {}
+    if clash or ambiguous:
         # ids are a public contract: two works adopting one public id would leave release_line.work_id on
-        # a work that does not exist, or merge two works silently -- fail before anything is written
+        # a work that does not exist, or merge two works silently -- fail before anything is written. The
+        # same for a public id whose present lines sit under several works (decide: ambiguous re-adoption),
+        # whichever of them step 7 would rename -- one would take the id, the other keep the lines
         msg = []
-        for p in clash:
+        for p, by_w in sorted(ambiguous.items()):
+            lib = sorted(l["key"] for l in lines if l.get("work") in set(by_w) | {p} or l.get("adopted_from") in by_w)
+            msg.append("public work id %s now held by several works: %s; library lines under them: %s" % (
+                p, ", ".join("%s (lines %s)" % (w, " ".join(rs)) for w, rs in sorted(by_w.items())),
+                " ".join(lib) or "none"))
+        for p in (p for p in clash if p not in ambiguous):     # an ambiguous one is named above, with its lines
             ws = sorted(w for w, q in plan["adopt_works"] if q == p)
             by_w = {w: sorted(l["key"] for l in lines if l.get("adopted_from") == w) for w in ws}
             if all(by_w.values()):
