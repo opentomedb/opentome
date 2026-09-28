@@ -6,7 +6,7 @@ _Last updated: 2026-09-27_
 
 Design: `docs/krcn-design.md` (spec + R1–R7 rulings), market doc: `docs/krcn-market.md`. Not
 merged, not pushed, not published, no CI triggered -- Nick's gate (CI build-only first;
-publish = standing OK after a green build-only run, per CLAUDE.md).
+publish = standing OK after a green build-only run).
 
 Done (design `docs/krcn-design.md`, results `docs/krcn-market.md`):
 - Stages: **3f krcn** (Korean / Chinese print editions, after 3e dnb: DNB `spo=kor`/`spo=chi` +
