@@ -6,8 +6,7 @@
 #
 # Every step keys on the one before it: a rebuild that fails at any gate stops
 # the job, so the manifest, the upload and the publish never see a half-built or
-# stale artifact. Never add `if: always()` / `!cancelled()` / `continue-on-error` to a
-# step here -- the one exception is the source-cache save after the rebuild, which ships nothing.
+# stale artifact. Never add `if: always()` / `continue-on-error` to a step here.
 name: catalogue
 
 on:
@@ -46,15 +45,14 @@ jobs:
         with:
           python-version: '3.12'
       # Restores the newest `opentome-cache-*` entry (seed, keepalive or a previous
-      # build); the save step at the end stores this run's cache under its own key,
-      # so the responses a run fetched are there for the next one. A warm run hits close to
+      # build) and saves this run's cache under its own key at job end, so the
+      # responses a run fetched are there for the next one. A warm run hits close to
       # zero network -- the seed-cache workflow is what makes the first run warm. Beyond the
       # source refresh windows below, one more recurring cost: Open Library per-ISBN negatives refresh every
       # OL_NEG_REFRESH_DAYS (60, tier1/enrich_more.py) days by mtime, so once they age
       # past that window a build re-requests them -- ~77 requests on today's 3,833
       # negatives (ceil(3833/50)), first wave ~2026-11-26.
-      - uses: actions/cache/restore@v4
-        id: cache
+      - uses: actions/cache@v4
         with:
           path: .cache
           key: opentome-cache-${{ github.run_id }}
@@ -145,18 +143,6 @@ jobs:
           # a runaway LoC pager stops at 260 live requests (lib_sru SourceBudget; a full refresh is ~110-160)
           LOC_MAX_REQUESTS: "260"
         run: bash tier0/rebuild_all.sh
-      # Saves the source cache even when a gate failed (the one exception above): a failed
-      # run's LoC / BnF / DNB fetches are kept, so the next run does not re-request them from
-      # a gateway that throttled us. A result set is staged in memory and stored only once
-      # complete (tier0/lib_sru.py, tier0/dnb_sru.py), so any failure that raises leaves only
-      # whole sets. Not on a cancelled or timed-out run: a kill in the middle of storing a
-      # refreshed set's pages could mix old and new pages. Same key scheme as before; an exact
-      # hit (a re-run attempt) saves nothing, as the combined actions/cache step did.
-      - uses: actions/cache/save@v4
-        if: ${{ !cancelled() && steps.cache.outcome == 'success' && steps.cache.outputs.cache-hit != 'true' }}
-        with:
-          path: .cache
-          key: opentome-cache-${{ github.run_id }}
       # Without PUBLISH=1 publish.sh only writes build/version.json and prints the
       # per-build tag; it also runs the two clean-room refusals.
       - name: manifest (dry run)
