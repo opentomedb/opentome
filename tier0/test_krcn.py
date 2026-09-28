@@ -1901,6 +1901,64 @@ try:
 except ValueError:
     eq("rename_work onto an existing work: refused", True, True)
 
+# ---- Task 11 review fixes: one stray ISBN makes no part (refined ruling), carried split ids, own carried key, parent ----
+I10 = [("%d" % n, "97984010%05d" % n) for n in range(1, 11)]
+KA = KI.read_carry(carry_file("cA", [("rl_tw", "w_a", "Tower", "manhwa", "en", I10)], works=["w_a"], krcn_lines={"rl_tw": "loc"}))
+la = bl("loc:500", "loc", "Other", [("1", I10[0][1]), ("2", "9798400888882"), ("3", "9798400888883")])
+KI.line_ids([la], KA)
+eq("A: an unrelated new line holding 1 of T's 10 ISBNs does not take T", (la["tome_id"], la["carried"]),
+   (_id("rl_", "loc:500"), False))
+KB = KI.read_carry(carry_file("cB", [("rl_al", "w_b", "Alpha", "manhwa", "en", I10),
+                                     ("rl_be", "w_b2", "Beta", "manhwa", "en", I5)],
+                              works=["w_b", "w_b2"], krcn_lines={"rl_al": "loc", "rl_be": "loc"}, ints={"rl_al": 20, "rl_be": 10}))
+lb_ = bl("loc:600", "loc", "Alpha", I10[:9] + [("10", I5[0][1])])
+KI.line_ids([lb_], KB)
+eq("B: a genuine line with 9 of 10 of T plus 1 stray ISBN of the older T2 stays T, absorbs nothing",
+   (lb_["tome_id"], lb_["absorbed_ids"]), ("rl_al", []))
+gid = _id("rl_", "loc:100")
+KC = KI.read_carry(carry_file("cC", [(gid, "w_c", "Gamma", "manhwa", "en", I5)], works=["w_c"], krcn_lines={gid: "loc"}))
+lc = [bl("loc:100", "loc", "Gamma", [("1", "9798400777771")]), bl("loc:300", "loc", "Delta", [("1", I5[0][1])])]
+KI.line_ids(lc, KC)
+eq("C: the key-maker holds none of T and a different-name line holds 1 stray ISBN: the stray line mints, "
+   "the key-maker keeps T by its natural key (no part holds any of it)",
+   [(l["tome_id"], l["carried"]) for l in lc], [(gid, True), (_id("rl_", "loc:300"), False)])
+lr = bl("loc:2024000009", "loc", "Semantic error: the renamed edition", I5[:2])
+KI.line_ids([lr], K)
+eq("a renamed part holding 2 of 5 keeps the id (the >= 2 branch)", (lr["tome_id"], lr["carried"]), ("rl_old", True))
+lr1 = bl("loc:2024000009", "loc", "Semantic error: the renamed edition", I5[:1])
+KI.line_ids([lr1], K)
+eq("... holding 1 of 5 under another name it does not", lr1["tome_id"], _id("rl_", "loc:2024000009"))
+
+# E: a split id published by an earlier build is carried: meeting an uncarried line, it adopts
+te = "rl_eps"
+se = KI.split_id(te, "loc:100")
+KE = KI.read_carry(carry_file("cE", [(te, "w_e", "Eps", "manhwa", "en", I5), (se, "w_e", "Eps", "manhwa", "en", [])],
+                              works=["w_e"], krcn_lines={te: "loc"}, ints={te: 10, se: 20}))
+le = [bl("loc:100", "loc", "Eps", I5[:2]), bl("loc:200", "loc", "Eps", I5[2:])]
+KI.line_ids(le, KE)
+eq("E: the minor part re-derives its published split id, carried", (le[0]["tome_id"], le[0]["carried"]), (se, True))
+EX = {"rl_xe": {"work": "w_we", "medium": "manhwa", "vols": {n: ("vx" + n, i) for n, i in I5[:2]}}}
+KI.attach_roles([le[0]], EX, {i: ("rl_xe", "vx" + n) for n, i in I5[:2]}, KE)
+eq("E: a carried split part meeting an uncarried line adopts it (not merged)", (le[0]["role"], le[0]["target"]),
+   ("adopting", "rl_xe"))
+# minor 1: a minor part whose own key hash is a carried id nobody took keeps that id, not the split form
+own = _id("rl_", "loc:100")
+KM = KI.read_carry(carry_file("cM", [("rl_mu", "w_m", "Mu", "manhwa", "en", I5), (own, "w_m", "Mu old", "manhwa", "en", [])],
+                              works=["w_m"], krcn_lines={"rl_mu": "loc"}))
+lm = [bl("loc:100", "loc", "Mu", I5[:2]), bl("loc:200", "loc", "Mu", I5[2:])]
+KI.line_ids(lm, KM)
+eq("minor 1: a minor part keeps its own carried key id (untaken) instead of the split form",
+   [(l["tome_id"], l["carried"]) for l in lm], [(own, True), ("rl_mu", True)])
+# minor 2: adopt_line never makes a line its own parent
+db3 = schema_db()
+db3.execute("INSERT INTO work VALUES('w_3','T',NULL,NULL,NULL,NULL,'x','x')")
+for rid in ("rl_i3", "rl_p3", "rl_c3"):
+    line_row(db3, rid, "w_3", "manhwa", "EN", "en")
+db3.execute("UPDATE release_line SET parent_id='rl_i3' WHERE id IN ('rl_p3','rl_c3')")
+KI.adopt_line(db3.cursor(), "rl_i3", "rl_p3")
+eq("minor 2: adopt_line: the public line is not its own parent; the internal line's other child follows it",
+   sorted(db3.execute("SELECT id, parent_id FROM release_line")), [("rl_c3", "rl_p3"), ("rl_p3", None)])
+
 # ==== summary ====
 print()
 if FAILS:
