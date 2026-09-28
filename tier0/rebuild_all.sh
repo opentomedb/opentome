@@ -17,6 +17,12 @@
 #                      low/ambiguous -> build/dnb-review.tsv). ~390 SRU requests at >= 3 s
 #                      on a cold cache (~20 min), zero on a warm one, ~62 a week with
 #                      DNB_REFRESH_DAYS set (CI) (tier0/build_dnb.py)
+#   3f. krcn           Korean / Chinese print editions (docs/krcn-design.md): DNB spo=kor/chi (German),
+#                      BnF publisher channels (French), Library of Congress DLC-created records (English;
+#                      the canary first). Lines link to existing works, merge by ISBN, cluster across
+#                      markets; works are created only with an English line (the rest: build/krcn-held.tsv),
+#                      ids adopted before 4c / 7b. Cold: DNB ~100, LoC ~110-160, BnF ~11 requests at >= 3 s;
+#                      warm: 1 (the LoC canary); CI: LOC/BNF_REFRESH_DAYS=28 (tier0/build_krcn.py)
 #   4b. covers         ISBN-keyed cover URLs from the cached openBD /
 #                      Open Library responses -- zero requests
 #   4. enrichment      openBD (JP) / Open Library (EN, FR) / BnF (FR)
@@ -127,6 +133,7 @@ echo "== 3b. official titles ==";  python3 tier0/main_titles.py "$DB"
 echo "== 3c. main articles ==";     python3 tier0/main_articles.py "$DB"
 echo "== 3d. relations ==";         python3 tier0/relations.py "$DB"
 echo "== 3e. dnb (German market) =="; python3 tier0/build_dnb.py "$DB" "$ID_CARRY"
+echo "== 3f. krcn (Korean / Chinese editions) =="; python3 tier0/build_krcn.py "$DB" "$ID_CARRY"
 echo "== 4. enrichment ==";        python3 tier1/enrich.py "$DB"
                                    # `both` already runs EN Open Library, FR Open Library
                                    # AND BnF. A second `olfr` line re-queried every French

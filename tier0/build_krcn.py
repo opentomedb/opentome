@@ -27,7 +27,7 @@ before the enrichment:
 Library works are created AFTER Wikipedia works and linking, so a work Wikipedia knows is never
 duplicated in the same build (§9). No covers, no 856, no publisher summaries from any library.
 """
-import collections, json, os, re, sqlite3, sys
+import collections, datetime, json, os, re, sqlite3, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -36,7 +36,19 @@ sys.path.insert(0, os.path.join(ROOT, "schema"))
 sys.path.insert(0, os.path.join(ROOT, "tier2"))
 import dnb_link as L
 import krcn_identity as KI
-from load import _id
+import build_dnb as B
+import dnb_enumerate as E
+import dnb_sru as S
+import loc_sru as LS
+import bnf_sru as BS
+import krcn_lines as KL
+import loc_marc as LM
+import bnf_unimarc as U
+import corrections as CORR
+from load import _id, LICENCE
+
+NOW = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+BUILD = os.path.join(ROOT, "build")
 
 EXPORTED = ("merged", "sibling", "adopting", "linked", "kept", "new_work")
 ROLES = EXPORTED + ("held", "review", "unlinked", "absorbed")
@@ -48,33 +60,49 @@ NO_K = {"works": set(), "lines": {}, "series_ids": set(), "work_ids": set(), "in
         "line_name": {}, "line_medium": {}, "line_pub": {}, "line_vols": {}}
 
 STAGING_DDL = """
-CREATE TABLE IF NOT EXISTS krcn_line (      -- one row per KR/CN library line, exported or not.
-                                            -- Placeholder for the controller ruling (a work column);
-                                            -- Task 14 owns the staging DDL (krcn_member, loc_member)
+CREATE TABLE IF NOT EXISTS krcn_line (      -- one row per KR/CN library line, exported or not
     key TEXT PRIMARY KEY,                   -- 'dnb:<IDN>' | 'loc:<LCCN>' | 'bnf:<ark>' (krcn_lines)
     source TEXT NOT NULL, market TEXT NOT NULL,
-    rl_id TEXT,                             -- the line's tome_id (carried: kept or taken; else minted)
-                                            -- ONLY when it exports (staged_rl_id); NULL for held /
-                                            -- review / unlinked rows: R6 and §13 -- a held cluster
+    rl_id TEXT,                             -- staged_rl_id: the release line it ships as, ONLY when it
+                                            -- exports -- its tome_id (carried: kept or taken; else
+                                            -- minted), for a merged line the line it merged into (the
+                                            -- 3e dnb_line convention); NULL for held / review /
+                                            -- unlinked / absorbed rows: R6 and §13 -- a held cluster
                                             -- has no tome_id in krcn_line, release_line, id_map or
-                                            -- the artifact
-    carried INTEGER NOT NULL,
+                                            -- the artifact. Adoption moves it to the public id.
+    carried INTEGER NOT NULL,               -- the id came from the carry (§8)
     work TEXT,                              -- the work it ships under (NULL unless exported);
                                             -- rename_work follows adoption renames
     name TEXT, publisher TEXT, medium TEXT, medium_why TEXT, medium_guess TEXT,
     n_volumes INTEGER,
+    origin TEXT, explicit INTEGER, comic INTEGER,
     tier TEXT, via TEXT, link_work TEXT, candidates TEXT,
     role TEXT NOT NULL,                     -- build_krcn.ROLES
     reason TEXT, cluster TEXT,
     target TEXT,                            -- merged / sibling / adopting: the existing line
+                                            -- (adoption moves it to the public id)
     exported INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS krcn_member (    -- one row per member record (a set record: per volume)
+    member TEXT PRIMARY KEY, line_key TEXT, number TEXT, isbn13 TEXT,
+    volume_id TEXT,                         -- NULL when the volume did not reach `volume`
+    fate TEXT NOT NULL,                     -- created | attached | held_future | dropped_* | line_<role>
+    filled TEXT, announced_only INTEGER, dated INTEGER, paged INTEGER);
+CREATE TABLE IF NOT EXISTS loc_member (     -- one row per LoC record volume (the §13 provenance gates)
+    lccn TEXT NOT NULL, number TEXT, f040a TEXT NOT NULL, encoding_level TEXT, date_type TEXT,
+    set_record INTEGER NOT NULL, f263 TEXT, member TEXT NOT NULL,
+    line_key TEXT, volume_id TEXT, fate TEXT,
+    PRIMARY KEY (member));
 """
 
 
 def staged_rl_id(ln):
-    """krcn_line.rl_id: the line's tome_id when it exports, else NULL (R6: an unexported line holds
-    no id anywhere; its minted id is never written)."""
-    return ln["tome_id"] if ln["exported"] else None
+    """krcn_line.rl_id: NULL unless the line exports (R6: an unexported line holds no id anywhere; its
+    minted id is never written). An exported line: its tome_id; a merged line: the line it merged
+    into (it ships inside that line -- the 3e dnb_line convention, which corrections' run_link_work
+    joins on)."""
+    if not ln["exported"]:
+        return None
+    return ln["target"] if ln["role"] == "merged" else ln["tome_id"]
 
 
 def vol_id(ln, number):
@@ -520,3 +548,358 @@ def record_meta(db, lines, plan, reports):
         db.execute("DELETE FROM meta WHERE key=?", (DEGRADED_KEY[src],))
         if bad:
             db.execute("INSERT INTO meta(key,value) VALUES(?,?)", (DEGRADED_KEY[src], json.dumps(val)))
+
+
+# ---- stage 3f, part 2: load, staging, adoption, files (Task 14) ------------------------------------------
+
+def member_url(m):
+    """'dnb:<IDN>' / 'loc:<LCCN>[#<vol>]' / 'bnf:<ark>' (a member or a line key) -> the record's url."""
+    src, rest = m.split(":", 1)
+    if src == "dnb":
+        return B.url(rest)
+    if src == "loc":
+        return LM.url(rest.split("#")[0])
+    return U.url(rest)
+
+
+def _claim(c, entity, eid, field, value, src, url):
+    c.execute("""INSERT OR REPLACE INTO claim (entity,entity_id,field,value,source,source_url,licence,retrieved_at)
+                 VALUES(?,?,?,?,?,?,?,?)""", (entity, eid, field, str(value), src, url, LICENCE[src], NOW))
+
+
+def _volume_claims(c, vid, v, src):
+    """A volume's library claims, each citing the member record that gave the fact: ISBN and number the
+    first member; the date its date_member (a LoC date always a single-volume record, never a set
+    record, §12); pages the first single-record member."""
+    first = v["members"][0]
+    if v["isbn"]:
+        _claim(c, "volume", vid, "isbn13", v["isbn"], src, member_url(first))
+    d = v["date"]
+    if d and d[0] != "HELD":
+        _claim(c, "volume", vid, "release_date" if d[2] == "published" else "projected_date", d[0], src,
+               member_url(v["date_member"] or first))
+    if v["pages"]:
+        _claim(c, "volume", vid, "page_count", v["pages"], src,
+               member_url(next((m for m in v["members"] if "#" not in m), first)))
+    _claim(c, "volume", vid, "volume_number", v["number"], src, member_url(first))
+
+
+def _meta(c, key):
+    row = c.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+    return row[0] if row else None
+
+
+def unload(c):
+    """Take back what an earlier 3f run wrote (a development rerun on one catalogue). A run that
+    ADOPTED ids re-keyed Wikipedia rows (P2) and cannot be taken back: rebuild from stage 1.
+    Claims: every library claim on a volume / line 3f created, and on a volume it attached to only the
+    claims citing one of its own member records -- another stage's dnb / bnf claims (3e, enrich_bnf)
+    on the same volume stay."""
+    adopted = json.loads(_meta(c, "krcn:adopted") or "[]")
+    if adopted:
+        raise SystemExit("stage 3f already adopted %d id(s) in this catalogue -- rebuild from stage 1 "
+                         "(rebuild_all.sh builds a fresh database unless KEEP_DB=1)" % len(adopted))
+    try:
+        made_lines = [r[0] for r in c.execute("SELECT rl_id FROM krcn_line WHERE exported=1 AND role<>'merged'")]
+        made_vols = [r[0] for r in c.execute("SELECT volume_id FROM krcn_member WHERE fate='created'")]
+        urls = {member_url(m) for (m,) in c.execute("SELECT member FROM krcn_member")} | \
+            {member_url(k) for (k,) in c.execute("SELECT key FROM krcn_line")}
+    except sqlite3.OperationalError:
+        return
+    for vid, filled in c.execute("""SELECT DISTINCT volume_id, filled FROM krcn_member WHERE fate='attached'
+                                    AND filled IS NOT NULL""").fetchall():
+        for col in json.loads(filled):
+            if col == "release_date":
+                c.execute("""UPDATE volume SET release_date=NULL, release_date_precision=NULL,
+                             release_date_type='unknown' WHERE id=?""", (vid,))
+            else:
+                c.execute("UPDATE volume SET %s=NULL WHERE id=?" % col, (vid,))
+    c.execute("CREATE TEMP TABLE IF NOT EXISTS krcn_unload_url (u TEXT PRIMARY KEY)")
+    c.execute("DELETE FROM krcn_unload_url")
+    c.executemany("INSERT OR IGNORE INTO krcn_unload_url VALUES(?)", [(u,) for u in urls])
+    c.execute("""DELETE FROM claim WHERE source IN ('dnb','loc','bnf') AND (
+                     (entity='volume' AND entity_id IN (SELECT volume_id FROM krcn_member WHERE fate='created'))
+                  OR (entity='release_line' AND entity_id IN (SELECT rl_id FROM krcn_line
+                                                              WHERE exported=1 AND role<>'merged'))
+                  OR (entity='volume' AND source_url IN (SELECT u FROM krcn_unload_url) AND entity_id IN
+                      (SELECT volume_id FROM krcn_member WHERE volume_id IS NOT NULL)))""")
+    c.execute("DROP TABLE krcn_unload_url")
+    c.executemany("DELETE FROM volume WHERE id=?", [(v,) for v in made_vols])
+    c.executemany("DELETE FROM release_line WHERE id=?", [(r,) for r in made_lines])
+    for w in json.loads(_meta(c, "krcn:works_made") or "[]"):
+        c.execute("DELETE FROM work_title WHERE work_id=?", (w,))
+        c.execute("DELETE FROM work WHERE id=?", (w,))
+    for t in ("krcn_line", "krcn_member", "loc_member"):
+        c.execute("DELETE FROM %s" % t)
+    c.execute("DELETE FROM meta WHERE key IN ('krcn:ids','krcn:adopted','krcn:works_made','krcn:stats',"
+              "'loc:degraded','bnf:degraded')")
+
+
+def adopt(c, internal, public):
+    """krcn_identity.adopt_line (R1 / P2) plus the staging rows it does not know (controller ruling):
+    the staging is written before adoption, so krcn_member / loc_member volume ids pointing at the
+    internal line's volumes move to what adopt_line made of them (a moved volume: v_(public, n); a
+    merged one: the public line's volume of that number), and krcn_line target / rl_id move to the
+    public id. -> adopt_line's (moved, merged)."""
+    have = {n: v for v, n in c.execute("SELECT id, number FROM volume WHERE release_line_id=?", (public,))}
+    remap = {v: have.get(n) or _id("v_", public, n) for v, n in c.execute(
+        "SELECT id, number FROM volume WHERE release_line_id=?", (internal,)).fetchall()}
+    moved, merged = KI.adopt_line(c, internal, public)
+    for old, new in remap.items():
+        for t in ("krcn_member", "loc_member"):
+            c.execute("UPDATE %s SET volume_id=? WHERE volume_id=?" % t, (new, old))
+    for col in ("target", "rl_id"):
+        c.execute("UPDATE krcn_line SET %s=? WHERE %s=?" % (col, col), (public, internal))
+    return moved, merged
+
+
+def load(db, lines, lost, plan, K):
+    """Works, lines, volumes, claims (source dnb / loc / bnf, LICENCE[src], the member record's url), the
+    staging (krcn_line / krcn_member / loc_member), then adoption (R1 / P2: adopt_line for every
+    adopting line, rename_work for every plan['adopt_works']) -- all BEFORE 4c / 7b. How a volume loads
+    (build_dnb.load's rules, per line role): an adopting line's volume is created under the public id
+    (never attached by ISBN; adopt_line folds the internal line's volumes into it); another exported
+    line's volume whose ISBN an existing volume has is 'attached' (it gains the claims; fill_attached
+    fills only empty columns, never a Wikipedia date, §8); else held_future / dropped_no_date_no_isbn /
+    a merged line's number the target has ('attached', or dropped_number_clash on differing ISBNs) /
+    'created' as vol_id (a merged line: v_(target, number)). -> Counter of volume fates."""
+    c = db.cursor()
+    st = collections.Counter()
+    by_key = {l["key"]: l for l in lines}
+    made = []
+    for wid, w in sorted(plan["works"].items()):
+        if c.execute("SELECT 1 FROM work WHERE id=?", (wid,)).fetchone():
+            continue
+        members = sorted((by_key[k] for k in w["lines"] if k in by_key), key=lambda l: (l["key"] != w["anchor"], l["key"]))
+        native = next((t for l in members for t in l["native"]), None)
+        c.execute("INSERT INTO work(id,primary_title,native_title,status,created_at,updated_at) VALUES(?,?,?,NULL,?,?)",
+                  (wid, w["title"], native, NOW, NOW))
+        made.append(wid)
+        for l in members:
+            olang = "ko" if l["origin"] == "kor" else "zh"
+            for lang, title, kind in ([(l["language"], l["name"], "official")] +
+                                      [(olang, t, "romanized") for t in l["orig"]] +
+                                      [(olang, t, "official") for t in l["native"]]):
+                if title:
+                    c.execute("INSERT OR IGNORE INTO work_title VALUES(?,?,?,?)", (wid, lang, title, kind))
+    ex_isbn, targets = {}, {}
+    for market in ("DE", "EN", "FR"):
+        E_, e_isbn = KI.existing_lines(db, market)
+        ex_isbn[market] = e_isbn
+        targets.update(E_)
+    for ln in lines:
+        src, role = ln["source"], ln["role"]
+        rid = ln["target"] if role == "merged" else ln["tome_id"]
+        exported = ln["exported"]
+        if exported and role != "merged":
+            c.execute("""INSERT INTO release_line (id,work_id,parent_id,medium,market,language,publisher,format,
+                         created_at,updated_at) VALUES(?,?,NULL,?,?,?,?,?,?,?)""",
+                      (rid, ln["work"], ln["medium"], ln["market"], ln["language"], ln["publisher"],
+                       B.FORMAT.get(ln.get("edition")), NOW, NOW))
+            _claim(c, "release_line", rid, "line_name", ln["name"], src, member_url(ln["key"]))
+            if ln["publisher"]:
+                _claim(c, "release_line", rid, "publisher", ln["publisher"], src, member_url(ln["key"]))
+        tvols = targets.get(rid, {}).get("vols", {}) if role == "merged" else {}
+        e_isbn = ex_isbn[ln["market"]]
+        n_out = 0
+        for v in ln["vols"]:
+            if src == "loc":
+                v["isbn"] = LM.pick_isbn(v["cands"], e_isbn)
+            fate, vid, filled = "line_" + role, None, None
+            hit = None if role == "adopting" else next((e_isbn[i] for i in v["isbns"] if i in e_isbn), None)
+            if exported and hit:
+                vid, fate = hit[1], "attached"
+            elif exported:
+                if v["date"] and v["date"][0] == "HELD":
+                    fate = "held_future"
+                elif not v["isbn"] and not v["date"]:
+                    fate = "dropped_no_date_no_isbn"
+                elif v["number"] in tvols:
+                    wvid, wisbn = tvols[v["number"]]
+                    if wisbn and wisbn not in v["isbns"]:
+                        fate = "dropped_number_clash"
+                    else:
+                        vid, fate = wvid, "attached"
+                else:
+                    vid = _id("v_", rid, v["number"]) if role == "merged" else vol_id(ln, v["number"])
+                    fate = "created"
+                    d = v["date"] if v["date"] else (None, None, None)
+                    c.execute("""INSERT OR IGNORE INTO volume (id,release_line_id,number,title,isbn13,page_count,format,
+                                 release_date,release_date_precision,release_date_type,created_at,updated_at)
+                                 VALUES(?,?,?,NULL,?,?,?,?,?,?,?,?)""",
+                              (vid, rid, v["number"], v["isbn"], v["pages"], B.FORMAT.get(ln.get("edition")),
+                               d[0], d[1], d[2] or "unknown", NOW, NOW))
+            if vid:
+                _volume_claims(c, vid, v, src)
+                if fate == "attached":
+                    done = B.fill_attached(c, vid, {"isbn": v["isbn"], "date": v["date"], "pages": v["pages"]})
+                    filled = json.dumps(done) if done else None
+                n_out += fate == "created"
+            st[fate] += 1
+            dated = int(bool(v["date"] and v["date"][0] != "HELD"))
+            for m in v["members"]:
+                c.execute("""INSERT OR REPLACE INTO krcn_member (member,line_key,number,isbn13,volume_id,fate,filled,
+                             announced_only,dated,paged) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                          (m, ln["key"], v["number"], v["isbn"], vid, fate, filled, int(bool(v["announced"])), dated,
+                           int(bool(v["pages"]))))
+        if exported and role != "merged" and not n_out and not c.execute(
+                "SELECT 1 FROM volume WHERE release_line_id=?", (rid,)).fetchone():
+            # every volume attached elsewhere or held back: no empty line (3e's 'absorbed')
+            c.execute("DELETE FROM release_line WHERE id=?", (rid,))
+            c.execute("DELETE FROM claim WHERE entity='release_line' AND entity_id=?", (rid,))
+            ln["role"], ln["exported"] = "absorbed", False
+        fate_of = {m: (vid, f) for m, vid, f in c.execute(
+            "SELECT member, volume_id, fate FROM krcn_member WHERE line_key=?", (ln["key"],))}
+        for row in ln["loc"]:
+            vid, f = fate_of.get(row[7], (None, None))
+            c.execute("""INSERT OR REPLACE INTO loc_member (lccn,number,f040a,encoding_level,date_type,set_record,
+                         f263,member,line_key,volume_id,fate) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                      tuple(row) + (ln["key"], vid, f))
+        c.execute("""INSERT OR REPLACE INTO krcn_line (key,source,market,rl_id,carried,work,name,publisher,medium,
+                     medium_why,medium_guess,n_volumes,origin,explicit,comic,tier,via,link_work,candidates,role,
+                     reason,cluster,target,exported) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  (ln["key"], src, ln["market"], staged_rl_id(ln), int(bool(ln["carried"])),
+                   ln["work"] if ln["exported"] else None, ln["name"], ln["publisher"], ln["medium"],
+                   ln.get("medium_why"), ln.get("medium_guess"), len(ln["vols"]), ln["origin"],
+                   int(bool(ln["explicit"])), int(bool(ln["comic"])), ln["tier"], ln["via"], ln["link_work"],
+                   json.dumps(ln["candidates"][:8]), ln["role"], ln["reason"], ln["cluster"], ln.get("target"),
+                   int(bool(ln["exported"]))))
+    for m, fate, key in lost:
+        c.execute("""INSERT OR IGNORE INTO krcn_member (member,line_key,number,isbn13,volume_id,fate,filled,
+                     announced_only,dated,paged) VALUES(?,?,NULL,NULL,NULL,?,NULL,0,0,0)""", (m, key, fate))
+        st[fate] += 1
+    adopted = []
+    for ln in lines:                                   # R1 / P2: before 4c and 7b, never a redirect
+        if ln["role"] == "adopting" and ln["exported"]:
+            adopt(c, ln["target"], ln["tome_id"])
+            adopted.append(["release_line", ln["target"], ln["tome_id"]])
+    conflicts = {tuple(t) for t in plan.get("adopt_conflicts", [])}
+    for internal, public in plan["adopt_works"]:
+        if (internal, public) in conflicts:          # decide reported it (gate_report adopt_conflicts)
+            print("  ADOPTION CONFLICT -- work %s -> %s not renamed (the public id is taken)" % (internal, public))
+            continue
+        KI.rename_work(c, internal, public)
+        adopted.append(["work", internal, public])
+    for k, v in (("krcn:adopted", adopted), ("krcn:works_made", made)):
+        c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)", (k, json.dumps(v, sort_keys=True)))
+    db.commit()
+    return st
+
+
+def _tsv(path, header, rows):
+    with open(path, "w", encoding="utf8") as f:
+        f.write("\t".join(header) + "\n")
+        for r in rows:
+            f.write("\t".join(str(x if x is not None else "").replace("\t", " ").replace("\n", " ") for x in r) + "\n")
+
+
+def write_files(lines, plan, idx, stats):
+    """build/krcn-review.tsv, krcn-held.tsv (R6, §9: every held cluster with its lines, member keys,
+    reason, candidate title keys and the four criteria), krcn-new-works.tsv, krcn-report.json.
+    -> (review lines, held clusters)."""
+    os.makedirs(BUILD, exist_ok=True)
+    rev = sorted((l for l in lines if l["role"] == "review"), key=lambda l: (l["reason"] or "", -len(l["vols"]), l["key"]))
+    _tsv(os.path.join(BUILD, "krcn-review.tsv"),
+         ["reason", "tier", "via", "line_key", "market", "name", "publisher", "medium", "volumes", "candidates",
+          "original_titles", "native_titles", "authors", "url"],
+         [(l["reason"], l["tier"], l["via"], l["key"], l["market"], l["name"], l["publisher"], l["medium"], len(l["vols"]),
+           "; ".join("%s %s" % (w, idx.name.get(w, "?")) for w in l["candidates"][:6]), " | ".join(l["orig"][:3]),
+           " | ".join(l["native"][:3]), " | ".join(l["authors"][:3]), member_url(l["key"])) for l in rev])
+    by = {l["key"]: l for l in lines}
+    # every held line has its plan['held'] entry (decide: no-english-line / no-english-comic-line /
+    # novel-without-comic), so the hold file is exactly plan['held']
+    held = list(plan["held"])
+    _tsv(os.path.join(BUILD, "krcn-held.tsv"),
+         ["cluster", "reason", "markets", "lines", "members", "volumes", "title_keys", "criteria"],
+         [(h["cluster"], h["reason"], ",".join(h["markets"]), " ".join(h["lines"]),
+           " ".join(m for k in h["lines"] for m in by[k]["members"][:10]), h["volumes"], " | ".join(h["title_keys"]),
+           json.dumps(h["criteria"], sort_keys=True)) for h in held])
+    _tsv(os.path.join(BUILD, "krcn-new-works.tsv"),
+         ["work_id", "anchor_key", "title", "markets", "lines", "volumes", "verdict", "existing_work", "reason"],
+         [(w, e["anchor"], e["title"], ",".join(sorted({by[k]["market"] for k in e["lines"] if k in by})),
+           " ".join(e["lines"]), sum(len(by[k]["vols"]) for k in e["lines"] if k in by), "", "", "")
+          for w, e in sorted(plan["works"].items()) if e["created"]])
+    with open(os.path.join(BUILD, "krcn-report.json"), "w", encoding="utf8") as f:
+        json.dump(stats, f, ensure_ascii=False, indent=1, sort_keys=True)
+    return len(rev), len(held)
+
+
+def run(dbpath, carry=None):
+    db = sqlite3.connect(dbpath, timeout=60)
+    db.executescript(STAGING_DDL)
+    unload(db.cursor())
+    db.commit()
+    print("  enumerating (cached; live requests go to build/{dnb,loc,bnf}-netlog.tsv)", flush=True)
+    d_recs, d_parents, d_tally = E.enumerate_krcn(verbose=False)
+    gaps = {k: v for k, v in d_tally.items() if k.endswith("_slice_gap") and v}
+    if gaps and not d_tally.get("degraded"):
+        raise SystemExit("DNB KR/CN enumeration incomplete -- slices miss records: %s" % gaps)
+    l_recs, l_report = LS.enumerate_loc(verbose=False)            # the canary first; fails the stage on a bad canary
+    b_recs, b_tally = BS.enumerate_bnf(verbose=False)
+    lines, lost, src_stats = [], [], {}
+    for name, (ls_, lo, st_) in (("dnb", KL.dnb_lines(d_recs, d_parents)), ("loc", KL.loc_lines(l_recs)),
+                                 ("bnf", KL.bnf_lines(b_recs))):
+        lines += ls_
+        lost += lo
+        src_stats[name] = st_
+    # P25: a DNB set whose volumes split between the rounds gives BOTH rounds the key 'dnb:<parent IDN>'
+    # (14 such sets in the cached records, King of Hell's published German line among them). The German
+    # JP round keeps the key (its output is frozen); 3f defers the line -- not staged, listed in the
+    # report -- BEFORE the Ize order and ids, and its ids are reserved from line_ids.
+    try:
+        jp_rows = db.execute("SELECT key, rl_id FROM dnb_line").fetchall()
+    except sqlite3.OperationalError:
+        jp_rows = []
+    lines, deferred, reserved = defer_jp_round(lines, jp_rows)
+    jp_keys = {k for k, _ in jp_rows}
+    lost = [x for x in lost if x[2] not in jp_keys]
+    isbn_medium = dict(db.execute("""SELECT v.isbn13, rl.medium FROM volume v JOIN release_line rl
+                                     ON rl.id=v.release_line_id WHERE v.isbn13 IS NOT NULL
+                                     ORDER BY rl.id DESC, v.id DESC"""))   # deterministic: the lowest line wins
+    KL.resolve_media(lines, isbn_medium)
+    K = KI.read_carry(carry) or NO_K
+    id_rep = KI.line_ids(lines, K, reserved=reserved)
+    line_medium, E_all = {}, {}
+    for market in ("DE", "EN", "FR"):
+        E_, e_isbn = KI.existing_lines(db, market)
+        E_all.update(E_)
+        line_medium.update({r: e["medium"] for r, e in E_.items()})
+        KI.attach_roles([l for l in lines if l["market"] == market], E_, e_isbn, K)
+    idx = L.Index(db)
+    comic_works = {w for (w,) in db.execute("SELECT DISTINCT work_id FROM release_line WHERE medium IN (?,?,?,?)",
+                                            KL.COMIC_MEDIA)}
+    plan = decide(lines, idx, K, CORR.load_link_work(), comic_works, line_medium,
+                  jp_override=CORR.load_jp_guard_overrides())
+    fates = load(db, lines, lost, plan, K)
+    record_meta(db, lines, plan, {"loc": l_report, "bnf": b_tally, "dnb": d_tally})
+    roles = collections.Counter((l["market"], l["role"]) for l in lines)
+    exported = collections.Counter(l["market"] for l in lines if l["exported"])
+    stats = {"sources": src_stats, "dnb_tally": d_tally,
+             "loc": {k: l_report.get(k) for k in ("distinct", "live_requests", "degraded", "degraded_queries")},
+             "bnf": b_tally, "ids": id_rep, "roles": {"%s %s" % k: n for k, n in sorted(roles.items())},
+             "exported_lines": dict(exported), "volume_fates": dict(fates),
+             "works_created": sum(1 for e in plan["works"].values() if e["created"]),
+             "works_frozen": sum(1 for e in plan["works"].values() if not e["created"]),
+             "held_clusters": len(plan["held"]), "adopted": json.loads(_meta(db, "krcn:adopted") or "[]"),
+             "deferred_to_jp_round": sorted(l["key"] for l in deferred),
+             "gate": gate_report(lines, plan, id_rep, K, E_all, deferred)}
+    n_rev, n_held = write_files(lines, plan, idx, stats)
+    db.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('krcn:stats',?)", (json.dumps(stats, sort_keys=True),))
+    db.commit()
+    print("  lines %d: %s" % (len(lines), ", ".join("%s %s %d" % (m, r, n) for (m, r), n in sorted(roles.items()))))
+    print("  exported lines: %s" % ", ".join("%s %d" % kv for kv in sorted(exported.items())))
+    print("  works: created %d, frozen %d; held clusters %d; review %d -> build/krcn-review.tsv" % (
+        stats["works_created"], stats["works_frozen"], len(plan["held"]), n_rev))
+    print("  volume fates: %s" % ", ".join("%s %d" % kv for kv in sorted(fates.items())))
+    print("  ids: carried lines kept %d, taken %d (weak %d), left %d; adopted %d" % (
+        id_rep["kept"], len(id_rep["taken"]), len(id_rep["taken_weak"]), len(id_rep["left"]), len(stats["adopted"])))
+    if deferred:
+        print("  deferred to the German JP round (a DNB set split across the rounds, P25): %d %s" % (
+            len(deferred), stats["deferred_to_jp_round"][:5]))
+    print("  live requests: DNB %d, LoC %d, BnF %d" % (S.live_requests[0], LS.LOC.live, BS.BNF.live))
+    return stats
+
+
+if __name__ == "__main__":
+    run(sys.argv[1] if len(sys.argv) > 1 else os.path.join(BUILD, "opentome.db"),
+        sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None)
