@@ -56,6 +56,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 site/build_site.py build/manga-metadata.sqlite build/version.json _site
+      # A stable copy of the catalogue manifest Mangarr polls first (opentomedb.com/catalogue/version.json),
+      # so a rename of the GitHub account or data repo cannot strand installs; Mangarr falls back to the
+      # release URL. The artifact_url inside still points at the GitHub release asset.
+      - name: Publish the manifest copy
+        run: mkdir -p _site/catalogue && cp build/version.json _site/catalogue/version.json
       - name: Check every internal link
         run: python3 site/check_site.py _site
       - uses: actions/upload-pages-artifact@v3
