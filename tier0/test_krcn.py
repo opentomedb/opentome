@@ -2393,6 +2393,106 @@ lines, _, _ = KL.loc_lines({r["cf"]["001"]: r for r in MSD})
 eq("LoC: a real series ($v 'book 2', '#5') still names and keys the line", [l["name"] for l in lines],
    ["Mystery science detectives"])
 
+
+# ---- Task 12 review fixes -------------------------------------------------------------------------------------
+# 1. a catalogue-coded 490 $v numbers nothing: the one-shot rule gives "1" (Doubleday AO-44, Evergreen E-209, FA259)
+EV = dd("ev", "  60006341", "The book of songs", [("a", "An Evergreen book,"), ("v", "E-209")], isbn13("97803", 4))
+FA = dd("fa", "  60006342", "Songs of the south", [("a", "A Grove Press book ;"), ("v", "FA259")], isbn13("97803", 5))
+lines, _, _ = KL.loc_lines({r["cf"]["001"]: r for r in (DA, EV, FA)})
+eq("a catalogue-coded $v never numbers a volume (AO-44, E-209 not '209', unhyphenated FA259): one-shots are vol 1",
+   sorted((l["name"], [v["number"] for v in l["vols"]]) for l in lines),
+   [("Songs of the south", ["1"]), ("The book of songs", ["1"]), ("The people's comic book", ["1"])])
+eq("CATALOGUE_V: codes yes; volume words / numbers no",
+   [bool(KL.CATALOGUE_V.match(v)) for v in ("AO-44", "E-209", "FA259", "FA259.", "3", "v. 3", "Book 1", "Vol. 5", "#5",
+                                            "Volume 23", "omnibus")],
+   [True, True, True, True, False, False, False, False, False, False, False])
+
+# 2. krcn_line.rl_id: the tome_id only when the line exports (R6 / §13: a held line holds no id anywhere)
+db7 = schema_db()
+db7.executescript(BK.STAGING_DDL)
+db7.execute("INSERT INTO krcn_line(key,source,market,rl_id,carried,role,exported) VALUES('dnb:4','dnb','DE',NULL,0,'held',0)")
+hl = mkline("dnb:4", "DE", "Gänseblümchenwiese", role="held", exported=False)
+el = mkline("dnb:1", "DE", "Solo Leveling", role="linked", exported=True)
+eq("staged_rl_id: NULL for a held line, the tome_id for an exported one; the DDL takes a NULL rl_id",
+   (BK.staged_rl_id(hl), BK.staged_rl_id(el), db7.execute("SELECT rl_id FROM krcn_line").fetchone()[0]),
+   (None, _id("rl_", "dnb:1"), None))
+
+# 3. link_work override_jp_guard (controller ruling): only a correction that says so, with a why, lifts the guard
+db8 = schema_db()
+db8.execute("INSERT INTO work VALUES('w_72a76ed32ef2','Kurokami',NULL,NULL,NULL,NULL,'x','x')")
+line_row(db8, "rl_kuro", "w_72a76ed32ef2", "manga", "JP", "ja")
+for ov, want in (({}, ("review", "jp-guard", None, "correction")),
+                 ({"loc:2008270303": "Korean creators, first published in Japan"},
+                  ("linked", None, "w_72a76ed32ef2", "correction+override_jp_guard"))):
+    ls = [mkline("loc:2008270303", "EN", "Black god")]
+    plan = BK.decide(ls, L.Index(db8), None, link_work={"loc:2008270303": "w_72a76ed32ef2"}, jp_override=ov)
+    eq("Black God -> Kurokami (JP only): %s" % ("override with a why: linked, listed" if ov else "no override: review"),
+       (ls[0]["role"], ls[0]["reason"], ls[0]["work"], ls[0]["via"]), want)
+eq("gate: the override is listed (line key, work, why)", BK.gate_report(ls, plan, {}, None)["jp_guard_overrides"],
+   [["loc:2008270303", "w_72a76ed32ef2", "Korean creators, first published in Japan"]])
+ls = [mkline("loc:2008270303", "EN", "Black god", titles=["Black god", "Kurokami"])]
+BK.decide(ls, L.Index(db8), None, jp_override={"loc:2008270303": "x"})
+eq("an override without a link_work correction lifts nothing (the linker's own JP-guard verdict stays)",
+   (ls[0]["role"], ls[0]["reason"]), ("review", "jp-guard"))
+
+# 4a. review reasons are '+'-joined, never overwritten
+ls = [mkline("dnb:2", "DE", "Ouroboros", medium=None, medium_why="writer_only", medium_guess="manhwa"),
+      mkline("loc:2024000099", "EN", "Some Title", medium=None, ize=True)]
+BK.decide(ls, L.Index(db), None)                     # db: the Task 12 catalogue (Ouroboros JP-only)
+ls2 = [mkline("bnf:x9", "FR", "Buster", medium=None, medium_why="duplicate_numbers", medium_guess="manhwa")]
+db9 = schema_db()
+db9.execute("INSERT INTO work VALUES('w_bu','Buster Keaton',NULL,NULL,NULL,NULL,'x','x')")
+db9.execute("INSERT INTO work_title VALUES('w_bu','en','Buster','alias')")
+line_row(db9, "rl_bu", "w_bu", "manhwa", "EN", "en")
+BK.decide(ls2, L.Index(db9), None)
+eq("reasons joined: jp-guard+writer_only; low (alias)+duplicate_numbers; an unlinked Ize line: ize-medium",
+   (ls[0]["reason"], ls2[0]["reason"], ls[1]["reason"]), ("jp-guard+writer_only", "low+duplicate_numbers", "ize-medium"))
+
+# 4b. a novel-without-comic held entry carries criteria 1-4
+ls = [mkline("dnb:6", "DE", "Some Korean Novel", medium="novel", comic=False)]
+plan = BK.decide(ls, L.Index(db), None, comic_works={"w_kr"})
+eq("novel-without-comic held entry: linker tier, explicit origin, comic, containment, the work",
+   plan["held"][0]["criteria"], {"linker": "medium", "explicit_origin": True, "comic": False, "containment": ["w_nov"],
+                                  "novel_without_comic": ["w_nov"]})
+
+# 4c. works created in one build guard each other (containment, in cluster key order)
+ls = [mkline("loc:2023000011", "EN", "Men of the Harem"),
+      mkline("loc:2023000012", "EN", "Men of the Harem Side Stories")]
+plan = BK.decide(ls, L.Index(schema_db()), None)
+wA = _id("w_", "krcn", "loc:2023000011")
+eq("a later cluster whose title contains a work created earlier in this build -> review containment",
+   (ls[0]["role"], ls[1]["role"], ls[1]["reason"], ls[1]["candidates"]), ("new_work", "review", "containment", [wA]))
+
+# 4d. a pooled cluster sharing a key with a line linked to a work goes to review with that work (Penelope / Villains)
+db10 = schema_db()
+db10.execute("INSERT INTO work VALUES('w_vil','Villains Are Destined to Die',NULL,NULL,NULL,NULL,'x','x')")
+line_row(db10, "rl_vil", "w_vil", "manhwa", "EN", "en")
+ls = [mkline("dnb:41", "DE", "Penelope - Das Böse ist dem Tod geweiht",
+             titles=["Penelope - Das Böse ist dem Tod geweiht", "Villains are destined to die"]),
+      mkline("dnb:42", "DE", "Penelope - Das Böse ist dem Tod geweiht", edition="Deluxe")]
+BK.decide(ls, L.Index(db10), None)
+eq("Penelope: the linked line ships; its same-title pooled sibling -> review 'linked-sibling-key' naming the work",
+   [(l["role"], l["reason"], l["work"] if l["role"] == "linked" else l["candidates"]) for l in ls],
+   [("linked", None, "w_vil"), ("review", "linked-sibling-key", ["w_vil"])])
+
+# 4e. LoC 240 form titles never key a cluster
+f1 = mkline("loc:2001000001", "EN", "The rainy spell", orig=["Short stories"], titles=["The rainy spell", "Poems. Selections"])
+f2 = mkline("loc:2001000002", "EN", "Dust flowers", orig=["Short stories"])
+eq("form titles ('Short stories', 'Poems. Selections') give no key; two collections stay two clusters",
+   (sorted(k[-1] for k in BK.cluster_keys(f1)), len(BK.clusters([f1, f2]))), (["rainyspell"], 2))
+
+# 4f. absorbed_weak, merged branch: a carried library line merged into an existing line holding 1 of its 5 ISBNs
+Km = KI.read_carry(carry_file("t12m", [("rl_M", "w_m", "Merge me", "manhwa", "en", I5)], works=["w_m"],
+                               krcn_lines={"rl_M": "loc"}))
+ml = dict(bl("loc:900", "loc", "Merge me", I5), tome_id="rl_M", carried=True, absorbed_ids=[], role="merged",
+          target="rl_x9", work="w_x", exported=True, reason=None, via="isbn", tier=None, link_work=None, authors=[])
+Em = {"rl_x9": {"work": "w_x", "medium": "manhwa", "vols": {"1": ("v1", I5[0][1]), "2": ("v2", "9790000000777")}}}
+eq("gate: a carried library line merged into an existing line holding 1 of its 5 ISBNs -> absorbed_weak",
+   BK.gate_report([ml], {}, {"taken": []}, Km, Em)["absorbed_weak"], [["rl_M", "rl_x9", "merged", 1, 5]])
+Em["rl_x9"]["vols"].update({n: ("v" + n, i) for n, i in I5})
+eq("gate: ... not when the existing line holds a strict majority (5 of 5)",
+   BK.gate_report([ml], {}, {"taken": []}, Km, Em)["absorbed_weak"], [])
+
 # ==== summary ====
 print()
 if FAILS:

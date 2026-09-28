@@ -359,6 +359,14 @@ marked `CONFLICT` when that work is not the entry's. A `link_work` naming a
 work the catalogue does not have prints `STALE CORRECTION` at build time and
 the line stays as the linker left it.
 
+**Lifting the KR/CN JP guard.** Stage 3f sends a KR/CN line whose work is Japanese (a JP line and
+no KR/CN line) to review even when a `link_work` names that work. When a person has checked that
+the work IS Korean / Chinese (Black God / Kurokami: Korean creators, first published in Japan),
+the entry adds `"override_jp_guard": true` and a non-empty `"why"`; 3f then links the line and
+lists it in `build/krcn-report.json` (`jp_guard_overrides`). `--check` refuses an override that is
+not `true`, one without a `why`, and one on an entry that is not a `link_work` entry. The German JP
+round's out-of-scope rule is not the JP guard and is never lifted.
+
 `export/test_artifact.py` checks every entry whose `line_key` the build has:
 the line must ship under the named work -- linked, kept, or merged / sibling
 by ISBN (a merged line counts under its Wikipedia line's work). Under any other

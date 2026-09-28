@@ -121,6 +121,35 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn("1 link_work", out)
 
+    # -- link_work override_jp_guard (controller ruling 2026-09-27): only with a non-empty why
+    def test_link_work_override_with_why_passes(self):
+        e = dict(self.LW, override_jp_guard=True, why="Korean creators, first published in Japan")
+        code, out = self.check(self.corrections(lines=[e]))
+        self.assertEqual(code, 0, out)
+        d = self.corrections(lines=[e])
+        self.assertEqual(C.load_jp_guard_overrides(d), {"dnb:1380595053": "Korean creators, first published in Japan"})
+
+    def test_link_work_override_without_why_fails(self):
+        for e in (dict(self.LW, override_jp_guard=True), dict(self.LW, override_jp_guard=True, why="  ")):
+            with self.subTest(e=e):
+                code, out = self.check(self.corrections(lines=[e]))
+                self.assertEqual(code, 1)
+                self.assertIn("requires a non-empty", out)
+                with self.assertRaises(ValueError):
+                    C.load_jp_guard_overrides(self.corrections(lines=[e]))
+
+    def test_link_work_override_not_true_fails(self):
+        code, out = self.check(self.corrections(lines=[dict(self.LW, override_jp_guard="yes", why="x")]))
+        self.assertEqual(code, 1)
+        self.assertIn("must be true", out)
+
+    def test_override_without_link_work_fails(self):
+        e = {"line": "rl_aaaaaaaaaaaa", "medium": "manhwa", "source_url": "https://x", "checked": "2026-09-28",
+             "override_jp_guard": True, "why": "x"}
+        code, out = self.check(self.corrections(lines=[e]))
+        self.assertEqual(code, 1)
+        self.assertIn("only valid on a link_work entry", out)
+
     # -- passes
     def test_all_empty_passes(self):
         code, out = self.check(self.corrections())

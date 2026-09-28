@@ -46,6 +46,12 @@ WORK_ID = re.compile(r"^w_[0-9a-f]{12}\Z")
 # keys of the other lines.json shapes: a link_work entry carrying one would be read by the
 # medium/market/new-line consumers too (export/test_artifact.py), so it is refused
 LINK_WORK_FORBIDDEN = ("volumes", "medium", "market", "line", "origin_line")
+# A link_work entry may lift the KR/CN JP guard (controller ruling, 2026-09-27): "override_jp_guard":
+# true with a non-empty "why" lets stage 3f attach a KR/CN library line to a work the guard protects
+# (a Japanese work with no KR/CN line -- Black God / Kurokami: Korean creators, first published in
+# Japan). Read by 3f only (load_jp_guard_overrides); the German JP round's out_of_scope rule is not
+# a JP guard and is never lifted.
+JP_GUARD_OVERRIDE = "override_jp_guard"
 ALIAS_KEYS = ("line", "alias", "source_url", "checked")
 # A whole WORK the catalogue should not carry at all (2026-09-23 cleanup): a work
 # that entered through a Wikipedia list-of-volumes page but is not in scope (The
@@ -134,6 +140,30 @@ def load_link_work(directory=None):
         if e["line_key"] in out:
             raise ValueError("lines.json[%d]: line_key %s corrected twice" % (i, e["line_key"]))
         out[e["line_key"]] = e["link_work"]
+    return out
+
+
+def _override_problem(e, i):
+    """-> why a lines.json entry's override_jp_guard is invalid, or None."""
+    if "link_work" not in e:
+        return "lines.json[%d]: override_jp_guard is only valid on a link_work entry" % i
+    if e[JP_GUARD_OVERRIDE] is not True:
+        return "lines.json[%d]: override_jp_guard must be true (got %r)" % (i, e[JP_GUARD_OVERRIDE])
+    if not isinstance(e.get("why"), str) or not e["why"].strip():
+        return "lines.json[%d]: override_jp_guard requires a non-empty \"why\" (why the work is Korean / Chinese)" % i
+    return None
+
+
+def load_jp_guard_overrides(directory=None):
+    """-> {library line key: why} from the link_work entries that lift the KR/CN JP guard (validated)."""
+    out = {}
+    for i, e in enumerate(_read("lines.json", directory or DIR)):
+        if not isinstance(e, dict) or JP_GUARD_OVERRIDE not in e:
+            continue
+        problem = _override_problem(e, i)
+        if problem:
+            raise ValueError(problem)
+        out[e["line_key"]] = e["why"].strip()
     return out
 
 
@@ -661,6 +691,10 @@ def check(directory=DIR, artifact=None):
         if not isinstance(e, dict):
             problems.append("lines.json[%d]: not an object" % i)
             continue
+        if JP_GUARD_OVERRIDE in e:
+            problem = _override_problem(e, i)
+            if problem:
+                problems.append(problem)
         if "link_work" in e:
             try:
                 _require(e, LINK_WORK_KEYS, "lines.json", i)
