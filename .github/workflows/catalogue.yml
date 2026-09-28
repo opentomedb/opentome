@@ -46,7 +46,7 @@ jobs:
         with:
           python-version: '3.12'
       # Restores the newest `opentome-cache-*` entry (seed, keepalive or a previous
-      # build); the last step saves this run's cache under its own key, so the
+      # build); the last step saves this run's cache under its own key (run id + attempt), so the
       # responses a run fetched are there for the next one. A warm run hits close to
       # zero network -- the seed-cache workflow is what makes the first run warm. Beyond the
       # source refresh windows below, one more recurring cost: Open Library per-ISBN negatives refresh every
@@ -57,7 +57,7 @@ jobs:
         id: cache
         with:
           path: .cache
-          key: opentome-cache-${{ github.run_id }}
+          key: opentome-cache-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: opentome-cache-
           fail-on-cache-miss: true
       - name: cache state
@@ -200,9 +200,10 @@ jobs:
       # fetches reach the next run instead of being re-requested from a gateway that throttled us.
       # Only once tier0/rebuild_all.sh wrote build/sources-complete.marker (after 3f, every library set
       # enumerated and stored whole); a failure or kill before it saves nothing, as before. Never on a
-      # cancelled run, never over an exact hit (a re-run attempt) -- the old combined step's behaviour.
+      # cancelled run, never over an exact hit -- the old combined step's behaviour; the key carries the
+      # attempt, so a re-run attempt restores the newest entry by prefix and saves its own.
       - uses: actions/cache/save@v4
         if: ${{ !cancelled() && hashFiles('build/sources-complete.marker') != '' && steps.cache.outputs.cache-hit != 'true' }}
         with:
           path: .cache
-          key: opentome-cache-${{ github.run_id }}
+          key: opentome-cache-${{ github.run_id }}-${{ github.run_attempt }}

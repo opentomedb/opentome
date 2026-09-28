@@ -3571,6 +3571,84 @@ eq("work split, step 5: a carried review line under an adopted public id is kept
    ((ls_sp[0]["role"], ls_sp[0]["work"], ls_sp[0]["exported"]), plan_sp["adopt_works"], plan_sp["adopt_conflicts"],
     "w_libS" in plan_sp["works"]), (("kept", "w_libS", True), [("w_wiki", "w_libS")], [], False))
 
+# residuals (final re-review): several present works re-adopting ONE public id stop the build (mixed adopters: a published
+# older work and an internal one) -- never a silent split
+db_mx = schema_db()
+for w, t in (("w_a", "Lover Boy"), ("w_b", "Lover Boy Side")):
+    db_mx.execute("INSERT INTO work VALUES(?,?,NULL,NULL,NULL,NULL,'x','x')", (w, t))
+line_row(db_mx, "rl_en", "w_a", "manhwa", "EN", "en")
+line_row(db_mx, "rl_a0", "w_a", "manhwa", "EN", "en")
+line_row(db_mx, "rl_fr", "w_b", "manhwa", "FR", "fr")
+K_mx = {"works": {"w_libS"}, "lines": {"rl_S": "dnb"}, "series_ids": {"rl_S", "rl_en", "rl_fr", "rl_a0"},
+        "work_ids": {"w_libS", "w_a"}, "int": {"rl_a0": 1, "rl_S": 7, "rl_en": 9, "rl_fr": 10},
+        "line_work": {"rl_S": "w_libS", "rl_en": "w_libS", "rl_fr": "w_libS", "rl_a0": "w_a"}, "line_name": {},
+        "line_medium": {}, "line_vols": {}}
+ls_mx = [mkline("dnb:77", "DE", "Liebesjunge", medium=None, medium_why="writer_only", carried=True, tome_id="rl_S")]
+plan_mx = BK.decide(ls_mx, L.Index(db_mx), K_mx, present={"rl_en": "w_a", "rl_fr": "w_b", "rl_a0": "w_a"})
+eq("residual: mixed adopters of one public id are both listed in adopt_conflicts",
+   sorted(t for t in plan_mx["adopt_conflicts"] if t[1] == "w_libS"), [("w_a", "w_libS"), ("w_b", "w_libS")])
+try:
+    with contextlib.redirect_stdout(io.StringIO()):
+        BK.load(schema_db(), ls_mx, [], plan_mx, K_mx)
+    msg_mx = None
+except SystemExit as e:
+    msg_mx = str(e)
+except Exception:                     # load went on past the check (and tripped on the minimal lines)
+    msg_mx = None
+eq("residual: ... and load stops the build naming the works, their lines, the public id and link_work",
+   bool(msg_mx) and all(x in msg_mx for x in ("w_a", "w_b", "rl_en", "rl_fr", "w_libS", "link_work")), True)
+
+# residual: a link_work naming a carry-redirected (old) work id is STALE -- 8c's run_link_work would fail it
+db_rd = schema_db()
+db_rd.execute("INSERT INTO work VALUES('w_new','Lover Boy',NULL,NULL,NULL,NULL,'x','x')")
+line_row(db_rd, "rl_new", "w_new", "manhwa", "EN", "en")
+K_rd = {"works": set(), "lines": {}, "series_ids": set(), "work_ids": set(), "int": {}, "line_work": {}, "line_name": {},
+        "line_medium": {}, "line_vols": {}, "redirect": {"w_old": "w_new"}}
+ls_rd = [mkline("dnb:88", "DE", "Zzz unrelated")]
+with contextlib.redirect_stdout(io.StringIO()) as out_rd:
+    BK.decide(ls_rd, L.Index(db_rd), K_rd, link_work={"dnb:88": "w_old"})
+eq("residual: link_work to a redirected work id is stale (not linked), and the log names the successor",
+   (ls_rd[0]["role"] == "linked", "STALE" in out_rd.getvalue() and "use w_new" in out_rd.getvalue()), (False, True))
+
+# residual: enrich_more._fetch_xml writes via tmp + rename; a write error propagates (never a silent None / partial file)
+import verify as V2
+
+
+class _FakeResp:
+    def __init__(self, b):
+        self.b = b
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return self.b
+
+
+_saved_x = (V2.CACHE, EM.urllib.request.urlopen)
+_xc = os.path.join(_tf, "xcache")
+try:
+    V2.CACHE = _xc
+    EM.urllib.request.urlopen = lambda req, timeout=None: _FakeResp(b"<searchRetrieveResponse/>")
+    got_x = EM._fetch_xml("http://x.invalid/sru?q=1", interval=0)
+    eq("residual: _fetch_xml stores the whole response, no .part left",
+       (got_x, sorted(f.endswith(".xml") for f in os.listdir(_xc))), ("<searchRetrieveResponse/>", [True]))
+    if os.geteuid() != 0:
+        os.chmod(_xc, 0o500)
+        try:
+            EM._fetch_xml("http://x.invalid/sru?q=2", interval=0)
+            raised = False
+        except OSError:
+            raised = True
+        finally:
+            os.chmod(_xc, 0o700)
+        eq("residual: a cache write error propagates out of _fetch_xml", raised, True)
+finally:
+    V2.CACHE, EM.urllib.request.urlopen = _saved_x
+
 # I2(a): a carried line that does not export as held / review / unlinked is BLOCKING (absorbed / merged stay 7b's)
 _t15 = tempfile.mkdtemp(prefix="krcn-t15b-", dir=_tf)
 DEMOTE = "INSERT INTO krcn_line(key,source,market,rl_id,carried,role,work,exported) VALUES('dnb:90','dnb','DE',NULL,1,'%s',NULL,0);"

@@ -112,8 +112,11 @@ Gotchas:
   whose published work is a library work id now sits under an internal Wikipedia work W: 3f
   renames W back to the public id (step 7), and every placement of that public id -- a
   `link_work`, a frozen cluster, a kept line -- goes to W first. `link_work` may name a
-  Wikipedia work, a published library-born work, or an adopted public id; 8c's `run_link_work`
-  reads the corrected work through `krcn:adopted` renames and counts `adopting` lines as shipped.
+  Wikipedia work, a published library-born work, or an adopted public id -- never an id the carry
+  redirected (stale; the log names the id to use); 8c's `run_link_work` reads the corrected work
+  through `krcn:adopted` renames and counts `adopting` lines as shipped. A public id whose present
+  lines now sit under SEVERAL works stops 3f (load's SystemExit names the works, lines and public
+  id): decide with a `link_work` correction.
 - **`loc:offline` / `bnf:offline` are NOT blocking.** When CI's probe finds a gateway
   unreachable, 3f records `{"reason": "unreachable", "stale_sets": N}` (N = result sets served
   past their refresh window) in catalogue meta and `krcn-report.json` and prints a NOTE; the
@@ -122,7 +125,7 @@ Gotchas:
 - **The CI cache is saved once the library sources are complete, even if a later gate fails.**
   `tier0/rebuild_all.sh` removes `build/sources-complete.marker` before 3e and writes it right after
   3f; `catalogue.yml` restores with `actions/cache/restore` and its last step
-  (`actions/cache/save`, same key) runs when the run was not cancelled, the marker exists and the
+  (`actions/cache/save`, the same key `opentome-cache-<run id>-<attempt>`) runs when the run was not cancelled, the marker exists and the
   restore was not an exact hit. A failure after 3f keeps that run's LoC / BnF / DNB fetches; a
   failure or kill before the marker saves nothing (as before). Stage-4+ cache writes saved along
   with it: Open Library per-ISBN entries are tmp+rename; openBD / OL batch JSON (`verify._fetch`),
