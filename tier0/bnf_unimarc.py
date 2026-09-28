@@ -165,10 +165,14 @@ def publisher(r):
 
 
 def pubfam(p):
-    """Kbooks = Delcourt-Kbooks = Groupe Delcourt-Kbooks (§8); else the folded name's first 6, an
-    'Éd.' / 'éd.' word dropped ('Éd. Ki-oon' = 'Ki-oon': Warlord split across both, 2026-09-27)."""
+    """Kbooks = Delcourt-Kbooks = Groupe Delcourt-Kbooks (§8); Samji = Tokebi = Saphira (P10:
+    an imprint rename mid-series split 14 French KR titles into two lines each, 2026-09-28);
+    else the folded name's first 6, an 'Éd.' / 'éd.' word dropped ('Éd. Ki-oon' = 'Ki-oon':
+    Warlord split across both, 2026-09-27)."""
     if re.search(r"kbooks", p or "", re.I):
         return "kbooks"
+    if re.search(r"\b(?:samji|tokebi|saphira)\b", p or "", re.I):
+        return "samji"
     return fold(re.sub(r"(?i)(?:^|\s)[ée]d(?:itions?)?\.(?=\s|$)", " ", p or ""), False)[:6]
 
 

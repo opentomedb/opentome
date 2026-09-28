@@ -165,11 +165,36 @@ Open for Nick (listed, not argued):
   `select` and others by the KR/CN round's; this round defers each whole set to the JP round
   rather than splitting it. A set-level split (each round keeps only the volumes it claims) is
   a possible follow-up.
-- **The BnF publisher renames (Tokebi/Saphira → Samji).** 14 French titles run across an
-  imprint rename (e.g. Chiro: Saphira 1-4, Samji 5-8) and become two BnF lines each under the
-  publisher-channel enumeration; most rejoin as one line once head-record identity is applied,
-  but a `samji = tokebi = saphira` publisher-family rule (like DNB's existing publisher
-  families) was not added this round (P10, not acted on).
+- **Open (new, narrower than before): merging BnF heads across an imprint rename.** See
+  "2026-09-28 follow-ups" below -- the publisher-family rule is done, but 4 of the 14 titles
+  are split by two distinct BnF head records, which the family rule cannot merge. Joining
+  those heads is a separate, head-identity change with public-id consequences and needs its
+  own ruling.
+
+**2026-09-28 follow-ups (post-code-complete; two dnb_sru commits + one bnf_unimarc commit):**
+- **DNB transport gap, fixed.** `dnb_sru._live`'s retry tuple, and `get()`'s/`search()`'s outer
+  degrade tuples, now catch `http.client.HTTPException` (`IncompleteRead` and friends, raised
+  mid-read) and `socket.timeout` (`TimeoutError`'s alias only from Python 3.10) the same way
+  they already catch `URLError`/`TimeoutError`/`ConnectionError`: an ERR netlog line, 3
+  attempts 30 s apart, then (in `get()`/`search()`) degrade a refresh run onto its cached
+  response/set instead of crashing. Checked `lib_sru.py` (LoC/BnF): its `fetch()` already
+  catches `(URLError, OSError, http.client.HTTPException)`, which covers `socket.timeout` and
+  `ConnectionError` via `OSError` -- confirmed, not re-fixed.
+- **The BnF publisher renames (Tokebi/Saphira → Samji) -- the family rule is done.**
+  `bnf_unimarc.pubfam` now folds Samji/Tokebi/Saphira to one family (P10 triggered). Measured
+  against the cached BnF records: the fix only relabels `pubfam` on 73 lines published by one
+  of the three names -- it changes no grouping, membership, volume list or review status for
+  any of the 196 FR lines / 1,165 volumes (identical before/after, confirmed line by line and
+  by re-running the pipeline-order dry run). Of the 14 named titles: 10 were already one line
+  each (rejoined earlier by 461 $0 head identity, independent of this fix; 6 of those 10 --
+  Veritas, Les ailes du phénix, Metal heart, Rure, Trois soeurs jumelles, Yongbi -- are in
+  `duplicate_numbers` review, pre-existing, not caused by this fix); the other 4 -- Yureka,
+  Demon king, Platina, Unbalance X2 -- are still two lines each. Each of those 4 has its
+  pre-rename and post-rename volumes under two (or three) DISTINCT BnF head records (461 $0 set
+  records); `bnf_lines` groups head-numbered volumes strictly by head id, never by publisher
+  family, so unifying the family cannot merge them. **Yureka's Samji reissue does NOT land in
+  `duplicate_numbers` review**, contrary to the original prediction, which assumed a headless
+  (no-461-$0) matching mechanism these 4 titles don't actually use.
 
 ## 2026-09-25 — branch `alias-fix`: work_title des/du, a general carried-id redirect writer
 
