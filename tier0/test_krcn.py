@@ -3347,6 +3347,252 @@ finally:
     TA.KRCN_FIXTURES = _saved_fx
     shutil.rmtree(_t15, ignore_errors=True)
 
+# ---- final whole-branch review fix round (final-fix-brief.md) -------------------------------------------------
+_tf = tempfile.mkdtemp(prefix="krcn-final-", dir=os.path.join(ROOT, "build"))
+
+# I1: step 2 never takes a reserved (JP-round) id either -- it falls to rep["left"] (7b)
+T_JP = _id("rl_", "dnb:111")
+K_i1 = KI.read_carry(carry_file("ci1", [(T_JP, "w_x", "Kkk", "manhwa", "de", I5[:3])], works=["w_x"],
+                                krcn_lines={T_JP: "dnb"}))
+l_i1 = bl("dnb:222", "dnb", "Kkk", I5[:3])
+r_i1 = KI.line_ids([l_i1], K_i1, reserved={T_JP})
+eq("I1: a built line sharing 2+ ISBNs with a carried line whose id is reserved (JP round) does not take it",
+   (l_i1["tome_id"], l_i1["carried"], r_i1["taken"], r_i1["left"]), (_id("rl_", "dnb:222"), False, [], [T_JP]))
+
+# the stage 3f scenarios below: the Task 14 enumerator stubs, a catalogue with hex work ids (link_work needs them)
+W_SLH, W_RAEH, W_LIB, W_OLD = "w_00000000051e", "w_000000007ae1", "w_00000000b1b1", "w_0000000001d1"
+R_RAE_DNB = _id("rl_", "dnb:1390000000")
+
+
+def cat_final(path):
+    fresh_catalogue(path)
+    db_ = sqlite3.connect(path)
+    for old, new in (("w_sl", W_SLH), ("w_rae", W_RAEH)):
+        KI.rename_work(db_.cursor(), old, new)
+    db_.commit()
+    return db_
+
+
+def corr_dir(link):
+    d = tempfile.mkdtemp(prefix="corr-", dir=_tf)
+    with open(os.path.join(d, "lines.json"), "w") as f:
+        json.dump([{"line_key": k, "link_work": w, "source_url": "x", "checked": "x"} for k, w in link.items()], f)
+    return d
+
+
+def run_final(name, carry=None, link=None, env=None):
+    """BK.run on a fresh catalogue with the Task 14 stubs -> (catalogue connection, stats, run_link_work failures)."""
+    p = os.path.join(_tf, name + ".db")
+    cat_final(p).close()
+    saved_dir, saved_env = CORR.DIR, {k: os.environ.get(k) for k in (env or {})}
+    CORR.DIR = corr_dir(link or {})
+    os.environ.update(env or {})
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            st_ = BK.run(p, carry)
+            n = len(TA.FAILS)
+            TA.run_link_work(p)
+        lw_fails = TA.FAILS[n:]
+        del TA.FAILS[n:]
+    finally:
+        CORR.DIR = saved_dir
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    return sqlite3.connect(p), st_, lw_fails
+
+
+def art_of(c, path, carry):
+    """A minimal artifact of a catalogue (series / volumes / id_redirect) for run_ids: a carried line keeps its
+    carried integer (what the export's id carry does), a new one gets a fresh one."""
+    ints = dict(sqlite3.connect(carry).execute("SELECT tome_id, gcd_series_id FROM series"))
+    if os.path.exists(path):
+        os.remove(path)
+    A = sqlite3.connect(path)
+    A.executescript("""CREATE TABLE series (gcd_series_id INTEGER, tome_id TEXT, tome_work_id TEXT, language TEXT, medium TEXT);
+                       CREATE TABLE volumes (gcd_series_id INTEGER, tome_id TEXT, isbn13 TEXT);
+                       CREATE TABLE id_redirect (old_tome_id TEXT, new_tome_id TEXT, entity TEXT, reason TEXT,
+                                                 old_series_id INTEGER, new_series_id INTEGER);
+                       CREATE TABLE id_map (opentome_id TEXT, int_id INTEGER, kind TEXT);
+                       CREATE TABLE meta (key TEXT, value TEXT);""")
+    for n_, (rid, wid, lang, med) in enumerate(c.execute("SELECT id, work_id, language, medium FROM release_line ORDER BY id"), 1):
+        k = ints.get(rid, 1000 + n_)
+        A.execute("INSERT INTO series VALUES(?,?,?,?,?)", (k, rid, wid, lang, med))
+        A.executemany("INSERT INTO volumes VALUES(?,?,?)", [(k, v, i) for v, i in c.execute(
+            "SELECT id, isbn13 FROM volume WHERE release_line_id=?", (rid,))])
+    A.commit()
+    return path
+
+
+_saved_enum = (E2.enumerate_krcn, LS2.enumerate_loc, BS2.enumerate_bnf, BK.BUILD)
+BK.BUILD = _tf
+try:
+    E2.enumerate_krcn = lambda verbose=False: ({k: r for k, r in dk.items() if k != "1400000003"}, {}, {"degraded": None})
+    LS2.enumerate_loc = lambda verbose=False: ({r["cf"]["001"]: r for r in (SL, SL1, MS, MS4)}, {"degraded": None})
+    BS2.enumerate_bnf = lambda verbose=False: ({U.ark(r): r for r in (gam, g2)}, {"degraded": None})
+    c0, _, _ = run_final("base")
+    eq("control: the stubbed build sends DE Raeliana (dnb:1390000000) to review, unlinked",
+       c0.execute("SELECT role, exported FROM krcn_line WHERE key='dnb:1390000000'").fetchone(), ("review", 0))
+
+    # Work split after adoption (recommendation; reproduced here). Build 1 adopted the Wikipedia work (W_RAEH, internal)
+    # into the published library work W_LIB: the carry has the Wikipedia EN line and the DE library line under W_LIB.
+    # Build 2: the DE line goes to review (step 5 keeps it) -- W_LIB must stay the work of BOTH, never split.
+    c_split = carry_file("csplit", [("rl_rae_en", W_LIB, "Why Raeliana", "manhwa", "en", []),
+                                    (R_RAE_DNB, W_LIB, "Raeliana", "manhwa", "de", [])],
+                         works=[W_LIB], krcn_lines={R_RAE_DNB: "dnb"})
+    c1, st1, _ = run_final("split", carry=c_split)
+    eq("work split: the Wikipedia EN line of an adopted work stays under its published work id",
+       c1.execute("SELECT work_id FROM release_line WHERE id='rl_rae_en'").fetchone(), (W_LIB,))
+    eq("work split: the carried review line is kept under the same work (one work, not two)",
+       c1.execute("SELECT role, exported, work FROM krcn_line WHERE key='dnb:1390000000'").fetchone(), ("kept", 1, W_LIB))
+    eq("work split: the internal Wikipedia work id is gone (adopted again), recorded in krcn:adopted",
+       (c1.execute("SELECT COUNT(*) FROM work WHERE id=?", (W_RAEH,)).fetchone()[0],
+        ["work", W_RAEH, W_LIB] in json.loads(c1.execute("SELECT value FROM meta WHERE key='krcn:adopted'").fetchone()[0])),
+       (0, True))
+    n = len(TA.FAILS)
+    with contextlib.redirect_stdout(io.StringIO()):
+        TA.run_ids(art_of(c1, os.path.join(_tf, "split-art.sqlite"), c_split), c_split)
+    ids_fails = TA.FAILS[n:]
+    del TA.FAILS[n:]
+    eq("work split: run_ids on the result (every carried id present or redirected)", ids_fails, [])
+
+    # I2(b): step 5 resolves a carried line's published work through the carry's id_redirect
+    c_red = carry_file("cred", [(R_RAE_DNB, W_OLD, "Raeliana", "manhwa", "de", [])], works=[], krcn_lines={R_RAE_DNB: "dnb"})
+    sqlite3.connect(c_red).executescript(
+        """CREATE TABLE id_redirect (old_tome_id TEXT, new_tome_id TEXT, entity TEXT, reason TEXT, old_series_id INTEGER,
+                                     new_series_id INTEGER);
+           INSERT INTO id_redirect VALUES('%s','%s','work','duplicate_merge',NULL,NULL);""" % (W_OLD, W_RAEH))
+    c2, _, _ = run_final("redirect", carry=c_red)
+    eq("I2(b): a carried review line whose published work was redirected (carry id_redirect) is kept under the successor",
+       c2.execute("SELECT role, exported, work FROM krcn_line WHERE key='dnb:1390000000'").fetchone(), ("kept", 1, W_RAEH))
+
+    # I3: link_work to (i) a library-born work, (ii) an adopted work, (iii) a Wikipedia work -- each ships in the build
+    # and passes 8c's run_link_work
+    w_m = _id("w_", "krcn", "loc:2025007302")
+    r_m = _id("rl_", "loc:2025007302")
+    c_lib = carry_file("clib", [(r_m, w_m, "Mystery Science Detectives", "manhwa", "en",
+                                 [("3", "9798765627549"), ("4", "9798765627556")])], works=[w_m], krcn_lines={r_m: "loc"})
+    c3, _, f3 = run_final("lw-lib", carry=c_lib, link={"dnb:1390000000": w_m})
+    eq("I3 (i): link_work to a published library-born work ships the line under it; run_link_work passes",
+       (c3.execute("SELECT role, exported, work FROM krcn_line WHERE key='dnb:1390000000'").fetchone(), f3),
+       (("linked", 1, w_m), []))
+    c_ad = carry_file("cad", [("rl_rae_en", W_LIB, "Why Raeliana", "manhwa", "en", [])], works=[W_LIB], krcn_lines={})
+    c4, _, f4 = run_final("lw-adopted", carry=c_ad, link={"dnb:1390000000": W_LIB})
+    eq("I3 (ii): link_work to an adopted work (public id, internal Wikipedia work this build) ships under the public id",
+       (c4.execute("SELECT role, exported, work FROM krcn_line WHERE key='dnb:1390000000'").fetchone(),
+        c4.execute("SELECT work_id FROM release_line WHERE id='rl_rae_en'").fetchone(), f4),
+       (("linked", 1, W_LIB), (W_LIB,), []))
+    c5, _, f5 = run_final("lw-wiki", link={"dnb:1390000000": W_RAEH})
+    eq("I3 (iii): link_work to a Wikipedia work (control)",
+       (c5.execute("SELECT role, exported, work FROM krcn_line WHERE key='dnb:1390000000'").fetchone(), f5),
+       (("linked", 1, W_RAEH), []))
+
+    # M4: a 3e DNB stop (meta dnb:degraded) carries into 3f's DNB enumeration; 3f's own old value does not seed itself
+    seen = []
+
+    def _enum_seen(verbose=False):
+        seen.append(BK.S.DEGRADED[0])
+        return {k: r for k, r in dk.items() if k != "1400000003"}, {}, {"degraded": BK.S.DEGRADED[0]}
+    E2.enumerate_krcn = _enum_seen
+    for label, val, want in (("a 3e stop", {"reason": "DnbThrottled: second 429", "kept_previous": ["q"], "gaps": {}}, True),
+                             ("3f's own value of an earlier run", {"reason": "x", "kept_previous": [], "round": "krcn"}, False)):
+        p = os.path.join(_tf, "m4.db")
+        cat_final(p).execute("INSERT INTO meta VALUES('dnb:degraded',?)", (json.dumps(val),)).connection.commit()
+        del seen[:]
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                BK.run(p, None)
+        finally:
+            BK.S.DEGRADED[0] = None
+            del BK.S.DEGRADED_QUERIES[:]
+        eq("M4: %s -> dnb_sru DEGRADED set before enumerate_krcn: %s" % (label, want), bool(seen and seen[0]), want)
+    E2.enumerate_krcn = lambda verbose=False: ({k: r for k, r in dk.items() if k != "1400000003"}, {}, {"degraded": None})
+    # M1: an unreachable LoC / BnF (the CI probe's LOC_UNREACHABLE / BNF_UNREACHABLE) is traced in meta, never blocking
+    c6, st6, _ = run_final("offline", env={"LOC_UNREACHABLE": "1"})
+    eq("M1: LOC_UNREACHABLE=1 -> meta loc:offline {reason, stale_sets}; no bnf:offline; in krcn-report.json",
+       (json.loads((c6.execute("SELECT value FROM meta WHERE key='loc:offline'").fetchone() or ["null"])[0]),
+        c6.execute("SELECT COUNT(*) FROM meta WHERE key='bnf:offline'").fetchone()[0],
+        json.load(open(os.path.join(_tf, "krcn-report.json"), encoding="utf8")).get("offline")),
+       ({"reason": "unreachable", "stale_sets": 0}, 0, {"loc": {"reason": "unreachable", "stale_sets": 0}}))
+    eq("M1: loc:offline is not a degraded flag (publishing is not refused on it)",
+       c6.execute("SELECT COUNT(*) FROM meta WHERE key LIKE '%degraded'").fetchone()[0], 0)
+    BK.unload(c6.cursor())
+    eq("M1: unload clears loc:offline", c6.execute("SELECT COUNT(*) FROM meta WHERE key='loc:offline'").fetchone()[0], 0)
+
+    # M6: 8d's same_ids must not overwrite build/loc-report.json (the real enumerate_loc, zero channels, no canary)
+    _saved_loc = (LS2.enumerate_loc, LS2.REPORT, LS2.canary, LS2.CHANNELS)
+    try:
+        LS2.enumerate_loc, LS2.canary, LS2.CHANNELS = _saved_enum[1], (lambda: None), []
+        LS2.REPORT = os.path.join(_tf, "loc-report.json")
+        BK.same_ids(os.path.join(_tf, "base.db"), None)
+        eq("M6: same_ids leaves build/loc-report.json alone", os.path.exists(LS2.REPORT), False)
+        LS2.enumerate_loc(verbose=False)
+        eq("M6: control -- stage 3f's enumerate_loc still writes it", os.path.exists(LS2.REPORT), True)
+    finally:
+        LS2.enumerate_loc, LS2.REPORT, LS2.canary, LS2.CHANNELS = _saved_loc
+finally:
+    E2.enumerate_krcn, LS2.enumerate_loc, BS2.enumerate_bnf, BK.BUILD = _saved_enum
+
+# M1: lib_sru counts the result sets an offline run served past their refresh window (loc:offline stale_sets)
+TS = SRU.Source("tstale", "http://x.invalid/sru", "1.2", "marcxml", 100, "test data", budget=0)
+TS.relocate(os.path.join(_tf, "cache"), _tf)
+os.makedirs(TS.cache, exist_ok=True)
+TS.now = lambda: 1.0e9
+TS.store_set("q-old", 1, [(TS.url_for("q-old"), '<searchRetrieveResponse><x tag="001">A1<')])
+TS.now = lambda: 1.0e9 + 40 * 86400
+TS.offline, TS.refresh_days = True, 28
+TS.search("q-old", refresh=True)
+TS.search("q-old", refresh=True)
+eq("M1: an offline run counts each stale cached set it served once", getattr(TS, "stale_queries", None), ["q-old"])
+
+# M5: the German JP round's index (3e) never reads a work stage 3f made (a KEEP_DB rerun of 3e after 3f)
+dbm = schema_db()
+dbm.execute("INSERT INTO work VALUES('w_libm','Mystery Science Detectives',NULL,NULL,NULL,NULL,'x','x')")
+dbm.execute("INSERT INTO work_title VALUES('w_libm','en','Mystery Science Detectives','official')")
+dbm.execute("INSERT INTO work VALUES('w_wikim','Solo Leveling',NULL,NULL,NULL,NULL,'x','x')")
+dbm.execute("INSERT INTO meta VALUES('krcn:works_made','[\"w_libm\"]')")
+ixm = L.Index(dbm)
+eq("M5: a 3f-made work (meta krcn:works_made) is not in the linker index; a Wikipedia work is",
+   ("w_libm" in ixm.name, "mysterysciencedetectives" in ixm.official, "w_wikim" in ixm.name), (False, False, True))
+
+# I2(a): a carried line that does not export as held / review / unlinked is BLOCKING (absorbed / merged stay 7b's)
+_t15 = tempfile.mkdtemp(prefix="krcn-t15b-", dir=_tf)
+DEMOTE = "INSERT INTO krcn_line(key,source,market,rl_id,carried,role,work,exported) VALUES('dnb:90','dnb','DE',NULL,1,'%s',NULL,0);"
+for r_ in ("held", "review", "unlinked"):
+    eq("I2(a): a carried %s line (demoted) fails run_krcn" % r_, has(krcn_fails([DEMOTE % r_]), "demoted"), True)
+eq("I2(a): a carried absorbed line is 7b's (not this rule)", krcn_fails([DEMOTE % "absorbed"]), [])
+TA.KRCN_FIXTURES = _saved_fx
+
+# I3 (run_link_work): a correction naming a published Wikipedia work that adoption renamed maps through krcn:adopted;
+# an adopting line ships
+catf = os.path.join(_tf, "lw-cat.db")
+cat = sqlite3.connect(catf)
+cat.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read() + BK.STAGING_DDL)
+cat.execute("INSERT INTO work VALUES(?,'Lib',NULL,NULL,NULL,NULL,'x','x')", (W_LIB,))
+for rid in ("rl_lk", "rl_pub"):
+    cat.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at) "
+                "VALUES(?,?,'manhwa','DE','de','x','x')", (rid, W_LIB))
+cat.execute("""INSERT INTO krcn_line(key,source,market,rl_id,carried,role,work,exported) VALUES
+               ('dnb:31','dnb','DE','rl_lk',0,'linked',?,1), ('dnb:32','dnb','DE','rl_pub',1,'adopting',?,1)""", (W_LIB, W_LIB))
+cat.execute("INSERT INTO meta VALUES('krcn:adopted',?)", (json.dumps([["work", W_RAEH, W_LIB]]),))
+cat.commit()
+cat.close()
+_saved_dir = CORR.DIR
+try:
+    for key, wid, label in (("dnb:31", W_RAEH, "a correction naming the work adoption renamed (krcn:adopted)"),
+                            ("dnb:32", W_LIB, "an adopting line under the corrected work")):
+        CORR.DIR = corr_dir({key: wid})
+        n = len(TA.FAILS)
+        with contextlib.redirect_stdout(io.StringIO()):
+            TA.run_link_work(catf)
+        eq("I3 run_link_work: %s passes" % label, TA.FAILS[n:], [])
+        del TA.FAILS[n:]
+finally:
+    CORR.DIR = _saved_dir
+shutil.rmtree(_tf, ignore_errors=True)
+
 # ==== summary ====
 print()
 if FAILS:

@@ -58,7 +58,7 @@ COMIC_ANCHOR = ("manhwa", "manhua")
 LATIN_MIN = 5
 KANA_CJK = re.compile("[぀-ヿ一-鿿]+")
 NO_K = {"works": set(), "lines": {}, "series_ids": set(), "work_ids": set(), "int": {}, "line_work": {},
-        "line_name": {}, "line_medium": {}, "line_pub": {}, "line_vols": {}}
+        "line_name": {}, "line_medium": {}, "line_pub": {}, "line_vols": {}, "redirect": {}}
 
 STAGING_DDL = """
 CREATE TABLE IF NOT EXISTS krcn_line (      -- one row per KR/CN library line, exported or not
@@ -243,7 +243,7 @@ def _join(*reasons):
     return "+".join(r for r in reasons if r) or None
 
 
-def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_override=None):
+def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_override=None, present=None):
     """The decision order of the module plan (Task 12), steps 1-7. Pure: no database.
     Review reasons from the line builder (controller ruling): a line with medium_why goes to review
     with reason = medium_why ('duplicate_numbers', 'both', 'writer_only', '+'-joined in that order) --
@@ -252,9 +252,28 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
     is '+'-joined onto the linker's ('jp-guard+writer_only', 'low+ize-medium'), never overwritten.
     jp_override: {line key: why} -- link_work entries with override_jp_guard (corrections
     load_jp_guard_overrides): only these may link a line to a work the JP guard protects; each is
-    logged and listed in plan['jp_overrides'] (gate_report jp_guard_overrides)."""
+    logged and listed in plan['jp_overrides'] (gate_report jp_guard_overrides).
+    present: {release_line id: work id} of the catalogue's lines before 3f loads (Wikipedia, 3e, corrections).
+    A present line whose PUBLISHED work (the carry) is a library work id this build's catalogue holds under
+    another work W was adopted by an earlier build (W's internal id was renamed to the public one): W adopts
+    it again in step 7, and every published library work id resolves to the work holding it in this build
+    (home: the carry's work id_redirect, then that adoption) wherever a line is placed -- a link_work
+    correction, a frozen cluster, a kept line -- so an adopted work never splits (final review)."""
     K = K or NO_K
     link_work, line_medium, jp_override = link_work or {}, line_medium or {}, jp_override or {}
+    # the carry's adoptions: [(public library work, the work now holding a line that shipped under it)]
+    re_adopt = sorted({(K["line_work"][r], w) for r, w in (present or {}).items()
+                       if K["line_work"].get(r) in K["works"] and K["line_work"][r] != w})
+    adopted = {}
+    for p_, w_ in re_adopt:
+        adopted.setdefault(p_, w_)
+
+    def home(w):
+        seen = set()
+        while w in K.get("redirect", {}) and w not in seen:
+            seen.add(w)
+            w = K["redirect"][w]
+        return adopted.get(w, w)
     plan = {"works": {}, "clusters": [], "held": [], "adopt_works": [], "review": [], "adopt_conflicts": [],
             "jp_overrides": []}
     pool = []
@@ -267,13 +286,15 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
             ln["via"] = "isbn"
             if lw:                      # the ISBNs decide (P17); a matching correction confirms the line
                 print("  link_work %s: line is %s by ISBN under %s (link_work %s%s)"
-                      % (ln["key"], ln["role"], ln["work"], lw, "" if lw == ln["work"] else ", CONFLICT"))
+                      % (ln["key"], ln["role"], ln["work"], lw, "" if home(lw) == ln["work"] else ", CONFLICT"))
             if ln["medium"] is None and not ln["medium_why"]:
                 ln["medium"] = _class(line_medium.get(ln.get("target")), ln["origin"])
         else:
             ln["role"] = None
-            if lw and lw in idx.name:
-                ln.update(role="linked", work=lw, via="correction", link_work=lw)
+            # a Wikipedia work, a published library work (K works: library-born or adopted; decide
+            # places it at its home), or one the carry redirected
+            if lw and (home(lw) in idx.name or lw in K["works"]):
+                ln.update(role="linked", work=home(lw), via="correction", link_work=lw)
             else:
                 if lw:
                     print("  STALE CORRECTION -- lines.json link_work %s -> %s: not a work in the catalogue" % (ln["key"], lw))
@@ -293,7 +314,7 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
                 else:
                     ln.update(role="review", reason="jp-guard", work=None)
         if ln["medium"] is None:
-            confirmed = lw is not None and lw == ln["work"] and ln["role"] in ("linked",) + ATTACHED
+            confirmed = lw is not None and home(lw) == ln["work"] and ln["role"] in ("linked",) + ATTACHED
             if confirmed and ln["medium_guess"]:
                 ln["medium"] = ln["medium_guess"]
             else:
@@ -336,6 +357,16 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
             # a published library work is never demoted: it exports even without an English line
             wid, created = KI.older(frozen, K), False
             entry["reason"] = "frozen"
+            if home(wid) != wid:
+                # adopted by an earlier build (or redirected): its lines ship under the work holding it now,
+                # which step 7 renames back to the public id -- never a second work of that id
+                entry["work"] = home(wid)
+                for ln in cl:
+                    if ln["carried"]:
+                        ln.update(role="kept", work=home(wid), reason=(ln["reason"] or "") + ";kept")
+                    else:
+                        ln.update(role="linked", work=home(wid), via="cluster:frozen")
+                continue
         elif any(placed.get(k) for l in cl for k in cluster_keys(l)):
             sib = sorted({w for l in cl for k in cluster_keys(l) for w in placed.get(k, ())})
             entry["reason"] = "linked-sibling-key"
@@ -370,6 +401,7 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
     for ln in lines:                                                   # 5
         if ln["role"] in ("review", "unlinked", "held") and ln["carried"]:
             w = K["line_work"].get(ln["tome_id"])
+            w = home(w) if w else None
             if w and (w in idx.name or w in plan["works"] or w in K["works"]):
                 ln.update(role="kept", work=w, reason=(ln["reason"] or "") + ";kept")
                 ln["medium"] = ln["medium"] or K["line_medium"].get(ln["tome_id"]) or ln["medium_guess"]
@@ -377,6 +409,10 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
                     e = plan["works"].setdefault(w, {"anchor": ln["key"], "created": False, "title": ln["name"],
                                                      "lines": [], "cluster": ln["cluster"], "frozen": [w]})
                     e["lines"].append(ln["key"])
+    for ln in lines:                    # a link_work correction to a published library-born work
+        if ln["role"] == "linked" and ln["work"] not in idx.name and ln["work"] not in plan["works"]:
+            plan["works"][ln["work"]] = {"anchor": ln["key"], "created": False, "title": ln["name"], "lines": [ln["key"]],
+                                         "cluster": ln["cluster"], "frozen": [ln["work"]]}
     comic_now = set(comic_works) | set(plan["works"]) | {                # 6
         ln["work"] for ln in lines if ln["role"] in EXPORTED and ln["medium"] and ln["medium"] != "novel"}
     for ln in lines:
@@ -391,6 +427,8 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
         e["lines"] = [k for k in e["lines"] if k not in {l["key"] for l in lines if l["role"] == "kept"}]
     plan["held"] = [e for e in plan["held"] if e["lines"]]
     libs = collections.defaultdict(set)                                # 7
+    for p_, w_ in re_adopt:            # a present line shipped under a published library work: adopt it again
+        libs[w_].add(p_)
     for ln in lines:
         if ln["role"] in EXPORTED and ln["work"] and ln["work"] not in plan["works"]:
             for t in [ln["tome_id"]] * bool(ln["carried"]) + list(ln.get("absorbed_ids", [])):
@@ -526,7 +564,7 @@ def krcn_ids(lines, plan):
 DEGRADED_KEY = {"loc": "loc:degraded", "bnf": "bnf:degraded"}
 
 
-def record_meta(db, lines, plan, reports):
+def record_meta(db, lines, plan, reports, offline=None):
     """Catalogue meta for the export (controller rulings 1 and 3):
       krcn:ids                   krcn_ids(lines, plan)
       loc:degraded, bnf:degraded a source whose refresh failed this build (lib_sru kept the previous
@@ -537,6 +575,11 @@ def record_meta(db, lines, plan, reports):
       dnb:degraded               the KR/CN DNB channels share it with stage 3e (build_dnb, another
                                  process, so dnb_sru's DEGRADED does not carry over): merged in under
                                  "krcn", never cleared -- 3e's own value stays.
+      loc:offline, bnf:offline   NOT blocking (plan P13): CI's reachability probe found the gateway
+                                 unreachable (LOC_UNREACHABLE / BNF_UNREACHABLE=1), so the source was
+                                 read from the cache: offline[src] = {"reason": "unreachable", "stale_sets":
+                                 result sets served past their refresh window}. Written or cleared here,
+                                 printed; the export does not copy it and publish.sh does not refuse it.
     reports: {"loc": loc_sru.enumerate_loc report, "bnf": bnf_sru.enumerate_bnf tally,
               "dnb": dnb_enumerate.enumerate_krcn tally}, all three, each with its "degraded" key -- a
     missing source or key raises (a typo must never pass as a clean run and let a degraded build publish)."""
@@ -561,6 +604,13 @@ def record_meta(db, lines, plan, reports):
         db.execute("DELETE FROM meta WHERE key=?", (DEGRADED_KEY[src],))
         if bad:
             db.execute("INSERT INTO meta(key,value) VALUES(?,?)", (DEGRADED_KEY[src], json.dumps(val)))
+        db.execute("DELETE FROM meta WHERE key=?", (src + ":offline",))
+        if src in (offline or {}):
+            o = offline[src]
+            print("  NOTE %s unreachable from this runner: read from the cache (%d result set(s) past the %s_REFRESH_DAYS "
+                  "window) -- meta %s:offline (does not block publishing)" % (src.upper(), o["stale_sets"], src.upper(), src),
+                  flush=True)
+            db.execute("INSERT INTO meta(key,value) VALUES(?,?)", (src + ":offline", json.dumps(o, sort_keys=True)))
 
 
 # ---- stage 3f, part 2: load, staging, adoption, files (Task 14) ------------------------------------------
@@ -654,7 +704,7 @@ def unload(c):
     for t in ("krcn_line", "krcn_member", "loc_member"):
         c.execute("DELETE FROM %s" % t)
     c.execute("DELETE FROM meta WHERE key IN ('krcn:ids','krcn:adopted','krcn:works_made','krcn:stats',"
-              "'loc:degraded','bnf:degraded')")
+              "'loc:degraded','bnf:degraded','loc:offline','bnf:offline')")
     # dnb:degraded is shared with 3e: record_meta merged 3f's part in under "krcn", or -- 3e clean --
     # wrote its own value with round "krcn"; take back only that
     old = _meta(c, "dnb:degraded")
@@ -913,6 +963,12 @@ def run(dbpath, carry=None):
     db.executescript(STAGING_DDL)
     unload(db.cursor())
     db.commit()
+    # a DNB stop in stage 3e (another process) carries into 3f: no DNB refetch after 3e's sticky stop --
+    # stale sets are served from the cache and the run is degraded (read AFTER unload: 3f's own old part is gone)
+    seed = _meta(db, "dnb:degraded")
+    if seed and not S.DEGRADED[0]:
+        S.DEGRADED[0] = "stage 3e: %s" % json.loads(seed).get("reason")
+        print("  DNB degraded in stage 3e (%s) -- 3f refetches nothing from DNB" % S.DEGRADED[0], flush=True)
     print("  enumerating (cached; live requests go to build/{dnb,loc,bnf}-netlog.tsv)", flush=True)
     d_recs, d_parents, d_tally = E.enumerate_krcn(verbose=False)
     gaps = {k: v for k, v in d_tally.items() if k.endswith("_slice_gap") and v}
@@ -950,12 +1006,16 @@ def run(dbpath, carry=None):
         line_medium.update({r: e["medium"] for r, e in E_.items()})
         KI.attach_roles([l for l in lines if l["market"] == market], E_, e_isbn, K)
     idx = L.Index(db)
+    present = dict(db.execute("SELECT id, work_id FROM release_line"))      # before 3f loads (unload ran)
     comic_works = {w for (w,) in db.execute("SELECT DISTINCT work_id FROM release_line WHERE medium IN (?,?,?,?)",
                                             KL.COMIC_MEDIA)}
     plan = decide(lines, idx, K, CORR.load_link_work(), comic_works, line_medium,
-                  jp_override=CORR.load_jp_guard_overrides())
+                  jp_override=CORR.load_jp_guard_overrides(), present=present)
     fates = load(db, lines, lost, plan, K)
-    record_meta(db, lines, plan, {"loc": l_report, "bnf": b_tally, "dnb": d_tally})
+    # CI's reachability probe (catalogue.yml): a source read from the cache because its gateway was unreachable
+    offline = {src: {"reason": "unreachable", "stale_sets": len(o.stale_queries)} for src, o in (("loc", LS.LOC), ("bnf", BS.BNF))
+               if os.environ.get(src.upper() + "_UNREACHABLE") == "1"}
+    record_meta(db, lines, plan, {"loc": l_report, "bnf": b_tally, "dnb": d_tally}, offline)
     roles = collections.Counter((l["market"], l["role"]) for l in lines)
     exported = collections.Counter(l["market"] for l in lines if l["exported"])
     stats = {"sources": src_stats, "dnb_tally": d_tally,
@@ -965,7 +1025,7 @@ def run(dbpath, carry=None):
              "works_created": sum(1 for e in plan["works"].values() if e["created"]),
              "works_frozen": sum(1 for e in plan["works"].values() if not e["created"]),
              "held_clusters": len(plan["held"]), "adopted": json.loads(_meta(db, "krcn:adopted") or "[]"),
-             "deferred_to_jp_round": sorted(l["key"] for l in deferred),
+             "deferred_to_jp_round": sorted(l["key"] for l in deferred), "offline": offline,
              "gate": gate_report(lines, plan, id_rep, K, E_all, deferred)}
     n_rev, n_held = write_files(lines, plan, idx, stats)
     db.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('krcn:stats',?)", (json.dumps(stats, sort_keys=True),))
@@ -996,12 +1056,15 @@ def same_ids(catalogue, carry):
         os.environ[s + "_OFFLINE"] = "1"
     S.OFFLINE = True
     LS.LOC.offline = BS.BNF.offline = True
+    report, LS.REPORT = LS.REPORT, None       # stage 3f's build/loc-report.json is not this gate's to rewrite
     try:
         d_recs, d_parents, _ = E.enumerate_krcn(verbose=False)
         l_recs = LS.enumerate_loc(verbose=False)[0]
         b_recs = BS.enumerate_bnf(verbose=False)[0]
     except SRU.FAIL as e:           # an offline miss, a failed canary, an incomplete set
         return False, "the cached records are incomplete (%s: %s)" % (type(e).__name__, e)
+    finally:
+        LS.REPORT = report
     lines = KL.dnb_lines(d_recs, d_parents)[0] + KL.loc_lines(l_recs)[0] + KL.bnf_lines(b_recs)[0]
     C = sqlite3.connect(catalogue)
     try:
