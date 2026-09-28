@@ -154,6 +154,8 @@ def run():
                                                          "parent is a line absent from the carry"])
     eq("E1 gate: a listed alias loss (ALIAS_LOSS_OK) and a redirect-explained parent are not failures",
        x["gate_exempt"], [])
+    eq("E1 gate: a retired carried line of the group redirected elsewhere explains nothing (review fix)",
+       x["gate_elsewhere"], [("rl_hde8", "is_main lost", "")])
     # E2 gate: a bare language name as an alias or a title (normalize(): the Hangul title '... English' -> 'english')
     eq("E2 gate: a language-name alias / name / local_name is caught", sorted(x["lang_rows"]),
        [("local_name", "rl_hde8", "Deutsch"), ("series_alias", "rl_med", "english"),
@@ -169,6 +171,20 @@ def run():
     eq("E3: carried lines' orig_series_id unchanged (gate)", x["orig_changes"], [])
     eq("E3 gate: an unlisted carried orig change is caught", x["orig_regressed"], [("rl_sde", "rl_krm", "rl_kr")])
     eq("E3 gate: ... a listed one is not", x["orig_listed"], [])
+    eq("E3 gate: ... a listed line with a DIFFERENT change still fails (keyed by line, old, new)",
+       [r[:3] for r in x["orig_other"]], [("rl_sde", "rl_krm", "rl_kr")])
+    # E3 contract rule (run()): a cross-comic origin pair only when the origin market has no line of the
+    # licensed line's own medium; never a novel
+    import test_artifact as TA
+    om = sqlite3.connect(":memory:")
+    om.execute("""CREATE TABLE series (gcd_series_id INTEGER, tome_work_id TEXT, language TEXT, country TEXT,
+                  medium TEXT, orig_series_id INTEGER)""")
+    om.executemany("INSERT INTO series VALUES(?,?,?,?,?,?)", [
+        (1, "w1", "ko", "KR", "manga", None), (2, "w1", "de", "DE", "manhwa", 1),       # KR has no manhwa: ok
+        (3, "w2", "ko", "KR", "manga", None), (4, "w2", "ko", "KR", "manhwa", None),
+        (5, "w2", "de", "DE", "manhwa", 3),                                             # KR has manhwa: bad
+        (6, "w3", "ko", "KR", "manga", None), (7, "w3", "de", "DE", "novel", 6)])      # novel -> comic: bad
+    eq("E3 contract: orig mismatches = the same-medium-available pair + the novel", TA.orig_mismatches(om), [5, 7])
     # E4: a library-born FR line whose work has no official fr title takes its BnF line name
     eq("E4: library-born FR line, no fr work title -> the bnf line name", s["rl_dfr"]["local_name"],
        "Dites-moi, princesse !")
@@ -481,7 +497,8 @@ def fixture_export_fixes():
     x["gate_regressed"] = TA.carried_regressions(R_, C)
     x["lang_rows"] = TA.language_name_rows(R_)
     x["orig_regressed"] = [(t, a, b) for t, a, b, _ in TA.carried_orig_changes(R_, C, listed={})]
-    x["orig_listed"] = TA.carried_orig_changes(R_, C, listed={"rl_sde": "fixture"})
+    x["orig_listed"] = TA.carried_orig_changes(R_, C, listed={("rl_sde", "rl_krm", "rl_kr"): "fixture"})
+    x["orig_other"] = TA.carried_orig_changes(R_, C, listed={("rl_sde", "rl_krm", "rl_hkr"): "fixture"})
     # exemptions: the alias loss listed (ALIAS_LOSS_OK); the parent change explained by a redirect of the carried
     # parent; an is_main loss explained by a carried line of the same work and market retired by a redirect
     saved = dict(TA.ALIAS_LOSS_OK)
@@ -489,16 +506,23 @@ def fixture_export_fixes():
     R_.execute("UPDATE series SET is_main=1, local_name='Solo Leveling' WHERE tome_id='rl_med'")
     R_.execute("INSERT INTO id_redirect VALUES('rl_krm2','rl_lib','release_line','fixture',NULL,NULL)")
     R_.execute("UPDATE series SET is_main=0 WHERE tome_id='rl_hde8'")
-    R_.execute("INSERT INTO id_redirect VALUES('rl_hghost','rl_hde','release_line','fixture',NULL,NULL)")
+    R_.execute("""INSERT INTO series(gcd_series_id,name,language,country,medium,is_main,tome_id,tome_work_id)
+                  VALUES(9003,'King of hell','de','DE','manga',1,'rl_hsucc','w_h')""")
+    R_.execute("INSERT INTO id_redirect VALUES('rl_hghost','rl_hsucc','release_line','fixture',NULL,NULL)")
     R_.commit()
     Cx = os.path.join(tmp, "carry-x.sqlite")
     shutil.copy(carry, Cx)
     cx = sqlite3.connect(Cx)
     cx.execute("INSERT INTO series(gcd_series_id,name,tome_id,tome_work_id,country) VALUES(9001,'x','rl_krm2','w_s','KR')")
     cx.execute("UPDATE series SET parent_series_id=9001 WHERE tome_id='rl_med'")
-    cx.execute("INSERT INTO series(gcd_series_id,name,tome_id,tome_work_id,country) VALUES(9002,'x','rl_hghost','w_h','DE')")
+    cx.execute("""INSERT INTO series(gcd_series_id,name,tome_id,tome_work_id,country,medium)
+                  VALUES(9002,'x','rl_hghost','w_h','DE','manga')""")
     cx.commit()
     x["gate_exempt"] = TA.carried_regressions(R_, cx)
+    # the same retired carried line, redirected ELSEWHERE (the new manhwa line, another group): not an explanation
+    R_.execute("UPDATE id_redirect SET new_tome_id='rl_hde' WHERE old_tome_id='rl_hghost'")
+    R_.commit()
+    x["gate_elsewhere"] = TA.carried_regressions(R_, cx)
     TA.ALIAS_LOSS_OK.clear()
     TA.ALIAS_LOSS_OK.update(saved)
     R_.close(), cx.close(), C.close()

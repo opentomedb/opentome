@@ -326,7 +326,15 @@ def original_titles(r):
 # A uniform title's language note ($l) that a vernacular 880 folds into its $a: the 880 paired with 240
 # "Myŏlmang ihu ŭi segye. $l English" reads "멸망 이후의 세계. English" (LoC 2022942912, 2024951923).
 # Kept, its normalize() is 'english' -- an alias Mangarr then matched on (export fixes E2, 2026-09-28).
-_LANG_NOTE = re.compile(r"\s*\.\s*(?:English|Korean|Chinese|Japanese|French|German)\s*$")
+# Only after a period AND a space, and only on a title with Hangul / Hanzi / kana before it: "Mr. English",
+# "A.I. German" and "Dr.Chinese" are titles, not notes (review fix).
+_LANG_NOTE = re.compile(r"\s*\.\s+(?:English|Korean|Chinese|Japanese|French|German)\s*$")
+_CJK = re.compile("[\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7a3]")
+
+
+def _drop_lang_note(t):
+    m = _LANG_NOTE.search(t)
+    return _isbd(t[:m.start()]) if m and _CJK.search(t[:m.start()]) else t
 
 
 def native_titles(r):
@@ -341,7 +349,7 @@ def native_titles(r):
             if a and _isbd(a):
                 out.append(_isbd(a))
     out += [_isbd(v) for v in M.subs(r, "246", "a") if re.search("[\uac00-\ud7a3\u4e00-\u9fff]", v)]
-    out = [_isbd(_LANG_NOTE.sub("", t)) for t in out]
+    out = [_drop_lang_note(t) for t in out]
     return list(dict.fromkeys(t for t in out if t))
 
 
