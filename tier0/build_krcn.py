@@ -15,9 +15,9 @@ before the enrichment:
   5. attach      krcn_identity.attach_roles -- ISBN majority with an existing line, in any direction
   6. decide      link (full-name authors, JP guard, link_work), cluster the unlinked lines of all
                  markets, create works that pass §9's four criteria AND have an English COMIC line
-                 (manhwa / manhua; the anchor), hold the rest (R6: no id, no integer,
-                 build/krcn-held.tsv; reason no-english-line | no-english-comic-line), keep published
-                 lines, adopt ids (R1)
+                 (manhwa / manhua; the anchor), hold the rest (R6: no id, no integer, a NULL rl_id in
+                 krcn_line, build/krcn-held.tsv; reason no-english-line | no-english-comic-line),
+                 keep published lines, adopt ids (R1)
   7. load        works, lines, volumes, claims (source dnb / loc / bnf, their licences, record urls),
                  staging krcn_line / krcn_member / loc_member, adoption renames -- all BEFORE 4c / 7b
   8. files       build/krcn-review.tsv, krcn-held.tsv, krcn-new-works.tsv, krcn-report.json
@@ -52,9 +52,11 @@ CREATE TABLE IF NOT EXISTS krcn_line (      -- one row per KR/CN library line, e
                                             -- Task 14 owns the staging DDL (krcn_member, loc_member)
     key TEXT PRIMARY KEY,                   -- 'dnb:<IDN>' | 'loc:<LCCN>' | 'bnf:<ark>' (krcn_lines)
     source TEXT NOT NULL, market TEXT NOT NULL,
-    rl_id TEXT NOT NULL,                    -- the line's tome_id: carried (kept or taken) or minted;
-                                            -- a held / review / unlinked row's id is never loaded
-                                            -- (R6: absent from release_line, id_map, the artifact)
+    rl_id TEXT,                             -- the line's tome_id (carried: kept or taken; else minted)
+                                            -- ONLY when it exports (staged_rl_id); NULL for held /
+                                            -- review / unlinked rows: R6 and §13 -- a held cluster
+                                            -- has no tome_id in krcn_line, release_line, id_map or
+                                            -- the artifact
     carried INTEGER NOT NULL,
     work TEXT,                              -- the work it ships under (NULL unless exported);
                                             -- rename_work follows adoption renames
@@ -66,6 +68,12 @@ CREATE TABLE IF NOT EXISTS krcn_line (      -- one row per KR/CN library line, e
     target TEXT,                            -- merged / sibling / adopting: the existing line
     exported INTEGER NOT NULL);
 """
+
+
+def staged_rl_id(ln):
+    """krcn_line.rl_id: the line's tome_id when it exports, else NULL (R6: an unexported line holds
+    no id anywhere; its minted id is never written)."""
+    return ln["tome_id"] if ln["exported"] else None
 
 
 def vol_id(ln, number):
@@ -95,17 +103,34 @@ def _key_ok(k):
     return len(k) >= LATIN_MIN
 
 
+# LoC 240 form titles (a uniform title of a collection, not a work): 'Short stories', 'Poems.
+# Selections' -- measured in the cached LoC records: Short stories x7, Poems x3, Essays, Novels
+FORM_WORDS = {"short", "stories", "story", "poems", "poetry", "selections", "selected", "works", "novels",
+              "novellas", "plays", "essays", "prose", "correspondence", "letters", "speeches", "fiction",
+              "writings", "collections", "collected", "complete", "english", "and", "other", "the", "n"}
+
+
+def _form_title(t):
+    toks = re.findall(r"[a-z]+", (t or "").lower())
+    return bool(toks) and all(w in FORM_WORDS for w in toks)
+
+
 def cluster_keys(ln):
     """§10 step 1: folded titles and Hangul / Hanzi keys join lines across markets; a romanised
-    original title joins only lines of the same library (DNB syllable-splits, LoC writes ALA-LC)."""
+    original title (`orig`) joins only lines of the same library (DNB syllable-splits, LoC writes
+    ALA-LC). A LoC 240 form title ('Short stories', 'Poems. Selections') never keys.
+    Note: DNB original titles key GLOBALLY -- build_dnb puts 240 / 246 into a line's `titles` (the
+    German JP round's linker reads them there), so krcn_lines' DNB `titles` carry them too; only
+    LoC's and BnF's `orig` are library-scoped. Measured on the cached data: no effect (no cluster
+    joins across libraries through a DNB original title alone)."""
     ks = set()
     for t in list(ln["titles"]) + list(ln["native"]) + [ln["name"] or ""]:
         k = L.fold(t, False)
-        if _key_ok(k):
+        if _key_ok(k) and not _form_title(t):
             ks.add(("t", k))
     for t in ln["orig"]:
         k = L.fold(t, False)
-        if _key_ok(k):
+        if _key_ok(k) and not _form_title(t):
             ks.add(("o", ln["source"], k))
     return ks
 
@@ -137,8 +162,11 @@ def containment_hits(cluster, idx):
     """§9 criterion 4: existing KR/CN works whose official title key contains, or is contained in, a
     key of the cluster (both 5+ characters), and any existing work whose official key equals one of the
     cluster's original / native title keys. Catches DE 'Raeliana' (= Why Raeliana Ended Up at the
-    Duke's Mansion); not Athanasia (syllable-split romanisation -- the review file's job)."""
-    kr = [(k, w) for k, ws in idx.official.items() for w in ws if w in idx.krcn_works and len(k) >= LATIN_MIN]
+    Duke's Mansion); not Athanasia (syllable-split romanisation -- the review file's job). Works created
+    earlier in this build (Index.add_krcn_work's title keys) count as existing KR/CN works: clusters
+    are decided in key order, so the outcome is deterministic."""
+    kr = [(k, w) for table in (idx.official, idx.created) for k, ws in table.items() for w in ws
+          if w in idx.krcn_works and len(k) >= LATIN_MIN]
     hits = set()
     for ln in cluster:
         for t in list(ln["titles"]) + list(ln["native"]) + [ln["name"] or ""]:
@@ -179,15 +207,24 @@ def _entry(cid, cl, criteria, reason):
             "members": [m for l in cl for m in l.get("members", [])]}
 
 
-def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None):
+def _join(*reasons):
+    return "+".join(r for r in reasons if r) or None
+
+
+def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_override=None):
     """The decision order of the module plan (Task 12), steps 1-7. Pure: no database.
     Review reasons from the line builder (controller ruling): a line with medium_why goes to review
-    with reason = medium_why verbatim ('duplicate_numbers', 'both', 'writer_only', '+'-joined in that
-    order) -- attached or not; a link_work correction ships it with its medium_guess (none: it stays
-    in review). A LoC line with no medium and no medium_why: 'ize-medium' | 'no-class-signal'."""
+    with reason = medium_why ('duplicate_numbers', 'both', 'writer_only', '+'-joined in that order) --
+    attached or not; a link_work correction ships it with its medium_guess (none: it stays in review).
+    A LoC line with no medium and no medium_why: 'ize-medium' | 'no-class-signal'. Every review reason
+    is '+'-joined onto the linker's ('jp-guard+writer_only', 'low+ize-medium'), never overwritten.
+    jp_override: {line key: why} -- link_work entries with override_jp_guard (corrections
+    load_jp_guard_overrides): only these may link a line to a work the JP guard protects; each is
+    logged and listed in plan['jp_overrides'] (gate_report jp_guard_overrides)."""
     K = K or NO_K
-    link_work, line_medium = link_work or {}, line_medium or {}
-    plan = {"works": {}, "clusters": [], "held": [], "adopt_works": [], "review": [], "adopt_conflicts": []}
+    link_work, line_medium, jp_override = link_work or {}, line_medium or {}, jp_override or {}
+    plan = {"works": {}, "clusters": [], "held": [], "adopt_works": [], "review": [], "adopt_conflicts": [],
+            "jp_overrides": []}
     pool = []
     for ln in lines:                                                   # 1-2
         for k, v in (("tier", None), ("via", None), ("reason", None), ("candidates", []), ("cluster", None),
@@ -214,19 +251,32 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None):
                     ln.update(role="linked", work=w)
                 elif tier in ("low", "ambiguous"):
                     ln.update(role="review", reason=tier)
-            if ln["role"] == "linked" and idx.jp_guard(ln["work"]):    # P17: a correction does not lift it
-                ln.update(role="review", reason="jp-guard", work=None)
+            if ln["role"] == "linked" and idx.jp_guard(ln["work"]):
+                # P17: a correction does not lift the guard -- unless it says so, with a why (ruling)
+                why = jp_override.get(ln["key"]) if ln["via"] == "correction" else None
+                if why:
+                    ln["via"] = "correction+override_jp_guard"
+                    plan["jp_overrides"].append((ln["key"], ln["work"], why))
+                    print("  JP GUARD OVERRIDE -- lines.json link_work %s -> %s: %s" % (ln["key"], ln["work"], why))
+                else:
+                    ln.update(role="review", reason="jp-guard", work=None)
         if ln["medium"] is None:
             confirmed = lw is not None and lw == ln["work"] and ln["role"] in ("linked",) + ATTACHED
             if confirmed and ln["medium_guess"]:
                 ln["medium"] = ln["medium_guess"]
-            elif ln["medium_why"]:
-                ln.update(role="review", reason=ln["medium_why"], work=None)
-            elif ln["role"] in (None, "linked") + ATTACHED:
+            else:
                 # §7: 'neither' goes to review -- an Ize ECIP record, or any LoC record with no class signal
-                ln.update(role="review", reason="ize-medium" if ln.get("ize") else "no-class-signal", work=None)
+                why = ln["medium_why"] or ("ize-medium" if ln.get("ize") else "no-class-signal")
+                ln.update(role="review", reason=_join(ln["reason"] if ln["role"] == "review" else None, why), work=None)
         if ln["role"] is None:
             pool.append(ln)
+    # a pooled line sharing a cluster key with a line this build linked / attached to a work is that
+    # work's (Penelope / Villains): its cluster goes to review with the work as the candidate
+    placed = collections.defaultdict(set)
+    for ln in lines:
+        if ln["role"] in ("linked",) + ATTACHED and ln["work"]:
+            for k in cluster_keys(ln):
+                placed[k].add(ln["work"])
     for n, cl in enumerate(clusters(pool)):                           # 3-4
         cid = "c%04d" % n
         for ln in cl:
@@ -254,6 +304,12 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None):
             # a published library work is never demoted: it exports even without an English line
             wid, created = KI.older(frozen, K), False
             entry["reason"] = "frozen"
+        elif any(placed.get(k) for l in cl for k in cluster_keys(l)):
+            sib = sorted({w for l in cl for k in cluster_keys(l) for w in placed.get(k, ())})
+            entry["reason"] = "linked-sibling-key"
+            for ln in cl:
+                ln.update(role="review", reason="linked-sibling-key", candidates=sib)
+            continue
         elif hits:
             entry["reason"] = "containment"
             for ln in cl:
@@ -278,7 +334,7 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None):
                               "lines": [l["key"] for l in cl], "cluster": cid, "frozen": frozen}
         for ln in cl:
             ln.update(role="new_work", work=wid)
-        idx.add_krcn_work(wid)
+        idx.add_krcn_work(wid, [t for l in cl for t in list(l["titles"]) + list(l["native"]) + [l["name"] or ""]])
     for ln in lines:                                                   # 5
         if ln["role"] in ("review", "unlinked", "held") and ln["carried"]:
             w = K["line_work"].get(ln["tome_id"])
@@ -295,8 +351,10 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None):
         if ln["medium"] == "novel" and ln["role"] in ("linked", "sibling", "adopting") and \
                 ln["work"] not in comic_now and not ln["carried"]:
             ln.update(role="held", reason="novel-without-comic", candidates=[ln["work"]], work=None)
-            plan["held"].append(_entry(ln["cluster"], [ln], {"novel_without_comic": ln["candidates"]},
-                                       "novel-without-comic"))
+            plan["held"].append(_entry(ln["cluster"], [ln], {
+                "linker": ln["tier"], "explicit_origin": ln["explicit"], "comic": ln["comic"],
+                "containment": sorted(containment_hits([ln], idx)), "novel_without_comic": ln["candidates"]},
+                "novel-without-comic"))
     for e in plan["held"]:                                             # a published line is never held
         e["lines"] = [k for k in e["lines"] if k not in {l["key"] for l in lines if l["role"] == "kept"}]
     plan["held"] = [e for e in plan["held"] if e["lines"]]
@@ -350,6 +408,7 @@ def gate_report(lines, plan, rep, K, E=None, deferred=()):
       hangul_only_authors  lines with creators but no Latin name: no author evidence (full-name rule)
       authors_differ       lines whose linker verdict was a title collision (authors differ; MR vs RR)
       deferred_to_jp_round P25
+      jp_guard_overrides   link_work corrections that lifted the JP guard (line key, work, why)
     """
     K, E = K or NO_K, E or {}
     taken = {k for _, k in rep.get("taken", [])}
@@ -358,7 +417,8 @@ def gate_report(lines, plan, rep, K, E=None, deferred=()):
            "kept_no_overlap": [], "absorbed_weak": [], "p22_thin": [], "work_redirects": [],
            "adopt_conflicts": [list(t) for t in plan.get("adopt_conflicts", [])],
            "carried_not_exported": [], "carried_work_changed": [], "hangul_only_authors": [],
-           "authors_differ": [], "deferred_to_jp_round": sorted(ln["key"] for ln in deferred)}
+           "authors_differ": [], "deferred_to_jp_round": sorted(ln["key"] for ln in deferred),
+           "jp_guard_overrides": [list(t) for t in plan.get("jp_overrides", [])]}
     renamed = dict(plan.get("adopt_works", []))
     for ln in lines:
         mine = {i for v in ln["vols"] for i in v["isbns"]}
