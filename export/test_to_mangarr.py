@@ -2,7 +2,7 @@
 """Unit tests for export/to_mangarr.py's pure functions -- no database, no network.
 Run: python3 export/test_to_mangarr.py
 """
-import json, os, sqlite3, sys, tempfile
+import contextlib, io, json, os, sqlite3, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
@@ -115,13 +115,14 @@ def run():
        k["K"]["line_name"].get("rl_lib"), "Solo Leveling")
     eq("... and its series.publisher the builder's publisher string", k["K"]["line_pub"].get("rl_lib"), "Ize Press")
     eq("... the line's own name is its first alias (kind 'line')", k["line_alias"], "Solo Leveling")
-    eq("a line not in krcn_line keeps its line_name claim and publisher", (k["K"]["line_name"].get("rl_wiki"),
+    eq("a merged krcn_line row never renames the existing line it ships inside", (k["K"]["line_name"].get("rl_wiki"),
        k["K"]["line_pub"].get("rl_wiki")), ("Wiki Line", "Yen Press"))
     eq("meta.krcn_ids keeps only ids the artifact ships (a held line's id, a gone work: dropped)",
        (sorted(k["K"]["works"]), k["K"]["lines"]), (["w_k"], {"rl_lib": "loc"}))
     eq("an alternative ISBN claim (isbn13_alt) never reaches the artifact", k["alt_found"], 0)
     eq("meta.krcn_lines tallies roles overall and per market (held included)", k["krcn_lines"],
-       {"roles": {"held": 1, "new_work": 1}, "by_market": {"DE": {}, "EN": {"held": 1, "new_work": 1}, "FR": {}}})
+       {"roles": {"held": 1, "merged": 1, "new_work": 1},
+        "by_market": {"DE": {}, "EN": {"held": 1, "merged": 1, "new_work": 1}, "FR": {}}})
     eq("the artifact passes the KR/CN licence and R6 rules", k["licence_fails"], [])
     eq("... and a non-exported line's id listed in meta.krcn_ids fails R6", k["r6_fails"],
        ["held / review / unlinked KR/CN line ids in release_line, series, id_map or meta.krcn_ids"])
@@ -270,6 +271,9 @@ def fixture_krcn():
     db.execute("""INSERT INTO claim VALUES('volume','v_lib1','isbn13_alt','9781975399990','loc',
                   'https://lccn.loc.gov/2020950228','us_gov_pd','x')""")
     held = "loc:2099000001"
+    db.execute("""INSERT INTO krcn_line(key,source,market,rl_id,carried,work,name,publisher,role,exported,target)
+                  VALUES('loc:2021000001','loc','EN','rl_wiki',0,'w_o','Merged Lib Title','Lib Pub',
+                         'merged',1,'rl_wiki')""")
     db.execute("""INSERT INTO krcn_line(key,source,market,rl_id,carried,work,name,publisher,role,exported)
                   VALUES('loc:2020950228','loc','EN','rl_lib',0,'w_k','Solo Leveling','Ize Press','new_work',1)""")
     db.execute("""INSERT INTO krcn_line(key,source,market,rl_id,carried,work,name,publisher,role,exported)
@@ -301,7 +305,8 @@ def fixture_krcn():
     out.commit()
     out.close()
     n = len(TA.FAILS)
-    TA.run_krcn_licence(out_path, src_path)
+    with contextlib.redirect_stdout(io.StringIO()):      # the expected FAIL line stays out of the log
+        TA.run_krcn_licence(out_path, src_path)
     r["r6_fails"] = TA.FAILS[n:]
     del TA.FAILS[:]
     return r
