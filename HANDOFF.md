@@ -41,7 +41,7 @@ Done (design `docs/krcn-design.md`, results `docs/krcn-market.md`):
   probe that appends one line to `build/loc-netlog.tsv` / `bnf-netlog.tsv` (lib_sru's columns)
   and on failure sets `LOC_OFFLINE=1`/`BNF_OFFLINE=1` plus `LOC_UNREACHABLE=1`/`BNF_UNREACHABLE=1`
   rather than failing the job; the source cache is saved by a final `actions/cache/save` step
-  gated on the `build/.sources-complete` marker (see Gotchas); the KR/CN files
+  gated on the `build/sources-complete.marker` marker (see Gotchas); the KR/CN files
   (`krcn-review.tsv`, `krcn-held.tsv`, `krcn-new-works.tsv`, `krcn-report.json`,
   `loc-report.json`, `loc-netlog.tsv`, `bnf-netlog.tsv`) added to the run's uploaded artifact.
 - Docs: `docs/legal-position.md` (LoC row + the §105-inference note), README.md (LoC in the
@@ -120,7 +120,7 @@ Gotchas:
   export does not copy it and `publish.sh` does not refuse it (P13). Only `loc:degraded` /
   `bnf:degraded` (a refresh that failed mid-run) still block. `unload` clears both.
 - **The CI cache is saved once the library sources are complete, even if a later gate fails.**
-  `tier0/rebuild_all.sh` removes `build/.sources-complete` before 3e and writes it right after
+  `tier0/rebuild_all.sh` removes `build/sources-complete.marker` before 3e and writes it right after
   3f; `catalogue.yml` restores with `actions/cache/restore` and its last step
   (`actions/cache/save`, same key) runs when the run was not cancelled, the marker exists and the
   restore was not an exact hit. A failure after 3f keeps that run's LoC / BnF / DNB fetches; a
