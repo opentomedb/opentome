@@ -461,7 +461,7 @@ eq("... but not against counter-evidence: the creators disagree with the publish
    [(ln["role"], ln["via"]) for ln in l3], [("review", "title, authors differ")])
 
 # ---- the fetcher: politeness, cache, offline -- against a fake DNB (no network) ----------
-import email.message, re as _re, time as _time, urllib.error, urllib.parse
+import email.message, http.client, re as _re, socket, time as _time, urllib.error, urllib.parse
 import dnb_sru as S
 import dnb_enumerate as E
 
@@ -668,6 +668,61 @@ try:
     n = len(CALLS)
     got = E.fetch_parents({}, {"p0", "p1", "p2"}, verbose=False)
     eq("a new parent costs one request; the old batch url is kept", len(CALLS) - n, 1)
+
+    # transport gap: a dropped mid-read (http.client.IncompleteRead / HTTPException) and
+    # socket.timeout (TimeoutError's alias from 3.10 on, but a distinct class on 3.9) get the
+    # same handling as urllib.error.URLError/TimeoutError/ConnectionError -- an ERR netlog line,
+    # up to 3 attempts 30 s apart, then raise -- instead of crashing on the first occurrence.
+    def err_lines(path):
+        return [ln.split("\t")[1] for ln in open(path)]
+
+    calls = [0]
+
+    def flaky_incomplete(req, timeout=None):
+        calls[0] += 1
+        if calls[0] <= 2:
+            raise http.client.IncompleteRead(b"")
+        return _Resp('<searchRetrieveResponse><numberOfRecords>0</numberOfRecords></searchRetrieveResponse>')
+
+    S.NETLOG = os.path.join(tmp, "netlog-incomplete.tsv")
+    S.urllib.request.urlopen = flaky_incomplete
+    SLEEPS.clear()
+    txt = S._live(S.url_for("BASE and jhr=1997"))
+    eq("IncompleteRead x2 then success: returns the text", "numberOfRecords" in txt, True)
+    eq("... 2 ERR netlog lines then a 200", err_lines(S.NETLOG), ["ERR", "ERR", "200"])
+    eq("... a 30s wait after each of the 2 failures", SLEEPS.count(30), 2)
+
+    calls[0] = 0
+
+    def always_incomplete(req, timeout=None):
+        calls[0] += 1
+        raise http.client.IncompleteRead(b"")
+
+    S.NETLOG = os.path.join(tmp, "netlog-incomplete-3x.tsv")
+    S.urllib.request.urlopen = always_incomplete
+    SLEEPS.clear()
+    try:
+        S._live(S.url_for("BASE and jhr=1996"))
+        eq("IncompleteRead x3 in a row: re-raises", "no exception", "IncompleteRead")
+    except http.client.IncompleteRead:
+        eq("IncompleteRead x3 in a row: re-raises", True, True)
+    eq("... exactly 3 attempts, 3 ERR lines, no 4th wait", (calls[0], err_lines(S.NETLOG)), (3, ["ERR"] * 3))
+
+    calls[0] = 0
+
+    def flaky_timeout(req, timeout=None):
+        calls[0] += 1
+        if calls[0] <= 2:
+            raise socket.timeout("timed out")
+        return _Resp('<searchRetrieveResponse><numberOfRecords>0</numberOfRecords></searchRetrieveResponse>')
+
+    S.NETLOG = os.path.join(tmp, "netlog-timeout.tsv")
+    S.urllib.request.urlopen = flaky_timeout
+    SLEEPS.clear()
+    txt = S._live(S.url_for("BASE and jhr=1995"))
+    eq("socket.timeout x2 then success (the pre-3.10 alias gap): returns the text",
+       "numberOfRecords" in txt, True)
+    eq("... 2 ERR netlog lines then a 200", err_lines(S.NETLOG), ["ERR", "ERR", "200"])
 finally:
     (S.CACHE, S.STAMP, S.NETLOG, S.OFFLINE, S.REFRESH_DAYS, S.urllib.request.urlopen, S.time.sleep,
      E.CURRENT_YEAR, S.time.time, E.PARENT_INDEX) = saved

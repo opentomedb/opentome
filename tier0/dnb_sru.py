@@ -25,7 +25,7 @@ remainder), and those are refetched when their cached set is older than N days. 
 off: a rebuild is reproducible from the cache. A result set is cached whole or not at all
 (search()); see DEGRADED below for what a refresh run does when DNB fails.
 """
-import fcntl, hashlib, os, re, time, urllib.error, urllib.parse, urllib.request
+import fcntl, hashlib, http.client, os, re, socket, time, urllib.error, urllib.parse, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(ROOT, ".cache")
@@ -173,7 +173,11 @@ def _live(url):
             print("    DNB HTTP %d, Retry-After=%s -> waiting %ds" % (e.code, ra, wait), flush=True)
             time.sleep(wait)
             continue
-        except (urllib.error.URLError, TimeoutError, ConnectionError):
+        except (urllib.error.URLError, TimeoutError, ConnectionError,
+                http.client.HTTPException, socket.timeout):
+            # http.client.HTTPException covers IncompleteRead and friends raised mid-read;
+            # socket.timeout is TimeoutError's alias on 3.10+, but named explicitly since a 3.9
+            # runtime does not alias it.
             _log(t0, "ERR", 0, url)
             if attempt == 2:
                 raise
