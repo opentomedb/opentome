@@ -3713,6 +3713,9 @@ eq("E2: an 880's trailing '. English' (the 240 $l) is not part of the native tit
    LM.native_titles(LEW), ["살인마 르웰린 씨의 낭만적인 정찬", "멸망 이후의 세계"])
 eq("E2: a title that merely contains a language word keeps it",
    LM.native_titles(lrec("x", "x", ("880", [("6", "245-01"), ("a", "영어 English Club")]))), ["영어 English Club"])
+for keep in ("Mr. English", "A.I. German", "Dr.Chinese"):
+    eq("E2: a Latin title ending in a language word keeps it: %s" % keep,
+       LM.native_titles(lrec("x", "x", ("880", [("6", "245-01"), ("a", keep)]))), [keep])
 
 # E1 (decide): a NEW, title-linked library line with no vol 1 -- or an ISBN sibling with no vol 1 (attach_roles
 # gives exactly one line per target the merge; a second line sharing the target's ISBNs is a sibling) -- in a work
@@ -3753,6 +3756,13 @@ eq("E1: fragments are listed for review, their work cleared (R6)",
    (sorted(k for k in plan["review"] if role[k][1] == "fragment"),
     [l["work"] for l in ls if l["reason"] == "fragment"]),
    (["bnf:ark:/12148/cb46910428j", "dnb:1281034274"], [None, None]))
+ls = [mkline("dnb:1235188599", "DE", "Solo leveling", medium="novel", comic=False, vols=vols(3, 4))]
+BK.decide(ls, L.Index(db), Kf, comic_works={"w_sle"})
+eq("E1: a novel line beside a carried COMIC line only is not a fragment (the export guard's class split)",
+   ls[0]["role"], "linked")
+ls = [mkline("bnf:ark:/12148/cb46910428j", "FR", "Solo leveling", vols=vols(4, 15, 17), reason="low")]
+BK.decide(ls, L.Index(db), Kf, comic_works={"w_sle"})
+eq("E1: a fragment's reason is joined, never overwritten", (ls[0]["role"], ls[0]["reason"]), ("review", "low+fragment"))
 ls = [mkline("bnf:ark:/12148/cb46910428j", "FR", "Solo leveling", vols=vols(4, 15, 17))]
 BK.decide(ls, L.Index(db), None, comic_works={"w_sle"})
 eq("E1: no carry (a cold build): nothing is a fragment", ls[0]["role"], "linked")

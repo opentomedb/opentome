@@ -11,7 +11,7 @@ on both sides stayed green (docs/cleanup-v2.md):
   * no wiki markup in names, aliases or publishers
   * no English/French series with zero data
 """
-import json, os, re, sqlite3, sys
+import collections, json, os, re, sqlite3, sys
 
 FAILS = []
 
@@ -21,6 +21,25 @@ def rule(label, n, detail=""):
     print(("  ok   " if ok else "  FAIL ") + f"{label}: {n:,}" + (f"  {detail}" if not ok else ""))
     if not ok:
         FAILS.append(label)
+
+
+def orig_mismatches(db):
+    """gcd_series_id of every line whose orig_series_id is a missing series, another work, a non-origin language
+    or its own language, or another medium. A different medium passes only as a comic-family pair
+    (to_mangarr.COMIC_FAMILY, export fixes E3: a manhwa line's Korean origin may be tagged 'manga') AND only when
+    the origin market has no line of the licensed line's own medium; a novel never points at a comic line or back."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from to_mangarr import COMIC_FAMILY
+    fam = ",".join("'%s'" % m for m in COMIC_FAMILY)
+    return [r[0] for r in db.execute("""SELECT l.gcd_series_id FROM series l
+        LEFT JOIN series o ON o.gcd_series_id=l.orig_series_id
+        WHERE l.orig_series_id IS NOT NULL
+        AND (o.gcd_series_id IS NULL OR o.tome_work_id<>l.tome_work_id
+             OR (o.medium<>l.medium AND NOT (o.medium IN (%s) AND l.medium IN (%s)
+                 AND NOT EXISTS (SELECT 1 FROM series x WHERE x.tome_work_id=l.tome_work_id
+                                 AND x.country=o.country AND x.medium=l.medium)))
+             OR o.language NOT IN ('ja','ko','zh','zh-TW','zh-HK') OR o.language=l.language)
+        ORDER BY 1""" % (fam, fam))]
 
 
 def run(path):
@@ -238,15 +257,9 @@ def run(path):
               WHERE l.status='stalled'
               AND (SELECT COALESCE(MAX(volume_number),0) FROM volumes WHERE gcd_series_id=o.gcd_series_id)
                 - (SELECT COALESCE(MAX(volume_number),0) FROM volumes WHERE gcd_series_id=l.gcd_series_id) < 2"""))
-    # the medium: equal, or both of the comic family (to_mangarr.COMIC_FAMILY, export fixes E3: a manhwa line's
-    # Korean origin may be tagged 'manga'); a novel never points at a comic line or back
-    rule("orig_series_id pointing at a missing series, another work, or an origin-market mismatch",
-         g("""SELECT COUNT(*) FROM series l LEFT JOIN series o ON o.gcd_series_id=l.orig_series_id
-              WHERE l.orig_series_id IS NOT NULL
-              AND (o.gcd_series_id IS NULL OR o.tome_work_id<>l.tome_work_id
-                   OR (o.medium<>l.medium AND NOT (o.medium IN ('manga','manhwa','manhua')
-                                                   AND l.medium IN ('manga','manhwa','manhua')))
-                   OR o.language NOT IN ('ja','ko','zh','zh-TW','zh-HK') OR o.language=l.language)"""))
+    bad = orig_mismatches(db)
+    rule("orig_series_id pointing at a missing series, another work, or an origin-market mismatch", len(bad),
+         str(bad[:5]))
     rule("cover_url without cover_source (or vice versa)",
          g("""SELECT COUNT(*) FROM volumes WHERE (cover_url IS NULL) <> (cover_source IS NULL)"""))
     rule("cover_url that is not http(s)",
@@ -937,7 +950,8 @@ def carried_isbn_moved(db, cat, C, ids, carried_ids):
 # ---- export fixes (2026-09-28; krcn-consumer-findings §3, §7, §8 "Solo Leveling") --------------------------
 # E1: a carried line keeps is_main, its parent, its local_name and its aliases. The only allowances: a change a
 # carried id redirect explains (the line's parent was retired into its new parent; a carried line of the same
-# work and market was retired), and the alias losses listed here, one row per (line, alias) with its reason.
+# work, market and medium was retired into the group's current main line), and the alias losses listed here,
+# one row per (line, alias) with its reason.
 ALIAS_LOSS_OK = {
     # base drift, not KR/CN: the FR list-article article fix (tier0/build_corpus FR_LIST_ARTICLE, alias-fix
     # round) reads "Liste des tomes des Enquêtes de Kindaichi" as "Les Enquêtes de Kindaichi"; the carry
@@ -948,8 +962,8 @@ ALIAS_LOSS_OK = {
 # E3: carried lines whose orig_series_id may change, with the reason. Measured 2026-09-28 on the pipeline-order
 # dry run (build/krcn-replay/exportfix): the comic-family origin rule only fills a line whose own medium has no
 # origin line; one carried line gains one, 0 in a work with a Japanese line, 0 sibling-pick changes.
-ORIG_CHANGE_OK = {
-    "rl_273f63e59345": "Omniscient Reader's Viewpoint (Physical publication), EN: tagged 'manga' upstream, its "
+ORIG_CHANGE_OK = {       # (tome_id, old orig tome_id, new orig tome_id): a later, different change still fails
+    ("rl_273f63e59345", None, "rl_f120819d48a3"): "Omniscient Reader's Viewpoint (Physical publication), EN: tagged 'manga' upstream, its "
                        "Korean line 'manhwa' -- NULL -> the ko main line rl_f120819d48a3 (the EN manhwa line's "
                        "origin too); status NULL -> ongoing (line_status now has an origin)",
 }
@@ -977,11 +991,11 @@ def _lines(d):
     have = _cols(d, "series")
     pick = ["gcd_series_id", "tome_id"] + [c if c in have else "NULL" for c in
                                            ("tome_work_id", "country", "is_main", "parent_series_id", "local_name",
-                                            "orig_series_id")]
+                                            "orig_series_id", "medium")]
     rows = d.execute("SELECT %s FROM series" % ", ".join(pick)).fetchall()
     tome = {r[0]: r[1] for r in rows}
     out = {r[1]: {"work": r[2], "market": r[3], "is_main": r[4], "parent": tome.get(r[5]), "local_name": r[6],
-                  "orig": tome.get(r[7])} for r in rows if r[1]}
+                  "orig": tome.get(r[7]), "medium": r[8]} for r in rows if r[1]}
     aliases = {}
     if _cols(d, "series_alias"):
         for t, a in d.execute("SELECT s.tome_id, a.alias FROM series_alias a JOIN series s USING(gcd_series_id)"):
@@ -1010,13 +1024,24 @@ def carried_regressions(db, C):
     A, a_al = _lines(db)
     K, c_al = _lines(C)
     red, final = _redirect(db)
-    retired = {(K[o]["work"], K[o]["market"]) for o in red if o in K}
+    # explained (review fix): a carried line of the SAME (work, market, medium) group was retired and its redirect
+    # resolves to the group's current main line -- the successor took the group's main slot. A redirect pointing
+    # anywhere else explains nothing.
+    group = lambda x: (x["work"], x["market"], x["medium"])
+    successors = collections.defaultdict(set)
+    for o in red:
+        if o in K:
+            successors[group(K[o])].add(final(o))
+    main_now = collections.defaultdict(set)
+    for t_, a_ in A.items():
+        if a_["is_main"] == 1:
+            main_now[group(a_)].add(t_)
     out = []
     for t, c in sorted(K.items()):
         a = A.get(t)
         if a is None:
             continue                # retired / redirected: run_ids' rules own it
-        explained = (c["work"], c["market"]) in retired
+        explained = bool(successors[group(c)] & main_now[group(c)])
         if c["is_main"] == 1 and a["is_main"] != 1 and not explained:
             out.append((t, "is_main lost", ""))
         if a["parent"] and a["parent"] != c["parent"] and a["parent"] not in K and \
@@ -1032,13 +1057,14 @@ def carried_regressions(db, C):
 
 def carried_orig_changes(db, C, listed=None):
     """E3: carried lines whose orig_series_id (compared by tome_id) changed, outside `listed` (default
-    ORIG_CHANGE_OK) and not explained by a redirect of the old origin. -> [(tome_id, old, new, work)]."""
+    ORIG_CHANGE_OK, keyed (tome_id, old orig, new orig)) and not explained by a redirect of the old origin.
+    -> [(tome_id, old, new, work)]."""
     listed = ORIG_CHANGE_OK if listed is None else listed
     A, _ = _lines(db)
     K, _ = _lines(C)
     _, final = _redirect(db)
     return [(t, c["orig"], A[t]["orig"], c["work"]) for t, c in sorted(K.items())
-            if t in A and A[t]["orig"] != c["orig"] and t not in listed
+            if t in A and A[t]["orig"] != c["orig"] and (t, c["orig"], A[t]["orig"]) not in listed
             and not (c["orig"] and final(c["orig"]) == A[t]["orig"])]
 
 

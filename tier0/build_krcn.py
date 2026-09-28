@@ -243,6 +243,11 @@ def _join(*reasons):
     return "+".join(r for r in reasons if r) or None
 
 
+def _novel(medium):
+    """to_mangarr's novel / comic class (Mangarr's IsNovel): 'novel' anywhere in the medium, or an artbook."""
+    return bool(medium) and ("novel" in medium.lower() or medium.lower() == "artbook")
+
+
 def _is_vol1(number):
     try:
         return float(number) == 1
@@ -425,13 +430,15 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
     # ISBNs is a sibling with its own id), with no vol 1, in a work and market that already has a carried line,
     # goes to review. Exported, it became that market's counterpart / is_main / parent over the carried line
     # (Solo Leveling FR: a Kbooks 4/15/17 line over the 19-volume Medias line; DE: a vol-15-only sibling)
-    carried_wm = {(home(w), K.get("line_market", {}).get(t)) for t, w in K["line_work"].items() if w}
+    # keyed by novel / comic class, the split the export's counterpart guard and Mangarr's PickSibling use (review fix)
+    carried_wm = {(home(w), K.get("line_market", {}).get(t), _novel(K.get("line_medium", {}).get(t)))
+                  for t, w in K["line_work"].items() if w}
     for ln in lines:
-        if ln["carried"] or not ln["work"] or (ln["work"], ln["market"]) not in carried_wm:
+        if ln["carried"] or not ln["work"] or (ln["work"], ln["market"], _novel(ln["medium"])) not in carried_wm:
             continue
         if (ln["role"] == "sibling" or (ln["role"] == "linked" and not (ln["via"] or "").startswith("correction"))) \
                 and not any(_is_vol1(v["number"]) for v in ln["vols"]):
-            ln.update(role="review", reason="fragment", candidates=[ln["work"]], work=None)
+            ln.update(role="review", reason=_join(ln["reason"], "fragment"), candidates=[ln["work"]], work=None)
     for ln in lines:                                                   # 5
         if ln["role"] in ("review", "unlinked", "held") and ln["carried"]:
             w = K["line_work"].get(ln["tome_id"])
