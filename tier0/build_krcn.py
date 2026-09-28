@@ -402,7 +402,7 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
             publics[public] += 1
             for ln in lines:
                 if ln["work"] == w_now:
-                    ln["work"] = public
+                    ln["work"], ln["adopted_from"] = public, w_now
     # rename_work(W, public) needs `public` absent: a frozen work of this build, or two works adopting one
     # public id, would collide -- reported (gate_report adopt_conflicts), never resolved silently
     plan["adopt_conflicts"] = sorted((w, p) for w, p in plan["adopt_works"] if p in plan["works"] or publics[p] > 1)
@@ -562,26 +562,35 @@ def member_url(m):
     return U.url(rest)
 
 
-def _claim(c, entity, eid, field, value, src, url):
+def _claim(c, entity, eid, field, value, src, url, own=None):
+    """own: on an ATTACHED volume, the source urls 3f writes (member_url of every member / line key of
+    this run). An existing claim of the same key (entity, id, field, source) citing any other url is
+    another stage's (3e's dnb, enrich_bnf's per-ISBN bnf lookup) and is kept, never displaced; 3f's
+    own earlier claims are gone already (unload runs first). own None: insert or replace."""
+    if own is not None:
+        old = c.execute("SELECT source_url FROM claim WHERE entity=? AND entity_id=? AND field=? AND source=?",
+                        (entity, eid, field, src)).fetchone()
+        if old and old[0] not in own:
+            return
     c.execute("""INSERT OR REPLACE INTO claim (entity,entity_id,field,value,source,source_url,licence,retrieved_at)
                  VALUES(?,?,?,?,?,?,?,?)""", (entity, eid, field, str(value), src, url, LICENCE[src], NOW))
 
 
-def _volume_claims(c, vid, v, src):
+def _volume_claims(c, vid, v, src, own=None):
     """A volume's library claims, each citing the member record that gave the fact: ISBN and number the
     first member; the date its date_member (a LoC date always a single-volume record, never a set
-    record, §12); pages the first single-record member."""
+    record, §12); pages the first single-record member. own: see _claim (attached volumes)."""
     first = v["members"][0]
     if v["isbn"]:
-        _claim(c, "volume", vid, "isbn13", v["isbn"], src, member_url(first))
+        _claim(c, "volume", vid, "isbn13", v["isbn"], src, member_url(first), own)
     d = v["date"]
     if d and d[0] != "HELD":
         _claim(c, "volume", vid, "release_date" if d[2] == "published" else "projected_date", d[0], src,
-               member_url(v["date_member"] or first))
+               member_url(v["date_member"] or first), own)
     if v["pages"]:
         _claim(c, "volume", vid, "page_count", v["pages"], src,
-               member_url(next((m for m in v["members"] if "#" not in m), first)))
-    _claim(c, "volume", vid, "volume_number", v["number"], src, member_url(first))
+               member_url(next((m for m in v["members"] if "#" not in m), first)), own)
+    _claim(c, "volume", vid, "volume_number", v["number"], src, member_url(first), own)
 
 
 def _meta(c, key):
@@ -633,6 +642,16 @@ def unload(c):
         c.execute("DELETE FROM %s" % t)
     c.execute("DELETE FROM meta WHERE key IN ('krcn:ids','krcn:adopted','krcn:works_made','krcn:stats',"
               "'loc:degraded','bnf:degraded')")
+    # dnb:degraded is shared with 3e: record_meta merged 3f's part in under "krcn", or -- 3e clean --
+    # wrote its own value with round "krcn"; take back only that
+    old = _meta(c, "dnb:degraded")
+    if old:
+        val = json.loads(old)
+        if val.get("round") == "krcn":
+            c.execute("DELETE FROM meta WHERE key='dnb:degraded'")
+        elif "krcn" in val:
+            val.pop("krcn")
+            c.execute("UPDATE meta SET value=? WHERE key='dnb:degraded'", (json.dumps(val),))
 
 
 def adopt(c, internal, public):
@@ -640,11 +659,25 @@ def adopt(c, internal, public):
     the staging is written before adoption, so krcn_member / loc_member volume ids pointing at the
     internal line's volumes move to what adopt_line made of them (a moved volume: v_(public, n); a
     merged one: the public line's volume of that number), and krcn_line target / rl_id move to the
-    public id. -> adopt_line's (moved, merged)."""
+    public id. A merged volume keeps the internal (Wikipedia) volume's present values -- isbn13, page_count
+    and the date triple -- over the library's: the library only fills what Wikipedia left empty, the
+    fill_attached rule (§8, controller ruling), even when the library's date is finer.
+    -> adopt_line's (moved, merged)."""
     have = {n: v for v, n in c.execute("SELECT id, number FROM volume WHERE release_line_id=?", (public,))}
-    remap = {v: have.get(n) or _id("v_", public, n) for v, n in c.execute(
-        "SELECT id, number FROM volume WHERE release_line_id=?", (internal,)).fetchall()}
+    wiki = c.execute("""SELECT id, number, isbn13, page_count, release_date, release_date_precision, release_date_type
+                        FROM volume WHERE release_line_id=?""", (internal,)).fetchall()
+    remap = {v: have.get(n) or _id("v_", public, n) for v, n, *_ in wiki}
     moved, merged = KI.adopt_line(c, internal, public)
+    for _, n, isbn, pc, rd, rp, rt in wiki:
+        if n not in have:
+            continue
+        if isbn:
+            c.execute("UPDATE volume SET isbn13=? WHERE id=?", (isbn, have[n]))
+        if pc is not None:
+            c.execute("UPDATE volume SET page_count=? WHERE id=?", (pc, have[n]))
+        if rd:
+            c.execute("UPDATE volume SET release_date=?, release_date_precision=?, release_date_type=? WHERE id=?",
+                      (rd, rp, rt, have[n]))
     for old, new in remap.items():
         for t in ("krcn_member", "loc_member"):
             c.execute("UPDATE %s SET volume_id=? WHERE volume_id=?" % t, (new, old))
@@ -663,10 +696,24 @@ def load(db, lines, lost, plan, K):
     fills only empty columns, never a Wikipedia date, §8); else held_future / dropped_no_date_no_isbn /
     a merged line's number the target has ('attached', or dropped_number_clash on differing ISBNs) /
     'created' as vol_id (a merged line: v_(target, number)). -> Counter of volume fates."""
+    n_pub = collections.Counter(p for _, p in plan["adopt_works"])
+    clash = sorted(p for p, n in n_pub.items() if n > 1)
+    if clash:
+        # ids are a public contract: two works adopting one public id would leave release_line.work_id on
+        # a work that does not exist, or merge two works silently -- fail before anything is written
+        msg = []
+        for p in clash:
+            for w in sorted(w for w, q in plan["adopt_works"] if q == p):
+                ks = sorted(l["key"] for l in lines if l.get("adopted_from") == w) or \
+                    sorted(l["key"] for l in lines if l.get("work") == p)
+                msg.append("work %s (lines %s) -> public id %s" % (w, " ".join(ks), p))
+        raise SystemExit("stage 3f: two works would adopt one public work id -- %s. Decide which work the "
+                         "lines belong to and add a link_work correction (corrections/lines.json)." % "; ".join(msg))
     c = db.cursor()
     st = collections.Counter()
     by_key = {l["key"]: l for l in lines}
     made = []
+    own = {member_url(m) for l in lines for m in l["members"]} | {member_url(l["key"]) for l in lines}
     for wid, w in sorted(plan["works"].items()):
         if c.execute("SELECT 1 FROM work WHERE id=?", (wid,)).fetchone():
             continue
@@ -699,7 +746,8 @@ def load(db, lines, lost, plan, K):
             _claim(c, "release_line", rid, "line_name", ln["name"], src, member_url(ln["key"]))
             if ln["publisher"]:
                 _claim(c, "release_line", rid, "publisher", ln["publisher"], src, member_url(ln["key"]))
-        tvols = targets.get(rid, {}).get("vols", {}) if role == "merged" else {}
+        tvols = targets.setdefault(rid, {"work": ln["work"], "medium": ln["medium"], "vols": {}})["vols"] \
+            if role == "merged" else {}
         e_isbn = ex_isbn[ln["market"]]
         n_out = 0
         for v in ln["vols"]:
@@ -729,8 +777,10 @@ def load(db, lines, lost, plan, K):
                                  VALUES(?,?,?,NULL,?,?,?,?,?,?,?,?)""",
                               (vid, rid, v["number"], v["isbn"], v["pages"], B.FORMAT.get(ln.get("edition")),
                                d[0], d[1], d[2] or "unknown", NOW, NOW))
+                    if role == "merged":      # a later line merged into the same target meets this number
+                        tvols[v["number"]] = (vid, v["isbn"])
             if vid:
-                _volume_claims(c, vid, v, src)
+                _volume_claims(c, vid, v, src, own if fate == "attached" else None)
                 if fate == "attached":
                     done = B.fill_attached(c, vid, {"isbn": v["isbn"], "date": v["date"], "pages": v["pages"]})
                     filled = json.dumps(done) if done else None
@@ -776,7 +826,11 @@ def load(db, lines, lost, plan, K):
     conflicts = {tuple(t) for t in plan.get("adopt_conflicts", [])}
     for internal, public in plan["adopt_works"]:
         if (internal, public) in conflicts:          # decide reported it (gate_report adopt_conflicts)
-            print("  ADOPTION CONFLICT -- work %s -> %s not renamed (the public id is taken)" % (internal, public))
+            # the one case left (two adopters raised above): `public` is a library work this build ships
+            # (created or frozen); the moved lines ship under it already, `internal` keeps its own id
+            print("  ADOPTION CONFLICT -- work %s -> %s not renamed: %s is a library work this build already ships "
+                  "(its lines moved under it); %s keeps its id (gate_report adopt_conflicts)"
+                  % (internal, public, public, internal))
             continue
         KI.rename_work(c, internal, public)
         adopted.append(["work", internal, public])
