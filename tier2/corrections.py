@@ -65,7 +65,7 @@ EXCLUDED_KEYS = ("work", "source_url", "checked")
 # (`series.tome_id`), applied to the ARTIFACT after export/resolve_anilist.py, so
 # it overrides the resolver's pick.
 ANILIST_KEYS = ("line", "anilist_id", "source_url", "checked")
-ARTIFACT_URL = "https://github.com/DrAwesome441/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite"
+ARTIFACT_URL = "https://github.com/opentomedb/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite"
 
 sys.path.insert(0, os.path.join(ROOT, "schema"))
 sys.path.insert(0, os.path.join(ROOT, "tier0"))
