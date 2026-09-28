@@ -169,7 +169,7 @@ python3 export/test_artifact.py "$ART.new" "$FINAL" "$ID_CARRY"
 # 8d measures the NEW artifact before it replaces the old one, like 8c: a failed
 # gate leaves the last good artifact in place.
 echo "== 8d. measure gate =="
-python3 export/measure_library.py "$ART.new" export/fixtures/library.json --catalogue="$FINAL" | tee build/measure.log
+python3 export/measure_library.py "$ART.new" export/fixtures/library.json --catalogue="$FINAL" --carry="$ID_CARRY" | tee build/measure.log
 mv -f "$ART.new" "$ART"
 echo "   artifact -> $ART"
 

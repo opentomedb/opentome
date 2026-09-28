@@ -1,0 +1,275 @@
+{
+ "source": "opentome-2026-09-25 (build/alias-fix/carry.sqlite): the EN/FR/DE lines of every work with a manhwa or manhua line, before the KR/CN round (docs/krcn-design.md §13); it includes the three library-fixture lines Solo Leveling rl_80ce26eb5b3d, Solo Leveling (Second edition) rl_50711c619f63, The Beginning After the End (manhwa) rl_7cbd238c5ed1",
+ "lines": [
+  {
+   "tome_id": "rl_02a0d0131676",
+   "name": "PULSE (webtoon)",
+   "language": "en",
+   "work": "w_14495deb0396"
+  },
+  {
+   "tome_id": "rl_061976dc3d49",
+   "name": "Villains Are Destined to Die",
+   "language": "en",
+   "work": "w_97ecc892bd5f"
+  },
+  {
+   "tome_id": "rl_0b48933b6cf5",
+   "name": "Delusion (English publication)",
+   "language": "en",
+   "work": "w_015d8619f82f"
+  },
+  {
+   "tome_id": "rl_1d135685393b",
+   "name": "President Dad",
+   "language": "en",
+   "work": "w_3db9164cfe2e"
+  },
+  {
+   "tome_id": "rl_273f63e59345",
+   "name": "Omniscient Reader's Viewpoint (Physical publication)",
+   "language": "en",
+   "work": "w_1d0da51ff6e0"
+  },
+  {
+   "tome_id": "rl_2a25f02efe77",
+   "name": "The Beginning After the End",
+   "language": "en",
+   "work": "w_1809b7e7e408"
+  },
+  {
+   "tome_id": "rl_2a4ed388b015",
+   "name": "Wind Breaker",
+   "language": "de",
+   "work": "w_d22fc58b34d2"
+  },
+  {
+   "tome_id": "rl_2aa2ff66acbf",
+   "name": "Her Tale of Shim Chong",
+   "language": "en",
+   "work": "w_9334079cccbe"
+  },
+  {
+   "tome_id": "rl_38dd7a8b68b8",
+   "name": "Pandemonium",
+   "language": "fr",
+   "work": "w_c09777bebaef"
+  },
+  {
+   "tome_id": "rl_43257c7ce2d2",
+   "name": "Hissing",
+   "language": "en",
+   "work": "w_66b3c608fcf3"
+  },
+  {
+   "tome_id": "rl_4a7aa48d7cc0",
+   "name": "Priest",
+   "language": "en",
+   "work": "w_f781bd24eeef"
+  },
+  {
+   "tome_id": "rl_4c7e7eeec317",
+   "name": "Wind Breaker (Médias)",
+   "language": "fr",
+   "work": "w_d22fc58b34d2"
+  },
+  {
+   "tome_id": "rl_50711c619f63",
+   "name": "Solo Leveling (Second edition)",
+   "language": "en",
+   "work": "w_e08cdcbc22fe"
+  },
+  {
+   "tome_id": "rl_573b92011015",
+   "name": "Tower of God",
+   "language": "fr",
+   "work": "w_5edd4ab3d1cd"
+  },
+  {
+   "tome_id": "rl_69e1e43815a5",
+   "name": "Omniscient Reader's Viewpoint",
+   "language": "en",
+   "work": "w_1d0da51ff6e0"
+  },
+  {
+   "tome_id": "rl_6de32c358f69",
+   "name": "Tomb Raider King",
+   "language": "en",
+   "work": "w_69fd373c37a0"
+  },
+  {
+   "tome_id": "rl_78953bb16bbb",
+   "name": "Devil's Bride",
+   "language": "en",
+   "work": "w_4db5887a1611"
+  },
+  {
+   "tome_id": "rl_799399f1c4b3",
+   "name": "Recast",
+   "language": "fr",
+   "work": "w_bd2ccd05221e"
+  },
+  {
+   "tome_id": "rl_7cbd238c5ed1",
+   "name": "The Beginning After the End",
+   "language": "en",
+   "work": "w_1809b7e7e408"
+  },
+  {
+   "tome_id": "rl_80ce26eb5b3d",
+   "name": "Solo Leveling",
+   "language": "en",
+   "work": "w_e08cdcbc22fe"
+  },
+  {
+   "tome_id": "rl_819205b1503e",
+   "name": "Witch Buster",
+   "language": "fr",
+   "work": "w_3e57e44cba23"
+  },
+  {
+   "tome_id": "rl_81db300c8574",
+   "name": "Wind Breaker",
+   "language": "en",
+   "work": "w_d22fc58b34d2"
+  },
+  {
+   "tome_id": "rl_84d9ae554eef",
+   "name": "Saver",
+   "language": "en",
+   "work": "w_1faef9b015bb"
+  },
+  {
+   "tome_id": "rl_9b5f4c35664b",
+   "name": "Why Raeliana Ended Up at the Duke's Mansion",
+   "language": "en",
+   "work": "w_3ba932a5a30c"
+  },
+  {
+   "tome_id": "rl_9b934c617f0b",
+   "name": "The Brilliant Healer's New Life in the Shadows",
+   "language": "en",
+   "work": "w_1c1660de0cd9"
+  },
+  {
+   "tome_id": "rl_9b994b35a463",
+   "name": "A Returner's Magic Should Be Special",
+   "language": "en",
+   "work": "w_662c5a982c85"
+  },
+  {
+   "tome_id": "rl_9f28d2e63371",
+   "name": "Demons' Crest",
+   "language": "en",
+   "work": "w_1f0f46c59799"
+  },
+  {
+   "tome_id": "rl_a4c3f39166d2",
+   "name": "The Brilliant Healer's New Life in the Shadows",
+   "language": "en",
+   "work": "w_1c1660de0cd9"
+  },
+  {
+   "tome_id": "rl_a6fdb4d1904a",
+   "name": "Solo Leveling",
+   "language": "de",
+   "work": "w_e08cdcbc22fe"
+  },
+  {
+   "tome_id": "rl_a928015d53f2",
+   "name": "Your Letter",
+   "language": "en",
+   "work": "w_d684a2a0e30b"
+  },
+  {
+   "tome_id": "rl_aaece5b64e81",
+   "name": "Solo Leveling (Médias)",
+   "language": "fr",
+   "work": "w_e08cdcbc22fe"
+  },
+  {
+   "tome_id": "rl_aed9734ef4b8",
+   "name": "XS",
+   "language": "en",
+   "work": "w_64a293d87f64"
+  },
+  {
+   "tome_id": "rl_b070cc14d283",
+   "name": "Who Made Me a Princess",
+   "language": "en",
+   "work": "w_19039254507d"
+  },
+  {
+   "tome_id": "rl_b60af517f595",
+   "name": "She Is Still Cute Today",
+   "language": "en",
+   "work": "w_27de896b48b7"
+  },
+  {
+   "tome_id": "rl_bbade691983e",
+   "name": "Warlord",
+   "language": "fr",
+   "work": "w_ca409a32b4ae"
+  },
+  {
+   "tome_id": "rl_bc47fca414f4",
+   "name": "Villains Are Destined to Die (Web novel)",
+   "language": "en",
+   "work": "w_97ecc892bd5f"
+  },
+  {
+   "tome_id": "rl_bc84c55a1f7e",
+   "name": "Denma (Episodes)",
+   "language": "en",
+   "work": "w_6707cdb6dda6"
+  },
+  {
+   "tome_id": "rl_cf8225b2cb00",
+   "name": "Good Luck",
+   "language": "en",
+   "work": "w_47440c8c5967"
+  },
+  {
+   "tome_id": "rl_d32f0531415f",
+   "name": "Recast",
+   "language": "en",
+   "work": "w_bd2ccd05221e"
+  },
+  {
+   "tome_id": "rl_d5f72482aae2",
+   "name": "Solo Leveling (Roman web)",
+   "language": "fr",
+   "work": "w_e08cdcbc22fe"
+  },
+  {
+   "tome_id": "rl_d62e4c799660",
+   "name": "What Does the Fox Say? (webtoon)",
+   "language": "en",
+   "work": "w_dfa3daed1af3"
+  },
+  {
+   "tome_id": "rl_f1eb42853225",
+   "name": "The Boxer",
+   "language": "en",
+   "work": "w_05536d525a06"
+  },
+  {
+   "tome_id": "rl_fa7f3677552b",
+   "name": "Wind Breaker (Médias)",
+   "language": "fr",
+   "work": "w_d22fc58b34d2"
+  },
+  {
+   "tome_id": "rl_faefe24a8011",
+   "name": "Pandemonium",
+   "language": "fr",
+   "work": "w_c09777bebaef"
+  },
+  {
+   "tome_id": "rl_fb0afe861710",
+   "name": "Here U Are",
+   "language": "en",
+   "work": "w_e5a55a7aecb5"
+  }
+ ]
+}
