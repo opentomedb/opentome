@@ -1392,16 +1392,31 @@ eq("ruling 4: Cambria / Cambridge share the family 'cambri'",
    (LM.pubfam("Cambria Press"), LM.pubfam("Cambridge University Press")), ("cambri", "cambri"))
 lines, _, _ = KL.loc_lines({"pa": PA, "pb": PB})
 eq("ruling 4: ... but two different titles stay two lines", sorted(l["name"] for l in lines), ["Moon river", "Sun valley"])
-eq("ruling 4 (BnF): Saphira / Saphir Éditions share the family 'saphir'",
-   (U.pubfam("Saphira"), U.pubfam("Saphir Éditions")), ("saphir", "saphir"))
+eq("ruling 4 (BnF): Saphir / Saphir Éditions share the family 'saphir' (not 'Saphira', which is"
+   " now the samji/tokebi/saphira rename family below)",
+   (U.pubfam("Saphir"), U.pubfam("Saphir Éditions")), ("saphir", "saphir"))
 bl = KL.bnf_lines({U.ark(r): r for r in (
     brec(("010", [("a", isbn13("97823", 1))]), ("101", [("a", "fre"), ("c", "kor")]), ("200", [("a", "Chiro"), ("h", "1")]),
-         ("210", [("c", "Saphira"), ("d", "2006")]), cf3="http://catalogue.bnf.fr/ark:/12148/cb40000001x"),
+         ("210", [("c", "Saphir"), ("d", "2006")]), cf3="http://catalogue.bnf.fr/ark:/12148/cb40000001x"),
     brec(("010", [("a", isbn13("97823", 2))]), ("101", [("a", "fre"), ("c", "kor")]), ("200", [("a", "Veritas"), ("h", "2")]),
          ("210", [("c", "Saphir Éditions"), ("d", "2006")]), cf3="http://catalogue.bnf.fr/ark:/12148/cb40000002x"))})[0]
 eq("ruling 4 (BnF): ... but two different titles stay two lines", sorted(l["name"] for l in bl), ["Chiro", "Veritas"])
 eq("BnF family: an 'Éd.' word is dropped ('Éd. Ki-oon' = 'Ki-oon', Warlord), 'Pika éd.' = 'pika'",
    (U.pubfam("Éd. Ki-Oon"), U.pubfam("Ki-oon"), U.pubfam("Pika éd.")), ("kion", "kion", "pika"))
+
+# P10 triggered (2026-09-28): Samji = Tokebi = Saphira, an imprint rename mid-series (14 French KR
+# titles, e.g. Chiro: Saphira 1-4, Samji 5-8) -- a headless volume under the old and the new imprint
+# now share one family, so the two join into one line instead of splitting on the rename
+eq("Samji / Tokebi / Saphira are one publisher family",
+   (U.pubfam("Saphira"), U.pubfam("Samji"), U.pubfam("Tokebi"), U.pubfam("éd. Tokebi")),
+   ("samji", "samji", "samji", "samji"))
+chiro = KL.bnf_lines({U.ark(r): r for r in (
+    brec(("010", [("a", isbn13("97823", 201))]), ("101", [("a", "fre"), ("c", "kor")]), ("200", [("a", "Chiro"), ("h", "1")]),
+         ("210", [("c", "Saphira"), ("d", "2006")]), cf3="http://catalogue.bnf.fr/ark:/12148/cb45000001x"),
+    brec(("010", [("a", isbn13("97823", 205))]), ("101", [("a", "fre"), ("c", "kor")]), ("200", [("a", "Chiro"), ("h", "5")]),
+         ("210", [("c", "Samji"), ("d", "2009")]), cf3="http://catalogue.bnf.fr/ark:/12148/cb45000002x"))})[0]
+eq("a Saphira 1-4 + Samji 5-8 pair (here vols 1 and 5) is one line, not two",
+   [(l["name"], sorted((v["number"] for v in l["vols"]), key=int)) for l in chiro], [("Chiro", ["1", "5"])])
 
 # controller ruling 5: titles are keyed per field -- an English 245 and a Hangul 880 each give their own key;
 # a mixed Latin + Hangul field is one native title
