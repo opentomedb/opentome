@@ -723,6 +723,27 @@ try:
     eq("socket.timeout x2 then success (the pre-3.10 alias gap): returns the text",
        "numberOfRecords" in txt, True)
     eq("... 2 ERR netlog lines then a 200", err_lines(S.NETLOG), ["ERR", "ERR", "200"])
+
+    # get()'s own except tuple must list the same two types: _live re-raises the original
+    # IncompleteRead once its 3 attempts are spent, and get() must degrade onto the cached
+    # response in a refresh run (today's transport errors already do), not crash the stage.
+    SERVER["years"], SERVER["refuse"], SERVER["diagnostic"], SERVER["status"] = {1993: ["g1"]}, 0, False, None
+    SERVER["fail_later_pages"] = False
+    S.NETLOG = os.path.join(tmp, "netlog-get-degrade.tsv")
+    u = S.url_for("BASE and jhr=1993", 1, 1)
+    S.urllib.request.urlopen = fake_urlopen
+    before = S.get(u, force=True)
+
+    def always_incomplete_get(req, timeout=None):
+        raise http.client.IncompleteRead(b"")
+
+    for f in os.listdir(tmp):
+        os.utime(os.path.join(tmp, f), (CLOCK[0] - 3 * 86400,) * 2)
+    S.REFRESH_DAYS, S.urllib.request.urlopen = 1, always_incomplete_get
+    txt = S.get(u, refresh=True)
+    eq("get(): a refresh where every attempt raises IncompleteRead degrades onto the cached "
+       "response (not a crash)", (txt == before, "IncompleteRead" in (S.DEGRADED[0] or "")), (True, True))
+    S.DEGRADED[0], S.REFRESH_DAYS = None, 0
 finally:
     (S.CACHE, S.STAMP, S.NETLOG, S.OFFLINE, S.REFRESH_DAYS, S.urllib.request.urlopen, S.time.sleep,
      E.CURRENT_YEAR, S.time.time, E.PARENT_INDEX) = saved

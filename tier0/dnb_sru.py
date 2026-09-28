@@ -137,7 +137,7 @@ def get(url, refresh=False, force=False):
     try:
         text = _live(url)
     except (DnbThrottled, DnbDiagnostic, urllib.error.HTTPError, urllib.error.URLError,
-            TimeoutError, ConnectionError, RuntimeError) as e:
+            TimeoutError, ConnectionError, http.client.HTTPException, socket.timeout, RuntimeError) as e:
         if not (REFRESH_DAYS and have):
             raise
         DEGRADED[0] = "%s: %s" % (type(e).__name__, str(e)[:160])
@@ -251,7 +251,7 @@ def search(query, refresh=False, force=False):
         if got != n:
             raise DnbDiagnostic("DNB result set %r announced %d records, paged %d distinct" % (query, n, got))
     except (DnbThrottled, DnbDiagnostic, urllib.error.HTTPError, urllib.error.URLError,
-            TimeoutError, ConnectionError, RuntimeError) as e:
+            TimeoutError, ConnectionError, http.client.HTTPException, socket.timeout, RuntimeError) as e:
         if not have:
             raise DnbIncomplete("%s: %s -- no complete earlier result set of %r to fall back on"
                                 % (type(e).__name__, e, query)) from e
