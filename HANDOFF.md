@@ -115,8 +115,7 @@ Gotchas:
   `run()` after C0 finishes.** Every dry run so far used an uncommitted driver
   (`build/krcn-replay/t14/dryrun.py`) that skips only the LoC channels the cache can't serve;
   it is not `tier0/rebuild_all.sh`'s real call path and was never intended to be committed. Any
-  figure drawn from these dry runs -- including this task's `docs/krcn-design.md` §10 native-
-  title correction, sourced from `build/krcn-replay/t14/f2-pipe.db` -- is provisional until
+  figure drawn from these dry runs is provisional until
   then (1 of 24 LoC channels cached; the LoC-side counts are a lower bound, not the real EN
   set).
 
