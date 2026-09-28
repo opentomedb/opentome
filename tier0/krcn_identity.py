@@ -88,102 +88,106 @@ def _num_key(n):
         return (1, 0.0, str(n))
 
 
-def split_id(carried, key):
-    """The id of a part split off a carried line (controller ruling 2026-09-27):
-    rl_<hash("split|" + carried id + "|" + the part's own natural key)>."""
-    return _id("rl_", "split|%s|%s" % (carried, key))
+def _qualifies(ln, t, K, held, shared):
+    """Controller ruling 2026-09-27, final (the evidence rule for step 2): (a) at least 2 distinct
+    shared ISBNs (volume numbers never count here); or (b) the same folded name AND the carried line
+    has a publisher AND the publisher families agree (FAMILY, the builders' function for the
+    source). The ruling's (c) -- no carried publisher, the same name, the same natural key -- is
+    subsumed by step 1: a line whose natural key minted T keeps T by continuity, so it is not kept."""
+    if not held:
+        return False
+    if len(shared) >= 2:
+        return True
+    t_pub = K["line_pub"].get(t) or ""
+    fam = FAMILY.get(ln["source"], lambda p: L.fold(p or "", False)[:6])
+    return bool(t_pub and fam(t_pub)
+                and L.fold(K["line_name"].get(t) or "", False) == L.fold(ln["name"] or "", False)
+                and fam(t_pub) == fam(ln.get("publisher") or ""))
 
 
-def line_ids(lines, K):
-    """Rule 1 of the module plan (carry lookup before minting), with the split rule.
-    -> {"ambiguous": [], "adopted": n, "split": [(carried id, [minor part keys])]}.
+def line_ids(lines, K, reserved=()):
+    """Ids for built library lines -- controller ruling 2026-09-27 "continuity first" (supersedes
+    the split-plurality and split-id rulings where they conflict; docs/id-scheme.md "Merges and
+    splits"). In priority order:
 
-    A built line is a PART of carried line T (same source) -- controller ruling 2026-09-27, final --
-    only when it holds at least one of T's volumes (the vote rule below; a bare volume number counts
-    here) AND one of:
-      (a) it shares at least 2 distinct ISBNs with T (volume-number evidence never counts here);
-      (b) its folded name equals T's carried name AND T's carried publisher is not empty AND their
-          publisher families agree (FAMILY, the builders' function for that source);
-      (c) T's carried publisher is empty AND its folded name equals T's AND its natural key is T's
-          minting key (_id('rl_', key) == T: the same record still exists).
-    A line that is no part mints its own key by the normal rules and never takes T by the lookup
-    (by natural key only when no part holds any of it); T is then left to 7b (a redirect, a
-    retirement, or a reported orphan -- loud, never a silent move).
+      1. CONTINUITY. A line whose own natural-key id _id('rl_', key) is in the carry keeps it,
+         unconditionally, and never takes or absorbs any other carried id.
+      2. LOOKUP. Only a line whose own-key id is NOT carried, and only against carried library-born
+         lines of its source (meta krcn_ids) that step 1 did not claim. It holds T's volume (n, i)
+         when i is one of its ISBNs, or i is empty, it has a bare volume n and it shares an ISBN
+         with T or (T having no ISBNs) has T's folded name; it qualifies for T under _qualifies.
+         Several qualify for one T: the most held volumes, then the lowest of T's volume numbers
+         held, then the lowest own key. One line winning several T's takes the older (lowest id_map
+         integer); the others are NOT absorbed.
+      3. NO ABSORPTION. Every carried id neither kept nor taken is left to 7b
+         (carried_ids.redirects: a redirect by an ISBN / dated-volume majority, a retirement, or a
+         reported orphan -- gated, loud). ln["absorbed_ids"] stays [] (the interface keeps it).
+    Every other line mints its own key (and is not carried: step 1 would have kept it).
 
-    Controller ruling 2026-09-27, clarified and refined the same day (docs/id-scheme.md "Merges and splits"):
-      1. PLURALITY: the part holding the most of T's volumes keeps T, whatever its own natural key,
-         provided it holds at least one -- so a lone surviving part with 2 of 5 keeps T; a tie goes
-         to the part holding T's lowest volume number, then to the lowest own key;
-      2. every other part mints a NEW id, split_id(T, its own key) -- never T, and never its bare
-         key hash when that equals T (a line whose key once minted T but that now holds a minority
-         or none of T's volumes); but a part whose own bare key hash is a carried id nobody took
-         keeps that id;
-      3. the moved volumes' published ids are left to 7b's general writer (carried_ids.redirects:
-         a lost volume goes to the volume now holding its ISBN, else its number).
-    This supersedes the brief's strict majority and "a tie is ambiguous": 'ambiguous' stays empty
-    (kept for the caller's report)."""
-    rep = {"ambiguous": [], "adopted": 0, "split": []}
-    parts = collections.defaultdict(list)
+    Precondition (plan P25, design §10): no built line's own-key id may be a JP-round id -- the
+    German JP round owns the 'dnb:' keys it mints, and stage 3f defers a KR/CN line with such a key
+    (deferred_to_jp_round) BEFORE calling this. The caller passes those ids as `reserved`; a line
+    minting one raises AssertionError, so step 1 can never claim a JP-round id.
+
+    -> {"kept": n, "taken": [(T, key)], "taken_weak": [(T, key, shared ISBNs, T's ISBNs)],
+        "left": [carried library-born ids of the built sources neither kept nor taken]}.
+    taken_weak lists every step-2 take whose line holds less than a strict majority of T's carried
+    ISBNs (0 of 0 included): Tasks 12/15 gate publishing on it."""
+    rep = {"kept": 0, "taken": [], "taken_weak": [], "left": []}
+    mint = [_id("rl_", ln["key"]) for ln in lines]
+    bad = sorted({m for m in mint if m in set(reserved)})
+    if bad:
+        raise AssertionError("krcn_identity.line_ids: own-key ids of the JP round (P25 not applied): %r" % bad)
+    if len(set(mint)) != len(mint):
+        raise AssertionError("krcn_identity.line_ids: two built lines with one natural key")
+    series = (K or {}).get("series_ids") or set()
+    step1 = set()
+    for n_, (ln, m) in enumerate(zip(lines, mint)):
+        ln["absorbed_ids"] = []
+        ln["tome_id"], ln["carried"] = m, m in series
+        if ln["carried"]:
+            step1.add(n_)
+            rep["kept"] += 1
+    claimed = {mint[n_] for n_ in step1}
     by_src = collections.defaultdict(list)
-    for t, src in ((K or {}).get("lines") or {}).items():
-        by_src[src].append(t)
+    for t, src in sorted(((K or {}).get("lines") or {}).items()):
+        if t not in claimed:
+            by_src[src].append(t)
+    cands = collections.defaultdict(list)
     for n_, ln in enumerate(lines):
+        if n_ in step1:
+            continue
         isb = {i for v in ln["vols"] for i in v["isbns"]}
         bare = {v["number"] for v in ln["vols"] if not v["isbns"]}
         for t in by_src.get(ln["source"], []):
             tv = K["line_vols"].get(t, [])
-            if not tv:
-                continue
-            share = any(i in isb for _, i in tv if i)
-            name_eq = L.fold(K["line_name"].get(t) or "", False) == L.fold(ln["name"] or "", False)
-            same_name = not any(i for _, i in tv) and name_eq
-            held = {k for k, (n, i) in enumerate(tv) if (i and i in isb) or (not i and n in bare and (share or same_name))}
-            if not held:
-                continue
-            # controller ruling 2026-09-27, final: (a) two shared ISBNs, (b) name + publisher family,
-            # (c) no carried publisher: name + the same minting key
-            t_pub = K["line_pub"].get(t) or ""
-            fam = FAMILY.get(ln["source"], lambda p: L.fold(p or "", False)[:6])
-            if (len({i for _, i in tv if i and i in isb}) >= 2
-                    or (t_pub and name_eq and fam(t_pub) and fam(t_pub) == fam(ln.get("publisher") or ""))
-                    or (not t_pub and name_eq and _id("rl_", ln["key"]) == t)):
-                parts[t].append((held, n_))
-    got, minor = collections.defaultdict(list), collections.defaultdict(list)
-    for t, ps in parts.items():
+            shared = {i for _, i in tv if i and i in isb}
+            same_name = not any(i for _, i in tv) and \
+                L.fold(K["line_name"].get(t) or "", False) == L.fold(ln["name"] or "", False)
+            held = {k for k, (n, i) in enumerate(tv) if (i and i in isb) or (not i and n in bare and (shared or same_name))}
+            if _qualifies(ln, t, K, held, shared):
+                cands[t].append((held, n_, shared))
+    wins = collections.defaultdict(list)
+    for t, cs in cands.items():
         tv = K["line_vols"][t]
-        ps.sort(key=lambda p: (-len(p[0]), min(_num_key(tv[k][0]) for k in p[0]), lines[p[1]]["key"]))
-        got[ps[0][1]].append(t)
-        for _, m in ps[1:]:
-            minor[m].append(t)
-        if len(ps) > 1:
-            rep["split"].append((t, sorted(lines[m]["key"] for _, m in ps[1:])))
-    rep["split"].sort()
-    taken = {t for ts in got.values() for t in ts}
-    for n_, ln in enumerate(lines):
-        ts = got.get(n_, [])
-        ln["absorbed_ids"] = []
-        if ts:
-            ln["tome_id"] = older(ts, K)
-            ln["carried"] = True
-            ln["absorbed_ids"] = sorted(set(ts) - {ln["tome_id"]})
-            rep["adopted"] += 1
-        else:
-            mint = _id("rl_", ln["key"])
-            if minor.get(n_) and not (K and mint in K["series_ids"] and mint not in taken):
-                ln["tome_id"] = split_id(older(minor[n_], K), ln["key"])
-            elif mint in taken:           # its key once minted a carried id another part now keeps
-                ln["tome_id"] = split_id(mint, ln["key"])
-            else:                         # incl. a minor part whose own key is a carried id nobody took
-                ln["tome_id"] = mint
-            # a split id published by an earlier build is carried too
-            ln["carried"] = bool(K) and ln["tome_id"] in K["series_ids"]
-    owner = collections.defaultdict(list)          # an invariant, not a policy: one id, one line
-    for ln in lines:
-        for t in [ln["tome_id"]] + ln["absorbed_ids"]:
-            owner[t].append(ln["key"])
-    clash = sorted((t, sorted(ks)) for t, ks in owner.items() if len(ks) > 1)
-    if clash:
-        raise AssertionError("krcn_identity.line_ids: one id for several built lines: %r" % clash)
+        cs.sort(key=lambda c: (-len(c[0]), min(_num_key(tv[k][0]) for k in c[0]), lines[c[1]]["key"]))
+        wins[cs[0][1]].append((t, cs[0][2]))
+    taken = set()
+    for n_, ts in sorted(wins.items()):
+        t = older([t for t, _ in ts], K)
+        shared = dict(ts)[t]
+        ln = lines[n_]
+        ln["tome_id"], ln["carried"] = t, True
+        taken.add(t)
+        rep["taken"].append((t, ln["key"]))
+        n_isbn = len({i for _, i in K["line_vols"][t] if i})
+        if 2 * len(shared) <= n_isbn or not n_isbn:
+            rep["taken_weak"].append((t, ln["key"], len(shared), n_isbn))
+    srcs = {ln["source"] for ln in lines}
+    rep["left"] = sorted(t for t, src in ((K or {}).get("lines") or {}).items()
+                         if src in srcs and t not in claimed and t not in taken)
+    rep["taken"].sort()
+    rep["taken_weak"].sort()
     return rep
 
 
