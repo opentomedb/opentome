@@ -40,7 +40,7 @@ def read_carry(carry):
         return None
     K = {"works": set(), "lines": {}, "series_ids": set(), "work_ids": set(), "int": {},
          "line_work": {}, "line_name": {}, "line_medium": {}, "line_pub": {},
-         "line_vols": collections.defaultdict(list)}
+         "line_vols": collections.defaultdict(list), "redirect": {}}
     try:
         ids = json.loads(A.execute("SELECT value FROM meta WHERE key='krcn_ids'").fetchone()[0])
         K["works"], K["lines"] = set(ids.get("works", [])), dict(ids.get("lines", {}))
@@ -63,6 +63,11 @@ def read_carry(carry):
         K["int"] = {t: i for t, i, k in A.execute("SELECT opentome_id, int_id, kind FROM id_map")}
     except sqlite3.OperationalError:
         K["int"] = {t: s for s, t in sid_of.items()}
+    try:            # the carry's work redirects (build_krcn.decide resolves a published work through them)
+        K["redirect"] = {o: n for o, n in A.execute("SELECT old_tome_id, new_tome_id FROM id_redirect")
+                         if o and n and o.startswith("w_")}
+    except sqlite3.OperationalError:
+        pass
     for sid, num, isbn in A.execute("SELECT gcd_series_id, volume_number, isbn13 FROM volumes"):
         if sid in sid_of:
             K["line_vols"][sid_of[sid]].append((str(num), isbn))
@@ -127,7 +132,8 @@ def line_ids(lines, K, reserved=()):
     Precondition (plan P25, design §10): no built line's own-key id may be a JP-round id -- the
     German JP round owns the 'dnb:' keys it mints, and stage 3f defers a KR/CN line with such a key
     (deferred_to_jp_round) BEFORE calling this. The caller passes those ids as `reserved`; a line
-    minting one raises AssertionError, so step 1 can never claim a JP-round id.
+    minting one raises AssertionError, so step 1 can never claim a JP-round id, and step 2 never
+    takes one (a reserved carried id is not a lookup candidate; it lands in "left", 7b's).
 
     -> {"kept": n, "taken": [(T, key)], "taken_weak": [(T, key, shared ISBNs, T's ISBNs)],
         "left": [carried library-born ids of the built sources neither kept nor taken]}.
@@ -150,8 +156,9 @@ def line_ids(lines, K, reserved=()):
             rep["kept"] += 1
     claimed = {mint[n_] for n_ in step1}
     by_src = collections.defaultdict(list)
+    reserved = set(reserved)
     for t, src in sorted(((K or {}).get("lines") or {}).items()):
-        if t not in claimed:
+        if t not in claimed and t not in reserved:        # a JP-round id is never taken either (left to 7b)
             by_src[src].append(t)
     cands = collections.defaultdict(list)
     for n_, ln in enumerate(lines):

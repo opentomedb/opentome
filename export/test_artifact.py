@@ -613,21 +613,29 @@ def run_dnb(path, catalogue):
 
 def run_link_work(catalogue):
     """corrections/lines.json link_work entries (R2): each names a library line this build has, and
-    that line ships under the corrected work -- linked or kept, or merged / sibling by ISBN when
-    the ISBNs agree (the join resolves merged to the Wikipedia line's work); a different work
-    fails. A key the build does not have is reported (stale), not failed: DNB can renumber a set."""
+    that line ships under the corrected work -- linked or kept, adopting, or merged / sibling by ISBN
+    when the ISBNs agree (the join resolves merged to the Wikipedia line's work); a different work
+    fails. The corrected work is read through stage 3f's adoption renames (meta krcn:adopted: a
+    published work 3f renamed ships under the public id), and a KR/CN line with no release line of
+    its own falls back to krcn_line.work. A key the build does not have is reported (stale), not
+    failed: DNB can renumber a set."""
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tier2"))
     import corrections as CORR
     cat = sqlite3.connect(catalogue)
-    want = CORR.load_link_work()
+    try:
+        renamed = {i: p for kind, i, p in json.loads(
+            (cat.execute("SELECT value FROM meta WHERE key='krcn:adopted'").fetchone() or ["[]"])[0]) if kind == "work"}
+    except sqlite3.OperationalError:
+        renamed = {}
+    want = {k: renamed.get(w, w) for k, w in CORR.load_link_work().items()}
     rows = {}
-    for table in ("dnb_line", "krcn_line"):         # both carry key, role and rl_id
-        try:
+    for table, work in (("dnb_line", "rl.work_id"), ("krcn_line", "COALESCE(rl.work_id, d.work)")):
+        try:                                        # both carry key, role and rl_id
             rows.update({k: (r, w) for k, r, w in cat.execute(
-                "SELECT d.key, d.role, rl.work_id FROM %s d LEFT JOIN release_line rl ON rl.id=d.rl_id" % table)})
+                "SELECT d.key, d.role, %s FROM %s d LEFT JOIN release_line rl ON rl.id=d.rl_id" % (work, table))})
         except sqlite3.OperationalError:
             pass
-    ships = ("linked", "kept", "merged", "sibling")
+    ships = ("linked", "kept", "merged", "sibling", "adopting")
     wrong = [k for k, w in want.items() if k in rows and (rows[k][0] not in ships or rows[k][1] != w)]
     rule("link_work corrections not applied (line not linked under the corrected work)", len(wrong), str(wrong[:5]))
     stale = [k for k in want if k not in rows]
@@ -808,6 +816,13 @@ def run_krcn(path, catalogue, carry=None):
         new = sorted(set(created) - set(carried_ids.get("works", [])))
         rule("more than %d new library works in a refresh build (flood gate)" % MAX_NEW_LIBRARY_WORKS,
              0 if len(new) <= MAX_NEW_LIBRARY_WORKS else len(new), str(new[:5]))
+    # never demoted (final review I2): a line whose id came from the carry does not export as held / review /
+    # unlinked -- 7b would only retire it to its work's main line. Absorbed and merged lines stay 7b's. The fix
+    # for a real demotion is a link_work correction.
+    demoted = cat.execute("""SELECT key, role FROM krcn_line WHERE carried=1 AND exported=0
+                             AND role IN ('held','review','unlinked') ORDER BY key""").fetchall()
+    rule("carried KR/CN lines demoted to held / review / unlinked (a published line never is; fix: link_work)",
+         len(demoted), str(demoted[:5]))
     novel_bad = 0
     for t in ids.get("lines", {}):
         row = db.execute("SELECT tome_work_id, medium FROM series WHERE tome_id=?", (t,)).fetchone()

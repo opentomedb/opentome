@@ -81,6 +81,7 @@ class Source:
         self.ua = UA % licence_note
         self.relocate(CACHE, os.path.join(ROOT, "build"))
         self.degraded, self.degraded_queries = None, []
+        self.stale_queries = []            # offline: cached sets served past their refresh window (loc:offline)
         self.live, self.refusals = 0, 0
         self.sleep, self.now, self.urlopen = time.sleep, time.time, None      # test hooks
         # Completeness hook, None = the generic rule (distinct records == numberOfRecords). LoC sets
@@ -273,6 +274,8 @@ class Source:
             if not stale or self.offline or self.degraded:
                 if stale and self.degraded and query not in self.degraded_queries:
                     self.degraded_queries.append(query)
+                if stale and self.offline and query not in self.stale_queries:
+                    self.stale_queries.append(query)
                 return n, pages
         if self.offline:
             raise SourceOfflineMiss("%s_OFFLINE=1 and no complete cached result set for %r"

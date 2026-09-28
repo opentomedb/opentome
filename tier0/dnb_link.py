@@ -36,7 +36,7 @@ Tiers -- only high and medium are exported (decision 1, docs/dnb-design.md):
                (own-title): high with author evidence, else medium
     none       nothing matched
 """
-import collections, json, re, unicodedata
+import collections, json, re, sqlite3, unicodedata
 
 MIN_KEY = 3
 MIN_HANGUL_KEY = 2              # a key of Hangul syllables only (docs/krcn-design.md §10)
@@ -121,10 +121,21 @@ class Index:
         self.authors = collections.defaultdict(set)
         self.author_raw = collections.defaultdict(set)
         self.name = {}
+        # works stage 3f made (library works; meta krcn:works_made) are not linked to: a KEEP_DB rerun of 3e
+        # after 3f must read the index a fresh build's 3e reads (3f unloads them before its own index)
+        try:
+            made = set(json.loads((db.execute("SELECT value FROM meta WHERE key='krcn:works_made'").fetchone()
+                                   or ["[]"])[0]))
+        except sqlite3.OperationalError:
+            made = set()
         for wid, t in db.execute("SELECT id, primary_title FROM work"):
+            if wid in made:
+                continue
             self.name[wid] = t
             self._add(self.official, t, wid)
         for wid, t, kind in db.execute("SELECT work_id, title, kind FROM work_title"):
+            if wid in made:
+                continue
             self._add(self.alias if kind == "alias" else self.official, LIST_PREFIX.sub("", t), wid)
         for wid, field, v in db.execute("""SELECT entity_id, field, value FROM claim WHERE entity='work'
                                            AND field IN ('ja_romaji','ja_kanji','author','illustrator')"""):

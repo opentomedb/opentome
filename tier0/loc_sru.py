@@ -364,9 +364,10 @@ def enumerate_loc(verbose=True):
             recs.setdefault(k, r)
     report.update(distinct=len(recs), live_requests=LOC.live, degraded=LOC.degraded,
                   degraded_queries=list(LOC.degraded_queries))
-    os.makedirs(os.path.dirname(REPORT), exist_ok=True)
-    with open(REPORT, "w", encoding="utf8") as f:
-        json.dump(report, f, indent=1, sort_keys=True)
+    if REPORT:                         # None: build_krcn.same_ids (8d) reads the channels, it does not report
+        os.makedirs(os.path.dirname(REPORT), exist_ok=True)
+        with open(REPORT, "w", encoding="utf8") as f:
+            json.dump(report, f, indent=1, sort_keys=True)
     return recs, report
 
 
