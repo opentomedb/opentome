@@ -6,7 +6,8 @@
 #
 # Every step keys on the one before it: a rebuild that fails at any gate stops
 # the job, so the manifest, the upload and the publish never see a half-built or
-# stale artifact. Never add `if: always()` / `continue-on-error` to a step here.
+# stale artifact. Never add `if: always()` / `!cancelled()` / `continue-on-error` to a
+# step here -- the one exception is the source-cache save after the rebuild, which ships nothing.
 name: catalogue
 
 on:
@@ -45,14 +46,15 @@ jobs:
         with:
           python-version: '3.12'
       # Restores the newest `opentome-cache-*` entry (seed, keepalive or a previous
-      # build) and saves this run's cache under its own key at job end, so the
-      # responses a run fetched are there for the next one. A warm run hits close to
+      # build); the save step at the end stores this run's cache under its own key,
+      # so the responses a run fetched are there for the next one. A warm run hits close to
       # zero network -- the seed-cache workflow is what makes the first run warm. Beyond the
       # source refresh windows below, one more recurring cost: Open Library per-ISBN negatives refresh every
       # OL_NEG_REFRESH_DAYS (60, tier1/enrich_more.py) days by mtime, so once they age
       # past that window a build re-requests them -- ~77 requests on today's 3,833
       # negatives (ceil(3833/50)), first wave ~2026-11-26.
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache
         with:
           path: .cache
           key: opentome-cache-${{ github.run_id }}
@@ -84,24 +86,42 @@ jobs:
       # lx2.loc.gov:210 is plain HTTP on a non-standard port (docs/krcn-design.md §3). If a runner cannot
       # reach it, this run builds LoC from the cache (LOC_OFFLINE=1: the seed's complete sets and the
       # cached canary) and says so; any LoC set missing from the cache then fails the build loudly.
+      # Each probe is a live request, so it goes to the source's netlog in tier0/lib_sru.py's
+      # columns (start, status 200 / HTTP<code> / ERR, seconds, bytes, url). A fallback is traced,
+      # never blocking (P13): LOC_UNREACHABLE / BNF_UNREACHABLE make stage 3f write the non-blocking
+      # meta loc:offline / bnf:offline (stale sets counted) and a line in build/krcn-report.json.
       - name: LoC reachability
         run: |
-          if curl -fsS -m 20 -o /dev/null -A "OpenTome-CI/1.0 (reachability probe)" \
-               "http://lx2.loc.gov:210/lcdb?version=1.1&operation=searchRetrieve&query=bath.isbn%3D9781975319434&recordSchema=marcxml&maximumRecords=1&startRecord=1"; then
+          mkdir -p build
+          url="http://lx2.loc.gov:210/lcdb?version=1.1&operation=searchRetrieve&query=bath.isbn%3D9781975319434&recordSchema=marcxml&maximumRecords=1&startRecord=1"
+          start=$(date +%Y-%m-%dT%H:%M:%S.%3N)
+          if out=$(curl -fsS -m 20 -o /dev/null -w '%{http_code} %{size_download} %{time_total}' -A "OpenTome-CI/1.0 (reachability probe)" "$url"); then ok=1; else ok=0; fi
+          read -r code size secs <<< "${out:-000 0 0}"
+          if [ "$ok" = 1 ]; then status=200; elif [ "$code" = 000 ]; then status=ERR; size=0; else status="HTTP$code"; size=0; fi
+          printf '%s\t%s\t%.2f\t%s\t%s\n' "$start" "$status" "$secs" "$size" "$url" >> build/loc-netlog.tsv
+          if [ "$ok" = 1 ]; then
             echo "LoC reachable"
           else
             echo "::warning::lx2.loc.gov:210 unreachable from this runner -- LoC is read from the cache (LOC_OFFLINE=1)"
             echo "LOC_OFFLINE=1" >> "$GITHUB_ENV"
+            echo "LOC_UNREACHABLE=1" >> "$GITHUB_ENV"
           fi
       # The same fallback for BnF (spec §3 names both LOC_OFFLINE and BNF_OFFLINE): one HEAD-sized probe.
       - name: BnF reachability
         run: |
-          if curl -fsS -m 20 -o /dev/null -A "OpenTome-CI/1.0 (reachability probe)" \
-               "https://catalogue.bnf.fr/api/SRU?version=1.2&operation=searchRetrieve&query=bib.isbn%20all%20%229782382880371%22&recordSchema=unimarcxchange&maximumRecords=1"; then
+          mkdir -p build
+          url="https://catalogue.bnf.fr/api/SRU?version=1.2&operation=searchRetrieve&query=bib.isbn%20all%20%229782382880371%22&recordSchema=unimarcxchange&maximumRecords=1"
+          start=$(date +%Y-%m-%dT%H:%M:%S.%3N)
+          if out=$(curl -fsS -m 20 -o /dev/null -w '%{http_code} %{size_download} %{time_total}' -A "OpenTome-CI/1.0 (reachability probe)" "$url"); then ok=1; else ok=0; fi
+          read -r code size secs <<< "${out:-000 0 0}"
+          if [ "$ok" = 1 ]; then status=200; elif [ "$code" = 000 ]; then status=ERR; size=0; else status="HTTP$code"; size=0; fi
+          printf '%s\t%s\t%.2f\t%s\t%s\n' "$start" "$status" "$secs" "$size" "$url" >> build/bnf-netlog.tsv
+          if [ "$ok" = 1 ]; then
             echo "BnF reachable"
           else
             echo "::warning::catalogue.bnf.fr unreachable from this runner -- BnF is read from the cache (BNF_OFFLINE=1)"
             echo "BNF_OFFLINE=1" >> "$GITHUB_ENV"
+            echo "BNF_UNREACHABLE=1" >> "$GITHUB_ENV"
           fi
       # Runs every stage including the measure gate (8d, writes build/measure.log)
       # and exits non-zero on any test, audit, contract or coverage failure.
@@ -122,7 +142,21 @@ jobs:
           # degraded (built and gated, never published); a set with no complete copy fails the build.
           LOC_REFRESH_DAYS: "28"
           BNF_REFRESH_DAYS: "28"
+          # a runaway LoC pager stops at 260 live requests (lib_sru SourceBudget; a full refresh is ~110-160)
+          LOC_MAX_REQUESTS: "260"
         run: bash tier0/rebuild_all.sh
+      # Saves the source cache even when a gate failed (the one exception above): a failed
+      # run's LoC / BnF / DNB fetches are kept, so the next run does not re-request them from
+      # a gateway that throttled us. A result set is staged in memory and stored only once
+      # complete (tier0/lib_sru.py, tier0/dnb_sru.py), so any failure that raises leaves only
+      # whole sets. Not on a cancelled or timed-out run: a kill in the middle of storing a
+      # refreshed set's pages could mix old and new pages. Same key scheme as before; an exact
+      # hit (a re-run attempt) saves nothing, as the combined actions/cache step did.
+      - uses: actions/cache/save@v4
+        if: ${{ !cancelled() && steps.cache.outcome == 'success' && steps.cache.outputs.cache-hit != 'true' }}
+        with:
+          path: .cache
+          key: opentome-cache-${{ github.run_id }}
       # Without PUBLISH=1 publish.sh only writes build/version.json and prints the
       # per-build tag; it also runs the two clean-room refusals.
       - name: manifest (dry run)
