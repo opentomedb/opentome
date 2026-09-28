@@ -111,18 +111,22 @@ def run():
 
     # ---- KR/CN library lines (krcn-design §8, controller rulings 2, 3, 5) --------------------
     k = fixture_krcn()
-    eq("a library line's series.name is the builder's name, not an earlier line_name claim (carry rule b)",
-       k["K"]["line_name"].get("rl_lib"), "Solo Leveling")
-    eq("... and its series.publisher the builder's publisher string", k["K"]["line_pub"].get("rl_lib"), "Ize Press")
-    eq("... the line's own name is its first alias (kind 'line')", k["line_alias"], "Solo Leveling")
+    eq("a library line with no Wikipedia name: series.name is the builder's, not an earlier line_name claim",
+       k["K"]["line_name"].get("rl_lib2"), "Omniscient Reader")
+    eq("... its series.publisher the builder's publisher string", k["K"]["line_pub"].get("rl_lib2"), "Ize Press")
+    eq("... the line's own name is its first alias (kind 'line')", k["line_alias"], "Omniscient Reader")
+    eq("a library line Wikipedia names keeps the Wikipedia name (controller ruling), the builder's publisher",
+       (k["K"]["line_name"].get("rl_lib"), k["K"]["line_pub"].get("rl_lib")), ("Wiki Name", "Ize Press"))
     eq("a merged krcn_line row never renames the existing line it ships inside", (k["K"]["line_name"].get("rl_wiki"),
        k["K"]["line_pub"].get("rl_wiki")), ("Wiki Line", "Yen Press"))
     eq("meta.krcn_ids keeps only ids the artifact ships (a held line's id, a gone work: dropped)",
-       (sorted(k["K"]["works"]), k["K"]["lines"]), (["w_k"], {"rl_lib": "loc"}))
+       (sorted(k["K"]["works"]), k["K"]["lines"]), (["w_k"], {"rl_lib": "loc", "rl_lib2": "loc"}))
     eq("an alternative ISBN claim (isbn13_alt) never reaches the artifact", k["alt_found"], 0)
     eq("meta.krcn_lines tallies roles overall and per market (held included)", k["krcn_lines"],
-       {"roles": {"held": 1, "merged": 1, "new_work": 1},
-        "by_market": {"DE": {}, "EN": {"held": 1, "merged": 1, "new_work": 1}, "FR": {}}})
+       {"roles": {"held": 1, "merged": 1, "new_work": 2},
+        "by_market": {"DE": {}, "EN": {"held": 1, "merged": 1, "new_work": 2}, "FR": {}}})
+    eq("the licence gate flags an isbn13_alt claim (not in the loc field allowlist)", k["alt_gate"],
+       ["dnb / loc / bnf claims outside the source's field allowlist"])
     eq("the artifact passes the KR/CN licence and R6 rules", k["licence_fails"], [])
     eq("... and a non-exported line's id listed in meta.krcn_ids fails R6", k["r6_fails"],
        ["held / review / unlinked KR/CN line ids in release_line, series, id_map or meta.krcn_ids"])
@@ -259,11 +263,13 @@ def fixture_krcn():
     db.executescript(BK.STAGING_DDL)
     db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_k','Solo Leveling','x','x')")
     db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_o','Other Work','x','x')")
-    for rid, wid, pub in (("rl_lib", "w_k", "Yen Press"), ("rl_wiki", "w_o", "Yen Press")):
+    for rid, wid, pub in (("rl_lib", "w_k", "Yen Press"), ("rl_wiki", "w_o", "Yen Press"), ("rl_lib2", "w_k", None)):
         db.execute("""INSERT INTO release_line(id,work_id,medium,market,language,publisher,created_at,updated_at)
                       VALUES(?,?,'manhwa','EN','en',?,'x','x')""", (rid, wid, pub))
     for rid, name, src, url, lic in (("rl_lib", "Wiki Name", "wikipedia", "https://en.wikipedia.org/wiki/X", "facts_only"),
                                      ("rl_lib", "Solo Leveling", "loc", "https://lccn.loc.gov/2020950228", "us_gov_pd"),
+                                     ("rl_lib2", "Stale Name", "opentome", None, "open"),
+                                     ("rl_lib2", "Omniscient Reader", "loc", "https://lccn.loc.gov/2021011111", "us_gov_pd"),
                                      ("rl_wiki", "Wiki Line", "wikipedia", "https://en.wikipedia.org/wiki/Y", "facts_only")):
         db.execute("INSERT INTO claim VALUES('release_line',?,'line_name',?,?,?,?,'x')", (rid, name, src, url, lic))
     db.execute("""INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at)
@@ -277,9 +283,11 @@ def fixture_krcn():
     db.execute("""INSERT INTO krcn_line(key,source,market,rl_id,carried,work,name,publisher,role,exported)
                   VALUES('loc:2020950228','loc','EN','rl_lib',0,'w_k','Solo Leveling','Ize Press','new_work',1)""")
     db.execute("""INSERT INTO krcn_line(key,source,market,rl_id,carried,work,name,publisher,role,exported)
+                  VALUES('loc:2021011111','loc','EN','rl_lib2',0,'w_k','Omniscient Reader','Ize Press','new_work',1)""")
+    db.execute("""INSERT INTO krcn_line(key,source,market,rl_id,carried,work,name,publisher,role,exported)
                   VALUES(?,'loc','EN',NULL,0,NULL,'Held Title','Ize Press','held',0)""", (held,))
     db.execute("INSERT INTO meta VALUES('krcn:ids',?)", (json.dumps(
-        {"works": ["w_k", "w_gone"], "created": ["w_k"], "lines": {"rl_lib": "loc", _id("rl_", held): "loc"}}),))
+        {"works": ["w_k", "w_gone"], "created": ["w_k"], "lines": {"rl_lib": "loc", "rl_lib2": "loc", _id("rl_", held): "loc"}}),))
     db.commit()
     real_dir = corr.DIR
     corr.DIR = tempfile.mkdtemp(prefix="opentome-nocorr-")
@@ -290,11 +298,19 @@ def fixture_krcn():
     out = sqlite3.connect(out_path)
     r = {"K": KI.read_carry(out_path),
          "line_alias": out.execute("""SELECT a.alias FROM series_alias a JOIN series s USING(gcd_series_id)
-                                      WHERE s.tome_id='rl_lib' AND a.kind='line'""").fetchone()[0],
+                                      WHERE s.tome_id='rl_lib2' AND a.kind='line'""").fetchone()[0],
          "alt_found": out.execute("""SELECT (SELECT COUNT(*) FROM volumes WHERE isbn13='9781975399990' OR isbn10='9781975399990')
                                      + (SELECT COUNT(*) FROM volumes_special WHERE isbn13='9781975399990')""").fetchone()[0],
          "krcn_lines": json.loads(out.execute("SELECT value FROM meta WHERE key='krcn_lines'").fetchone()[0])}
     out.close()
+    n = len(TA.FAILS)
+    with contextlib.redirect_stdout(io.StringIO()):
+        TA.run_krcn_licence(out_path, src_path)
+    r["alt_gate"] = TA.FAILS[n:]
+    c = sqlite3.connect(src_path)
+    c.execute("DELETE FROM claim WHERE field='isbn13_alt'")
+    c.commit()
+    c.close()
     n = len(TA.FAILS)
     TA.run_krcn_licence(out_path, src_path)
     r["licence_fails"] = TA.FAILS[n:]

@@ -144,6 +144,19 @@ for SRC_FLAG in loc_degraded bnf_degraded; do
     fi
   fi
 done
+# KR/CN ids (plan P3): a build that staged KR/CN lines (meta.krcn_lines has roles) must carry
+# meta.krcn_ids, the library-born works and lines the next build's carry lookup reads -- without it
+# that build cannot find them. Fail closed: an unreadable krcn_lines counts as staged.
+KRCN_ROWS="$(sqlite3 "$ART" "SELECT COUNT(*) FROM meta, json_each(meta.value, '\$.roles') WHERE meta.key='krcn_lines'" 2>/dev/null)" \
+  || KRCN_ROWS="unreadable"
+if [ "$KRCN_ROWS" != "0" ] && [ -z "$(q krcn_ids)" ]; then
+  echo
+  echo "KRCN IDS: meta.krcn_lines has staged KR/CN lines ($KRCN_ROWS roles) but meta.krcn_ids is absent" >&2
+  if [ "${PUBLISH:-0}" = "1" ]; then
+    echo "refusing: meta.krcn_ids is absent -- the next build could not carry the library-born ids." >&2
+    exit 1
+  fi
+fi
 
 # Ids are a public contract: a build that did not carry them from the last published artifact
 # (meta.carried_from absent) re-issued every integer and redirected nothing, and one that carried

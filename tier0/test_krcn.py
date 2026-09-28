@@ -2532,7 +2532,7 @@ eq("record_meta: KR/CN DNB degradation merges into 3e's dnb:degraded (3e's value
    {"reason": "HTTP 502", "kept_previous": ["jp q"],
     "krcn": {"reason": "URLError: t", "kept_previous": ["spo=kor and jhr=2021"]}})
 with contextlib.redirect_stdout(io.StringIO()):
-    BK.record_meta(db, m_lines, m_plan, {"loc": {"degraded": None, "degraded_queries": []}, "dnb": {},
+    BK.record_meta(db, m_lines, m_plan, {"loc": {"degraded": None, "degraded_queries": []}, "dnb": {"degraded": None},
                                          "bnf": {"degraded": None, "degraded_queries": ["q1"]}})
 eq("record_meta: a clean LoC run clears loc:degraded; an incomplete BnF set (queries, no reason) is degraded",
    (mv("loc:degraded"), json.loads(mv("bnf:degraded"))), (None, {"reason": "incomplete", "kept_previous": ["q1"]}))
@@ -2540,16 +2540,78 @@ eq("record_meta: a clean KR/CN DNB run never clears 3e's dnb:degraded", json.loa
 db2 = schema_db()
 with contextlib.redirect_stdout(io.StringIO()):
     BK.record_meta(db2, [], {}, {"dnb": {"degraded": "HTTPError: 503", "degraded_queries": ["spo=chi"]},
-                                 "loc": {}, "bnf": {}})
+                                 "loc": {"degraded": None}, "bnf": {"degraded": None}})
 eq("record_meta: KR/CN DNB degraded with 3e clean -> dnb:degraded of its own", json.loads(
    db2.execute("SELECT value FROM meta WHERE key='dnb:degraded'").fetchone()[0]),
    {"reason": "HTTPError: 503", "kept_previous": ["spo=chi"], "round": "krcn"})
 
-try:
-    BK.record_meta(db2, [], {}, {"LoC": {"degraded": "x"}, "bnf": {}, "dnb": {}})
-    eq("record_meta: a missing source report raises (never a silent clean run)", "no exception", "ValueError")
-except ValueError:
-    eq("record_meta: a missing source report raises (never a silent clean run)", True, True)
+for label, reps in (("a missing source report", {"LoC": {"degraded": "x"}, "bnf": {"degraded": None},
+                                                  "dnb": {"degraded": None}}),
+                    ("a report without its 'degraded' key", {"loc": {"degraded_queries": ["q"]},
+                                                             "bnf": {"degraded": None}, "dnb": {"degraded": None}})):
+    try:
+        BK.record_meta(db2, [], {}, reps)
+        eq("record_meta: %s raises (never a silent clean run)" % label, "no exception", "ValueError")
+    except ValueError:
+        eq("record_meta: %s raises (never a silent clean run)" % label, True, True)
+
+# the single KR/CN licence gate (test_artifact.run_krcn_licence): per-source field allowlists, anchored
+# urls, ark-only line sources, no library-hosted covers -- the reviewer's bypasses each fail it
+import test_artifact as TART
+
+
+def lic_gate(claims, cover=None):
+    d = tempfile.mkdtemp(prefix="krcn-lic-", dir=os.path.join(ROOT, "build"))
+    catp, artp = os.path.join(d, "cat.db"), os.path.join(d, "art.sqlite")
+    C = sqlite3.connect(catp)
+    C.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+    base = [("volume", "v_ok", "isbn13", "9781975319434", "loc", "https://lccn.loc.gov/2020950228", "us_gov_pd"),
+            ("volume", "v_d", "page_count", "192", "dnb", "https://d-nb.info/1234567890", "cc0"),
+            ("volume", "v_b", "volume_number", "1", "bnf", "https://catalogue.bnf.fr/ark:/12148/cb47253773p", "open"),
+            ("volume", "v_e", "page_count", "200", "bnf",
+             "https://catalogue.bnf.fr/api/SRU?query=bib.isbn+all+%229782811600000%22", "open")]
+    C.executemany("INSERT OR REPLACE INTO claim VALUES(?,?,?,?,?,?,?,'x')", base + list(claims))
+    C.commit()
+    A = sqlite3.connect(artp)
+    A.executescript("""CREATE TABLE volumes (cover_url TEXT, cover_source TEXT); CREATE TABLE series (tome_id TEXT);
+                       CREATE TABLE id_map (opentome_id TEXT, int_id INTEGER, kind TEXT);
+                       CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);""")
+    A.execute("INSERT INTO meta VALUES('attribution','... Library of Congress (US government work) ...')")
+    if cover:
+        A.execute("INSERT INTO volumes VALUES(?, 'openlibrary')", (cover,))
+    A.commit()
+    n = len(TART.FAILS)
+    with contextlib.redirect_stdout(io.StringIO()):
+        TART.run_krcn_licence(artp, catp)
+    got = TART.FAILS[n:]
+    del TART.FAILS[n:]
+    shutil.rmtree(d)
+    return got
+
+
+eq("licence gate: the clean base passes", lic_gate([]), [])
+ALLOW = "dnb / loc / bnf claims outside the source's field allowlist"
+eq("licence gate: a loc summary (520) fails the allowlist",
+   lic_gate([("work", "w_1", "summary", "A story of...", "loc", "https://lccn.loc.gov/2020950228", "us_gov_pd")]), [ALLOW])
+eq("licence gate: a dnb description (856 blurb) fails the allowlist",
+   lic_gate([("volume", "v_d", "description", "Klappentext", "dnb", "https://d-nb.info/1234567890", "cc0")]), [ALLOW])
+eq("licence gate: a dnb page_count cited to an /04 (cover / TOC) url fails the anchored DNB url",
+   lic_gate([("volume", "v_d2", "page_count", "180", "dnb", "https://d-nb.info/1234567890/04", "cc0")]),
+   ["dnb claims whose source_url is not https://d-nb.info/<IDN>"])
+eq("licence gate: a bnf thumbnail '//...' fails the allowlist and the link-value rule",
+   lic_gate([("volume", "v_b", "thumbnail", "//catalogue.bnf.fr/couverture?appName=NE&idArk=x", "bnf",
+              "https://catalogue.bnf.fr/ark:/12148/cb47253773p", "open")]),
+   [ALLOW, "dnb / loc / bnf claims whose value is a link"])
+BNFU = "bnf claims whose source_url is not an ark URL (the per-ISBN lookup: enrichment only)"
+eq("licence gate: a bnf line-source claim (isbn13) on the per-ISBN SRU url fails -- ark only",
+   lic_gate([("volume", "v_b2", "isbn13", "9782811600001", "bnf",
+              "https://catalogue.bnf.fr/api/SRU?query=bib.isbn+all+%229782811600001%22", "open")]), [BNFU])
+eq("licence gate: ... and an SRU-cited page_count on an ark-sourced (line-source) volume fails",
+   lic_gate([("volume", "v_b", "page_count", "150", "bnf",
+              "https://catalogue.bnf.fr/api/SRU?query=bib.isbn+all+%229782811600002%22", "open")]), [BNFU])
+eq("licence gate: an artifact cover_url on a library host fails (whatever cover_source says)",
+   lic_gate([], cover="https://portal.dnb.de/opac/mvb/cover?isbn=x https://d-nb.info/1234567890/04"),
+   ["artifact covers from dnb / loc / bnf (source or host)"])
 
 # publish.sh refuses loc_degraded / bnf_degraded. publish.sh cd's to its repo root and writes
 # build/version.json: run a copy (tier0/test_dnb.py's pattern). The artifact here is cold-start with
@@ -2584,6 +2646,36 @@ for flag in ("loc_degraded", "bnf_degraded"):
                        env=dict(penv, PUBLISH="0"), capture_output=True, text=True)
     eq("... its dry run passes and names the flag", (r.returncode, flag in r.stderr, os.path.exists(marker)),
        (0, True, False))
+
+
+def pub_art(name, meta):
+    art = os.path.join(pub, "build", name)
+    A = sqlite3.connect(art)
+    A.executescript("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT); CREATE TABLE series (x); CREATE TABLE volumes (x);")
+    A.executemany("INSERT INTO meta VALUES(?,?)", [("gcd_dump", "opentome-2026-09-28"), ("alias_provenance", "opentome"),
+                                                   ("licence", "x"), ("carried_from", "cold-start")] + meta)
+    A.commit()
+    A.close()
+    return art
+
+
+def pub_run(art, publish):
+    return subprocess.run(["bash", os.path.join(pub, "export", "publish.sh"), art], cwd=pub,
+                          env=dict(penv, PUBLISH=publish), capture_output=True, text=True)
+
+
+STAGED = ("krcn_lines", json.dumps({"roles": {"held": 3, "new_work": 1}, "by_market": {}}))
+r = pub_run(pub_art("a-noids.sqlite", [STAGED]), "1")
+eq("publish.sh refuses staged KR/CN lines without meta.krcn_ids (and never reaches gh)",
+   (r.returncode, "refusing: meta.krcn_ids is absent" in r.stderr, os.path.exists(marker)), (1, True, False))
+r = pub_run(pub_art("a-badlines.sqlite", [("krcn_lines", "{not json")]), "1")
+eq("... and an unreadable meta.krcn_lines without krcn_ids (fail closed)",
+   (r.returncode, "refusing: meta.krcn_ids is absent" in r.stderr, os.path.exists(marker)), (1, True, False))
+for label, meta in (("with meta.krcn_ids", [STAGED, ("krcn_ids", '{"works": [], "created": [], "lines": {}}')]),
+                    ("with krcn_lines={} (no 3f)", [("krcn_lines", "{}")]), ("with no krcn_lines at all", [])):
+    r = pub_run(pub_art("a-ok.sqlite", meta), "0")
+    eq("publish.sh dry run %s: no krcn_ids complaint" % label, (r.returncode, "KRCN IDS" in r.stderr), (0, False))
+    os.remove(os.path.join(pub, "build", "a-ok.sqlite"))
 
 # ==== summary ====
 print()
