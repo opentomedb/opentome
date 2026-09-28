@@ -67,7 +67,7 @@ jobs:
         run: |
           mkdir -p build
           curl -fsSL --retry 3 -o build/manga-metadata.sqlite \
-            https://github.com/DrAwesome441/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite \
+            https://github.com/opentomedb/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite \
             || { rm -f build/manga-metadata.sqlite
                  if [ "$OPENTOME_COLD_START" = "1" ]; then
                    echo "::warning::no published artifact to carry ids from — cold start (cold_start=true)"
@@ -130,7 +130,7 @@ jobs:
           label, series, volumes, gate = sys.argv[1:5]
           print(json.dumps({"username": "OpenTome", "embeds": [{
               "title": f"Catalogue published: {label}", "color": 0x7a43b6,
-              "url": "https://github.com/DrAwesome441/mangarr-metadata/releases/tag/" + label,
+              "url": "https://github.com/opentomedb/mangarr-metadata/releases/tag/" + label,
               "description": f"{int(series):,} series, {int(volumes):,} volumes. {gate}\nMangarr picks it up on its next daily check."}]}))
           EOF
           )
