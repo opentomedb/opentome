@@ -33,7 +33,7 @@ STAMP = os.path.join(CACHE, ".dnb-last-request")
 NETLOG = os.path.join(ROOT, "build", "dnb-netlog.tsv")
 BASE = "https://services.dnb.de/sru/dnb"
 UA = ("OpenTome/0.1 (open manga/light-novel catalogue; CC0 DNB bibliographic data; "
-      "serial, >=3s between requests; https://github.com/DrAwesome441/opentome)")
+      "serial, >=3s between requests; https://github.com/opentomedb/opentome)")
 # Never below 3 s, whatever the environment says.
 INTERVAL = max(3.0, float(os.environ.get("DNB_INTERVAL", "3.0") or 3.0))
 OFFLINE = os.environ.get("DNB_OFFLINE", "0") == "1"
