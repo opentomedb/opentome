@@ -47,8 +47,8 @@ jobs:
       # Restores the newest `opentome-cache-*` entry (seed, keepalive or a previous
       # build) and saves this run's cache under its own key at job end, so the
       # responses a run fetched are there for the next one. A warm run hits close to
-      # zero network -- the seed-cache workflow is what makes the first run warm. The
-      # one recurring exception: Open Library per-ISBN negatives refresh every
+      # zero network -- the seed-cache workflow is what makes the first run warm. Beyond the
+      # source refresh windows below, one more recurring cost: Open Library per-ISBN negatives refresh every
       # OL_NEG_REFRESH_DAYS (60, tier1/enrich_more.py) days by mtime, so once they age
       # past that window a build re-requests them -- ~77 requests on today's 3,833
       # negatives (ceil(3833/50)), first wave ~2026-11-26.

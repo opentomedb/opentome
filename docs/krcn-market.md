@@ -146,7 +146,7 @@ check on EN comic lines and before the containment guard on new-work clusters]:
 | Review (Ize level 5, §7) | — | — | — | 15 / 75 |
 
 - Existing KR/CN works touched: DE 17, FR 18, EN 9 (distinct works) [M].
-- New lines in the artifact [E]: DE about 52 (about 3.6% of today's 1,459 DE lines); FR about
+- New lines in the artifact [E]: DE about 52 (the linked lines less the Solo Leveling merge, plus the siblings), about 3.6% of today's 1,459 DE lines; FR about
   19 (10 of the 21 linked lines attach to existing FR lines); EN about 60 (10 of the 11 linked
   lines attach).
 - The first EN/FR KR/CN lines outside Wikipedia appear.
