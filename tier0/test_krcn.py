@@ -2133,6 +2133,226 @@ KI.adopt_line(db3.cursor(), "rl_i3", "rl_p3")
 eq("minor 2: adopt_line: the public line is not its own parent; the internal line's other child follows it",
    sorted(db3.execute("SELECT id, parent_id FROM release_line")), [("rl_c3", "rl_p3"), ("rl_p3", None)])
 
+# ---- Task 12: 3f decisions -------------------------------------------------------------------------------
+import build_krcn as BK
+
+
+def mkline(key, market, name, medium="manhwa", explicit=True, comic=True, carried=False, tome_id=None, **kw):
+    ln = {"key": key, "source": key.split(":")[0], "market": market, "language": market.lower(), "name": name,
+          "titles": [name], "orig": [], "native": [], "authors": [], "medium": medium, "medium_why": None,
+          "origin": "kor", "explicit": explicit, "comic": comic, "vols": [{"number": "1", "isbns": []}],
+          "carried": carried, "tome_id": tome_id or _id("rl_", key), "absorbed_ids": []}
+    ln.update(kw)
+    return ln
+
+
+db = schema_db()
+for wid, title in (("w_kr", "Solo Leveling"), ("w_rae", "Why Raeliana Ended Up at the Duke's Mansion"),
+                   ("w_ouro", "Ouroboros"), ("w_nov", "Some Korean Novel"), ("w_wiki", "Lover Boy")):
+    db.execute("INSERT INTO work VALUES(?,?,NULL,NULL,NULL,NULL,'x','x')", (wid, title))
+line_row(db, "rl_kr", "w_kr", "manhwa", "EN", "en")
+line_row(db, "rl_rae", "w_rae", "manhwa", "EN", "en")
+line_row(db, "rl_ouro", "w_ouro", "manga", "JP", "ja")
+line_row(db, "rl_nov", "w_nov", "novel", "KR", "ko")
+line_row(db, "rl_wiki", "w_wiki", "manhwa", "EN", "en")
+idx = L.Index(db)
+NO_K = None
+ls = [mkline("dnb:1", "DE", "Solo Leveling"),                                 # links to an existing KR/CN work
+      mkline("dnb:2", "DE", "Ouroboros"),                                     # JP-only work: guard
+      mkline("loc:2023000001", "EN", "Men of the Harem"),                      # EN + DE: a new work
+      mkline("dnb:3", "DE", "Men of the Harem"),
+      mkline("dnb:4", "DE", "Gänseblümchenwiese"),                             # DE only: held (R6)
+      mkline("dnb:5", "DE", "Raeliana"),                                      # containment -> review
+      mkline("loc:2024000002", "EN", "The Star Seekers", explicit=False),     # Ize-only: no explicit origin
+      mkline("loc:2024000003", "EN", "Finding Camellia", medium=None, ize=True),  # Ize medium unresolved
+      mkline("dnb:6", "DE", "Some Korean Novel", medium="novel", comic=False),  # novel linked, work has no comic
+      mkline("bnf:ark:/12148/cb10000001x", "FR", "Kkk Link", link_work=None)]
+plan = BK.decide(ls, idx, NO_K, link_work={"bnf:ark:/12148/cb10000001x": "w_kr"}, comic_works={"w_kr", "w_rae", "w_wiki"})
+role = {l["key"]: (l["role"], l["work"], l["reason"]) for l in ls}
+eq("linked to the existing KR/CN work", role["dnb:1"][:2], ("linked", "w_kr"))
+eq("JP guard: Ouroboros -> review", role["dnb:2"][::2], ("review", "jp-guard"))
+w_new = _id("w_", "krcn", "loc:2023000001")
+eq("EN + DE cluster: a new work keyed krcn|<EN key>; the DE line ships in it",
+   (role["loc:2023000001"][:2], role["dnb:3"][:2], plan["works"][w_new]["created"]),
+   (("new_work", w_new), ("new_work", w_new), True))
+# deviation (R6 hold file lists every held line): the novel held under a work with no comic line has its own entry
+eq("DE-only cluster: held, no work, in plan['held'] (R6); the held novel has an entry too",
+   (role["dnb:4"], [h["lines"] for h in plan["held"]]), (("held", None, "no-english-line"), [["dnb:4"], ["dnb:6"]]))
+eq("containment guard: 'Raeliana' is inside the existing work's title -> review", role["dnb:5"][::2], ("review", "containment"))
+eq("no explicit origin (imprint only): unlinked, not held (P16)", role["loc:2024000002"][::2], ("unlinked", "no-explicit-origin"))
+eq("Ize medium unresolved -> review", role["loc:2024000003"][::2], ("review", "ize-medium"))
+eq("a novel line under a work without a comic line -> held", role["dnb:6"][::2], ("held", "novel-without-comic"))
+eq("link_work correction wins (R2)", role["bnf:ark:/12148/cb10000001x"][:2], ("linked", "w_kr"))
+eq("exported flags follow the roles", sorted(l["key"] for l in ls if l["exported"]),
+   ["bnf:ark:/12148/cb10000001x", "dnb:1", "dnb:3", "loc:2023000001"])
+eq("created works join the KR/CN set", w_new in idx.krcn_works, True)
+eq("R6: no held line is exported or has a work; no held line is in a work of the plan",
+   ([(l["exported"], l["work"]) for l in ls if l["role"] == "held"],
+    sorted(k for e in plan["works"].values() for k in e["lines"] if role[k][0] == "held")), ([(False, None)] * 2, []))
+eq("R6: a held entry names its member keys and reason (the hold file)",
+   {k: plan["held"][0][k] for k in ("reason", "markets", "members")}, {"reason": "no-english-line", "markets": ["DE"],
+                                                                        "members": []})
+eq("review keys", sorted(plan["review"]), ["dnb:2", "dnb:5", "loc:2024000003"])
+
+# frozen through the carry, adoption (R1)
+K = {"works": {"w_libA", "w_libB"}, "lines": {"rl_A": "loc", "rl_B": "dnb"}, "series_ids": {"rl_A", "rl_B", "rl_wiki"},
+     "work_ids": {"w_libA", "w_libB", "w_wiki"}, "int": {"rl_A": 7, "rl_B": 30, "rl_wiki": 20},
+     "line_work": {"rl_A": "w_libA", "rl_B": "w_libB", "rl_wiki": "w_wiki"}, "line_name": {}, "line_medium": {"rl_B": "manhwa"},
+     "line_vols": {}}
+idx = L.Index(db)
+ls = [mkline("dnb:9", "DE", "Tempel der Sterne", carried=True, tome_id="rl_B"),     # its EN line is gone
+      mkline("loc:2021000009", "EN", "Lover Boy", carried=True, tome_id="rl_A")]      # Wikipedia now has the work
+plan = BK.decide(ls, idx, K, comic_works={"w_wiki"})
+role = {l["key"]: (l["role"], l["work"]) for l in ls}
+eq("frozen: a carried library work keeps exporting without an English line (never demoted)", role["dnb:9"], ("new_work", "w_libB"))
+eq("adoption: the Wikipedia work w_wiki (published, int 20) meets library w_libA (int 7): the older id is public",
+   (plan["adopt_works"], role["loc:2021000009"]), ([("w_wiki", "w_libA")], ("linked", "w_libA")))
+g = BK.gate_report(ls, plan, {"taken": [], "taken_weak": [], "left": []}, K)
+eq("gate: a published Wikipedia work redirected by adoption is listed (spec-sanctioned, but gated)",
+   g["work_redirects"], [["w_wiki", "w_libA", "adopted"]])
+eq("gate: an adoption rename is not a carried line changing work", g["carried_work_changed"], [])
+K["int"]["rl_A"] = 99
+ls = [mkline("loc:2021000009", "EN", "Lover Boy", carried=True, tome_id="rl_A")]
+plan = BK.decide(ls, L.Index(db), K, comic_works={"w_wiki"})
+eq("adoption: when the Wikipedia work is older it keeps its id (7b redirects the library id)",
+   (plan["adopt_works"], ls[0]["work"]), ([], "w_wiki"))
+eq("gate: ... and the carried line that moved from its library work to w_wiki is listed",
+   BK.gate_report(ls, plan, {}, K)["carried_work_changed"], [["rl_A", "loc:2021000009", "w_libA", "w_wiki", "linked"]])
+eq("cluster keys: a romanised original keys within its source only",
+   sorted(BK.cluster_keys(mkline("dnb:1", "DE", "Raeliana", orig=["Eo neu nal gong ju"])))[:2],
+   [("o", "dnb", "eoneunalgongju"), ("t", "raeliana")])
+eq("cluster keys: Hangul 2 syllables admitted, Latin under 5 not",
+   BK.cluster_keys(mkline("dnb:1", "DE", "Kiss", native=["괴물"])), {("t", "괴물")})
+eq("clusters: a romanised original joins lines of one library, never across libraries",
+   [[l["key"] for l in c] for c in BK.clusters([mkline("dnb:1", "DE", "Tempel", orig=["Tem ppal"]),
+                                               mkline("dnb:2", "DE", "Overgeared", orig=["Tem ppal"]),
+                                               mkline("bnf:x1", "FR", "Forgeron", orig=["Tem ppal"])])],
+   [["bnf:x1"], ["dnb:1", "dnb:2"]])
+
+# the frozen path also merges two published library works of one cluster into the older (7b redirects the other)
+K2f = {"works": {"w_L1", "w_L2"}, "lines": {"rl_1": "dnb", "rl_2": "loc"}, "series_ids": {"rl_1", "rl_2"},
+       "work_ids": {"w_L1", "w_L2"}, "int": {"rl_1": 50, "rl_2": 40}, "line_work": {"rl_1": "w_L1", "rl_2": "w_L2"},
+       "line_name": {}, "line_medium": {}, "line_vols": {}}
+ls = [mkline("dnb:11", "DE", "Sternentempel", carried=True, tome_id="rl_1"),
+      mkline("loc:11", "EN", "Sternentempel", carried=True, tome_id="rl_2")]
+plan = BK.decide(ls, L.Index(db), K2f)
+eq("frozen merge: two published library works in one cluster -> the older (w_L2); the other listed for 7b",
+   ([l["work"] for l in ls], BK.gate_report(ls, plan, {}, K2f)["work_redirects"]),
+   (["w_L2", "w_L2"], [["w_L1", "w_L2", "frozen-merge"]]))
+
+# adoption conflict: a Wikipedia work adopts a library work that a frozen cluster of this build also exports
+K2c = {"works": {"w_libA"}, "lines": {"rl_A": "loc", "rl_A2": "dnb"}, "series_ids": {"rl_A", "rl_A2"},
+       "work_ids": {"w_libA"}, "int": {"rl_A": 7, "rl_A2": 8}, "line_work": {"rl_A": "w_libA", "rl_A2": "w_libA"},
+       "line_name": {}, "line_medium": {}, "line_vols": {}}
+ls = [mkline("loc:2021000009", "EN", "Lover Boy", carried=True, tome_id="rl_A"),
+      mkline("dnb:12", "DE", "Liebesjunge", carried=True, tome_id="rl_A2")]
+plan = BK.decide(ls, L.Index(db), K2c, comic_works={"w_wiki"})
+eq("adoption conflict (rename_work onto a work 3f also exports): detected and gated, not resolved",
+   (plan["adopt_works"], plan["adopt_conflicts"], BK.gate_report(ls, plan, {}, K2c)["adopt_conflicts"]),
+   ([("w_wiki", "w_libA")], [("w_wiki", "w_libA")], [["w_wiki", "w_libA"]]))
+
+# review reasons from the line builder (controller ruling): medium_why verbatim, attached or not; link_work ships a guess
+db4 = schema_db()
+db4.execute("INSERT INTO work VALUES('w_ot','Under the Oak Tree',NULL,NULL,NULL,NULL,'x','x')")
+line_row(db4, "rl_ot", "w_ot", "manhwa", "EN", "en")
+ls = [mkline("dnb:21", "DE", "Under the Oak Tree", medium=None, medium_why="duplicate_numbers", medium_guess="novel"),
+      mkline("loc:21", "EN", "Under the Oak Tree", medium=None, medium_why="duplicate_numbers+both"),
+      mkline("dnb:22", "DE", "Radio Storm", medium=None, medium_why="writer_only", medium_guess="manhwa"),
+      mkline("dnb:23", "DE", "Radio Storm Zwei", medium=None, medium_why="writer_only", medium_guess="manhwa",
+             role="merged", target="rl_ot", work="w_ot"),
+      mkline("loc:22", "EN", "Oak Tree Zwei", medium=None, ize=True, role="sibling", target="rl_ot", work="w_ot"),
+      mkline("loc:23", "EN", "Heavenly Kiss", medium=None, medium_why="both")]
+plan = BK.decide(ls, L.Index(db4), None, link_work={"dnb:22": "w_ot", "loc:23": "w_ot"}, comic_works={"w_ot"},
+                 line_medium={"rl_ot": "manhwa"})
+got = {l["key"]: (l["role"], l["reason"], l["medium"]) for l in ls}
+eq("review reason = medium_why verbatim ('+'-joined), even when the title links",
+   (got["dnb:21"], got["loc:21"]), (("review", "duplicate_numbers", None), ("review", "duplicate_numbers+both", None)))
+eq("an attached writer-only line stays in review (not auto-exported)", got["dnb:23"], ("review", "writer_only", None))
+eq("an attached Ize line with no review reason takes its target's medium class", got["loc:22"], ("sibling", None, "manhwa"))
+eq("link_work ships a writer-only line with its medium_guess", got["dnb:22"], ("linked", None, "manhwa"))
+eq("link_work cannot ship a 'both' line (no guess): it stays in review", got["loc:23"], ("review", "both", None))
+
+# ruling: a line that took a carried id mints its volume ids from that id (v_(tome_id, number))
+Kv = KI.read_carry(carry_file("t12v", [("rl_pub", "w_lib", "Semantic error", "manhwa", "en", I5)],
+                              works=["w_lib"], krcn_lines={"rl_pub": "loc"}))
+lv = bl("loc:2022000009", "loc", "Semantic error", I5)
+repv = KI.line_ids([lv], Kv)
+eq("a line that took a carried id mints its volumes under it, not under its own key",
+   (repv["taken"], BK.vol_id(lv, "3")), ([("rl_pub", "loc:2022000009")], _id("v_", "rl_pub", "3")))
+
+# P25: a DNB line the JP round mints is deferred before ids; reserved ids refuse it anyway
+jp_rows = [("dnb:997592818", "rl_d63204b2411c"), ("dnb:5", "rl_x5")]
+keep_, deferred_, reserved_ = BK.defer_jp_round([mkline("dnb:997592818", "DE", "King of Hell"), mkline("dnb:31", "DE", "X")],
+                                                jp_rows)
+eq("P25: King of Hell's German line stays with the JP round; reserved = the JP keys' ids + rl_ids",
+   ([l["key"] for l in keep_], [l["key"] for l in deferred_], reserved_ >= {_id("rl_", "dnb:997592818"), "rl_d63204b2411c", "rl_x5"}),
+   (["dnb:31"], ["dnb:997592818"], True))
+try:
+    KI.line_ids([bl("dnb:997592818", "dnb", "King of Hell", [])], None, reserved=reserved_)
+    eq("line_ids refuses a JP-round key", "no error", "AssertionError")
+except AssertionError:
+    eq("line_ids refuses a JP-round key", True, True)
+
+# gate lists (controller ruling): taken_weak, left, step-1 keeps with 0 ISBN overlap, weak absorptions, P22 thin
+Kg = KI.read_carry(carry_file("t12g", [("rl_T", "w_g", "Rebirth", "manhwa", "en", I5),
+                                       ("rl_U", "w_g", "Other", "manhwa", "en", [("1", "9790000000011")]),
+                                       ("rl_V", "w_g", "Gone", "manhwa", "en", [("1", "9790000000021")]),
+                                       ("rl_W", "w_wg", "Wiki line", "manhwa", "en", I10),
+                                       ("rl_Y", "w_g", "One shot", "manhwa", "en", [("1", I10[0][1])])],
+                              works=["w_g"], krcn_lines={"rl_T": "loc", "rl_U": "loc", "rl_V": "loc", "rl_Y": "loc"},
+                              ints={"rl_T": 5, "rl_U": 6, "rl_V": 7, "rl_W": 90, "rl_Y": 3}, pubs={"rl_T": YEN}))
+gl = [bl("loc:500", "loc", "Rebirth", [I5[0]], "Ize Press"),                      # takes rl_T via (b), 1 of 5: weak
+      dict(bl("loc:600", "loc", "Other", [("1", "9790000000099")]), key="loc:600"),  # own key carried below, 0 overlap
+      bl("loc:700", "loc", "One shot", [("1", I10[0][1])])]
+gl[1]["key"] = "loc:600"
+Kg["series_ids"].add(M("loc:600"))
+Kg["line_vols"][M("loc:600")] = [("1", "9790000000011")]
+Kg["line_work"][M("loc:600")] = "w_g"
+repg = KI.line_ids(gl, Kg)
+for l in gl:
+    l.update(role="linked", work="w_g", exported=True, reason=None, via="title", tier="medium", link_work="w_g",
+             authors=[], target=None)
+# a carried one-volume library line adopting the 10-volume carried Wikipedia line rl_W (P22's 2*1 >= min(1, 10))
+yl = dict(bl("loc:800", "loc", "One shot", [("1", I10[0][1])]), tome_id="rl_Y", carried=True, absorbed_ids=[],
+          role="adopting", target="rl_W", work="w_wg", exported=True, reason=None, via="isbn", tier=None,
+          link_work=None, authors=["박"])
+gg = BK.gate_report(gl + [yl], {"adopt_works": [], "works": {}}, repg, Kg)
+eq("gate: taken_weak and left from line_ids", (gg["taken_weak"], gg["left"]),
+   ([["rl_T", "loc:500", 1, 5]], ["rl_U", "rl_V", "rl_Y"]))     # loc:700: 1 ISBN, no publisher -> no take
+eq("gate: a step-1 keep sharing 0 ISBNs with its carried line", gg["kept_no_overlap"],
+   [[M("loc:600"), "loc:600", 0, 1, 1]])
+eq("gate: a carried Wikipedia line's id absorbed by a one-volume adopting line: absorbed_weak + p22_thin",
+   (gg["absorbed_weak"], gg["p22_thin"]), ([["rl_W", "rl_Y", "adopting", 1, 10]], [["rl_Y", "loc:800", "rl_W", 10]]))
+eq("gate: a line with Hangul-only creator names has no author evidence", gg["hangul_only_authors"], [["loc:800", "adopting", ["박"]]])
+yl.update(role="review", exported=False, work=None, reason="low")
+eq("gate: a published line that does not export is listed", BK.gate_report([yl], {}, {}, Kg)["carried_not_exported"],
+   [["rl_Y", "loc:800", "review", "low"]])
+
+# ruling 5, deferred fixture checks (recorded behaviour; Task 15's fixture labels them)
+db5 = schema_db()
+for wid, title in (("w_3b", "The Three-Body Problem"), ("w_orv", "Omniscient Reader's Viewpoint")):
+    db5.execute("INSERT INTO work VALUES(?,?,NULL,NULL,NULL,NULL,'x','x')", (wid, title))
+line_row(db5, "rl_3b", "w_3b", "manhua", "EN", "en")
+line_row(db5, "rl_orv", "w_orv", "manhwa", "EN", "en")
+db5.execute("""INSERT INTO claim VALUES('work','w_3b','author','["Liu Cixin"]','wikipedia',NULL,'facts_only','x')""")
+db5.execute("""INSERT INTO claim VALUES('work','w_orv','author','["Sing Shong"]','wikipedia',NULL,'facts_only','x')""")
+idx5 = L.Index(db5)
+ls = [mkline("loc:2024000050", "EN", "The three-body problem : the comic edition",
+             titles=["The three-body problem : the comic edition"], authors=["Liu, Cixin"], origin="chi"),
+      mkline("dnb:51", "DE", "Omniscient Reader's Viewpoint", authors=["싱숑"]),
+      mkline("dnb:52", "DE", "Omniscient Reader's Viewpoint", authors=["Sing, Syong"]),
+      mkline("dnb:53", "DE", "Allwissender Leser", orig=["Chŏnjijŏk tokcha sijŏm"])]
+BK.decide(ls, idx5, None, comic_works={"w_3b", "w_orv"})
+got = {l["key"]: (l["role"], l["tier"], l["via"], l["work"]) for l in ls}
+eq("fixture check: LoC 'The three-body problem : the comic edition' links LOW (spinoff+author) -> review",
+   got["loc:2024000050"], ("review", "low", "spinoff+author", None))
+eq("fixture check: a Hangul-only creator name gives no author evidence -> title-only (medium)",
+   got["dnb:51"], ("linked", "medium", "title", "w_orv"))
+eq("fixture check: a romanisation variant of the creator (Sing Syong vs Sing Shong) is a collision -> low, review",
+   got["dnb:52"], ("review", "low", "title, authors differ", None))
+eq("fixture check: an MR original title (Chŏnjijŏk tokcha sijŏm) keys nothing against RR/English titles -> linker none (DE only: held)",
+   got["dnb:53"][:2], ("held", "none"))
+
 # ==== summary ====
 print()
 if FAILS:
