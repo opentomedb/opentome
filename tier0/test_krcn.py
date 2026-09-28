@@ -3714,6 +3714,49 @@ eq("E2: an 880's trailing '. English' (the 240 $l) is not part of the native tit
 eq("E2: a title that merely contains a language word keeps it",
    LM.native_titles(lrec("x", "x", ("880", [("6", "245-01"), ("a", "영어 English Club")]))), ["영어 English Club"])
 
+# E1 (decide): a NEW, title-linked library line with no vol 1 -- or an ISBN sibling with no vol 1 (attach_roles
+# gives exactly one line per target the merge; a second line sharing the target's ISBNs is a sibling) -- in a work
+# and market that already has a carried line goes to review ('fragment'). The dry run's cases: FR Kbooks 4/15/17
+# (title-linked) and DE dnb:1281034274 8/11/15 (sibling of rl_a6fdb4d1904a)
+db = schema_db()
+for wid, title in (("w_sle", "Solo Leveling"), ("w_oth", "Omniscient Reader's Viewpoint")):
+    db.execute("INSERT INTO work VALUES(?,?,NULL,NULL,NULL,NULL,'x','x')", (wid, title))
+line_row(db, "rl_sle_en", "w_sle", "manhwa", "EN", "en")
+line_row(db, "rl_oth_en", "w_oth", "manhwa", "EN", "en")
+vols = lambda *ns: [{"number": str(n), "isbns": []} for n in ns]
+Kf = dict(BK.NO_K, series_ids={"rl_med", "rl_de14"}, work_ids={"w_sle"}, int={"rl_med": 5, "rl_de14": 6},
+          line_work={"rl_med": "w_sle", "rl_de14": "w_sle"}, line_market={"rl_med": "FR", "rl_de14": "DE"})
+ls = [mkline("bnf:ark:/12148/cb46910428j", "FR", "Solo leveling", vols=vols(4, 15, 17)),    # fragment
+      mkline("bnf:ark:/12148/cb00000002x", "FR", "Solo leveling", vols=vols(1, 2)),         # has vol 1
+      mkline("dnb:1281034274", "DE", "Solo Leveling", vols=vols(8, 11, 15), role="sibling", target="rl_de14",
+             work="w_sle"),                                                                  # sibling fragment
+      mkline("dnb:1281034275", "DE", "Solo Leveling", vols=vols(1, 15), role="sibling", target="rl_de14",
+             work="w_sle"),                                                                  # sibling with vol 1
+      mkline("loc:2025000001", "EN", "Solo Leveling", vols=vols(15)),                        # no carried EN line
+      mkline("dnb:1325611948", "DE", "Omniscient Reader's Viewpoint", vols=vols(5, 14)),    # no carried line in w_oth
+      mkline("bnf:ark:/12148/cb00000003x", "FR", "Solo leveling", vols=vols(3), carried=True, tome_id="rl_fr3"),
+      mkline("bnf:ark:/12148/cb00000004x", "FR", "Solo leveling", vols=vols(9))]            # a link_work correction
+plan = BK.decide(ls, L.Index(db), Kf, link_work={"bnf:ark:/12148/cb00000004x": "w_sle"}, comic_works={"w_sle", "w_oth"})
+role = {l["key"]: (l["role"], l["reason"], l["exported"]) for l in ls}
+eq("E1: a new title-linked FR line without vol 1, the work's FR line carried -> review 'fragment'",
+   role["bnf:ark:/12148/cb46910428j"], ("review", "fragment", False))
+eq("E1: ... the same line with vol 1 stays linked", role["bnf:ark:/12148/cb00000002x"][::2], ("linked", True))
+eq("E1: a new DE ISBN sibling without vol 1 (no second merge exists) -> review 'fragment'",
+   role["dnb:1281034274"], ("review", "fragment", False))
+eq("E1: ... a sibling with vol 1 stays a sibling", role["dnb:1281034275"][::2], ("sibling", True))
+eq("E1: no carried line in that market (EN) -> linked", role["loc:2025000001"][::2], ("linked", True))
+eq("E1: no carried line in that work -> linked (ORV DE 5/14)", role["dnb:1325611948"][::2], ("linked", True))
+eq("E1: a carried line is never a new fragment", role["bnf:ark:/12148/cb00000003x"][2], True)
+eq("E1: a link_work correction (hand-checked) is not title-linked", role["bnf:ark:/12148/cb00000004x"][::2],
+   ("linked", True))
+eq("E1: fragments are listed for review, their work cleared (R6)",
+   (sorted(k for k in plan["review"] if role[k][1] == "fragment"),
+    [l["work"] for l in ls if l["reason"] == "fragment"]),
+   (["bnf:ark:/12148/cb46910428j", "dnb:1281034274"], [None, None]))
+ls = [mkline("bnf:ark:/12148/cb46910428j", "FR", "Solo leveling", vols=vols(4, 15, 17))]
+BK.decide(ls, L.Index(db), None, comic_works={"w_sle"})
+eq("E1: no carry (a cold build): nothing is a fragment", ls[0]["role"], "linked")
+
 # ==== summary ====
 print()
 if FAILS:
