@@ -3445,7 +3445,7 @@ try:
     c1, st1, _ = run_final("split", carry=c_split)
     eq("work split: the Wikipedia EN line of an adopted work stays under its published work id",
        c1.execute("SELECT work_id FROM release_line WHERE id='rl_rae_en'").fetchone(), (W_LIB,))
-    eq("work split: the carried review line is kept under the same work (one work, not two)",
+    eq("work split: the carried DE line (a frozen cluster of the adopted work) is kept under the same work (one work, not two)",
        c1.execute("SELECT role, exported, work FROM krcn_line WHERE key='dnb:1390000000'").fetchone(), ("kept", 1, W_LIB))
     eq("work split: the internal Wikipedia work id is gone (adopted again), recorded in krcn:adopted",
        (c1.execute("SELECT COUNT(*) FROM work WHERE id=?", (W_RAEH,)).fetchone()[0],
@@ -3556,6 +3556,20 @@ dbm.execute("INSERT INTO meta VALUES('krcn:works_made','[\"w_libm\"]')")
 ixm = L.Index(dbm)
 eq("M5: a 3f-made work (meta krcn:works_made) is not in the linker index; a Wikipedia work is",
    ("w_libm" in ixm.name, "mysterysciencedetectives" in ixm.official, "w_wikim" in ixm.name), (False, False, True))
+
+# the step-5 path of the split: a carried line sent to review BEFORE pooling (writer_only, no guess) whose published
+# work is an adopted public id -- kept at the adopting Wikipedia work, which step 7 renames to the public id
+db_sp = schema_db()
+db_sp.execute("INSERT INTO work VALUES('w_wiki','Lover Boy',NULL,NULL,NULL,NULL,'x','x')")
+line_row(db_sp, "rl_wiki", "w_wiki", "manhwa", "EN", "en")
+K_sp = {"works": {"w_libS"}, "lines": {"rl_S": "dnb"}, "series_ids": {"rl_S", "rl_wiki"}, "work_ids": {"w_libS"},
+        "int": {"rl_S": 7, "rl_wiki": 9}, "line_work": {"rl_S": "w_libS", "rl_wiki": "w_libS"}, "line_name": {},
+        "line_medium": {}, "line_vols": {}}
+ls_sp = [mkline("dnb:77", "DE", "Liebesjunge", medium=None, medium_why="writer_only", carried=True, tome_id="rl_S")]
+plan_sp = BK.decide(ls_sp, L.Index(db_sp), K_sp, present={"rl_wiki": "w_wiki"})
+eq("work split, step 5: a carried review line under an adopted public id is kept; the Wikipedia work adopts it again",
+   ((ls_sp[0]["role"], ls_sp[0]["work"], ls_sp[0]["exported"]), plan_sp["adopt_works"], plan_sp["adopt_conflicts"],
+    "w_libS" in plan_sp["works"]), (("kept", "w_libS", True), [("w_wiki", "w_libS")], [], False))
 
 # I2(a): a carried line that does not export as held / review / unlinked is BLOCKING (absorbed / merged stay 7b's)
 _t15 = tempfile.mkdtemp(prefix="krcn-t15b-", dir=_tf)
