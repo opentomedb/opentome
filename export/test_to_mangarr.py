@@ -101,6 +101,30 @@ def run():
     eq("a degraded DNB refresh reaches the artifact as meta.dnb_degraded (publish.sh refuses it)",
        FIX_META.get("dnb_degraded"), '{"reason": "HTTP 502"}')
     eq("meta markets counts lines per language", markets, {"de": 1})
+    eq("meta.krcn_ids carries the library-born works and lines to the next build's carry (P3)",
+       json.loads(FIX_META.get("krcn_ids") or "null"), {"works": ["w_r"], "created": ["w_r"], "lines": {"rl_new": "loc"}})
+    eq("a degraded LoC refresh reaches the artifact as meta.loc_degraded", FIX_META.get("loc_degraded"),
+       '{"reason": "LadderExhausted"}')
+    eq("the attribution names the Library of Congress", "Library of Congress" in (FIX_META.get("attribution") or ""), True)
+    lic = open(os.path.join(ROOT, "LICENSE-DATA.md"), encoding="utf8").read()
+    eq("LICENSE-DATA.md carries meta.attribution byte-for-byte", "\n> %s\n" % FIX_META.get("attribution") in lic, True)
+
+    # ---- KR/CN library lines (krcn-design §8, controller rulings 2, 3, 5) --------------------
+    k = fixture_krcn()
+    eq("a library line's series.name is the builder's name, not an earlier line_name claim (carry rule b)",
+       k["K"]["line_name"].get("rl_lib"), "Solo Leveling")
+    eq("... and its series.publisher the builder's publisher string", k["K"]["line_pub"].get("rl_lib"), "Ize Press")
+    eq("... the line's own name is its first alias (kind 'line')", k["line_alias"], "Solo Leveling")
+    eq("a line not in krcn_line keeps its line_name claim and publisher", (k["K"]["line_name"].get("rl_wiki"),
+       k["K"]["line_pub"].get("rl_wiki")), ("Wiki Line", "Yen Press"))
+    eq("meta.krcn_ids keeps only ids the artifact ships (a held line's id, a gone work: dropped)",
+       (sorted(k["K"]["works"]), k["K"]["lines"]), (["w_k"], {"rl_lib": "loc"}))
+    eq("an alternative ISBN claim (isbn13_alt) never reaches the artifact", k["alt_found"], 0)
+    eq("meta.krcn_lines tallies roles overall and per market (held included)", k["krcn_lines"],
+       {"roles": {"held": 1, "new_work": 1}, "by_market": {"DE": {}, "EN": {"held": 1, "new_work": 1}, "FR": {}}})
+    eq("the artifact passes the KR/CN licence and R6 rules", k["licence_fails"], [])
+    eq("... and a non-exported line's id listed in meta.krcn_ids fails R6", k["r6_fails"],
+       ["held / review / unlinked KR/CN line ids in release_line, series, id_map or meta.krcn_ids"])
 
     # ---- local_title / local_name_for (2026-09-24, Preferred Edition v0) -------------
     # Measured on build/opentome.db: FR official work titles are raw Wikipedia article
@@ -195,6 +219,8 @@ def fixture_redirect_carry():
     db.execute("INSERT INTO id_redirect VALUES('rl_older','rl_old','release_line','correction','x')")
     db.execute("INSERT INTO id_redirect VALUES('rl_twin','rl_new','release_line','duplicate_merge','x')")
     db.execute("""INSERT INTO meta VALUES('dnb:degraded','{"reason": "HTTP 502"}')""")
+    db.execute("""INSERT INTO meta VALUES('krcn:ids','{"works": ["w_r"], "created": ["w_r"], "lines": {"rl_new": "loc"}}')""")
+    db.execute("""INSERT INTO meta VALUES('loc:degraded','{"reason": "LadderExhausted"}')""")
     db.commit()
     c = sqlite3.connect(carry)
     c.execute("CREATE TABLE id_map (opentome_id TEXT PRIMARY KEY, int_id INTEGER UNIQUE NOT NULL, kind TEXT NOT NULL)")
@@ -214,8 +240,71 @@ def fixture_redirect_carry():
         "SELECT old_tome_id, new_tome_id, entity, old_series_id FROM id_redirect")}
     idmap = {o: (i, k) for o, i, k in out.execute("SELECT opentome_id, int_id, kind FROM id_map")}
     FIX_META["dnb_degraded"] = (out.execute("SELECT value FROM meta WHERE key='dnb_degraded'").fetchone() or [None])[0]
+    for k in ("krcn_ids", "loc_degraded", "attribution"):
+        FIX_META[k] = (out.execute("SELECT value FROM meta WHERE key=?", (k,)).fetchone() or [None])[0]
     markets = json.loads(out.execute("SELECT value FROM meta WHERE key='markets'").fetchone()[0])
     return sid, rtype, red, idmap, markets
+
+
+def fixture_krcn():
+    """A LoC-born EN line (krcn_line, exported) whose line_name claims are a Wikipedia one inserted
+    FIRST and the builder's; a held line; a library claim the export must never carry."""
+    import build_krcn as BK, krcn_identity as KI, test_artifact as TA
+    from load import _id
+    tmp = tempfile.mkdtemp(prefix="opentome-krcn-")
+    src_path, out_path = os.path.join(tmp, "pipeline.db"), os.path.join(tmp, "artifact.sqlite")
+    db = sqlite3.connect(src_path)
+    db.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+    db.executescript(BK.STAGING_DDL)
+    db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_k','Solo Leveling','x','x')")
+    db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_o','Other Work','x','x')")
+    for rid, wid, pub in (("rl_lib", "w_k", "Yen Press"), ("rl_wiki", "w_o", "Yen Press")):
+        db.execute("""INSERT INTO release_line(id,work_id,medium,market,language,publisher,created_at,updated_at)
+                      VALUES(?,?,'manhwa','EN','en',?,'x','x')""", (rid, wid, pub))
+    for rid, name, src, url, lic in (("rl_lib", "Wiki Name", "wikipedia", "https://en.wikipedia.org/wiki/X", "facts_only"),
+                                     ("rl_lib", "Solo Leveling", "loc", "https://lccn.loc.gov/2020950228", "us_gov_pd"),
+                                     ("rl_wiki", "Wiki Line", "wikipedia", "https://en.wikipedia.org/wiki/Y", "facts_only")):
+        db.execute("INSERT INTO claim VALUES('release_line',?,'line_name',?,?,?,?,'x')", (rid, name, src, url, lic))
+    db.execute("""INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at)
+                  VALUES('v_lib1','rl_lib','1','9781975319434','x','x')""")
+    db.execute("""INSERT INTO claim VALUES('volume','v_lib1','isbn13_alt','9781975399990','loc',
+                  'https://lccn.loc.gov/2020950228','us_gov_pd','x')""")
+    held = "loc:2099000001"
+    db.execute("""INSERT INTO krcn_line(key,source,market,rl_id,carried,work,name,publisher,role,exported)
+                  VALUES('loc:2020950228','loc','EN','rl_lib',0,'w_k','Solo Leveling','Ize Press','new_work',1)""")
+    db.execute("""INSERT INTO krcn_line(key,source,market,rl_id,carried,work,name,publisher,role,exported)
+                  VALUES(?,'loc','EN',NULL,0,NULL,'Held Title','Ize Press','held',0)""", (held,))
+    db.execute("INSERT INTO meta VALUES('krcn:ids',?)", (json.dumps(
+        {"works": ["w_k", "w_gone"], "created": ["w_k"], "lines": {"rl_lib": "loc", _id("rl_", held): "loc"}}),))
+    db.commit()
+    real_dir = corr.DIR
+    corr.DIR = tempfile.mkdtemp(prefix="opentome-nocorr-")
+    try:
+        export(src_path, out_path)
+    finally:
+        corr.DIR = real_dir
+    out = sqlite3.connect(out_path)
+    r = {"K": KI.read_carry(out_path),
+         "line_alias": out.execute("""SELECT a.alias FROM series_alias a JOIN series s USING(gcd_series_id)
+                                      WHERE s.tome_id='rl_lib' AND a.kind='line'""").fetchone()[0],
+         "alt_found": out.execute("""SELECT (SELECT COUNT(*) FROM volumes WHERE isbn13='9781975399990' OR isbn10='9781975399990')
+                                     + (SELECT COUNT(*) FROM volumes_special WHERE isbn13='9781975399990')""").fetchone()[0],
+         "krcn_lines": json.loads(out.execute("SELECT value FROM meta WHERE key='krcn_lines'").fetchone()[0])}
+    out.close()
+    n = len(TA.FAILS)
+    TA.run_krcn_licence(out_path, src_path)
+    r["licence_fails"] = TA.FAILS[n:]
+    # the same artifact with the held line's id put back into meta.krcn_ids: R6 must fail
+    out = sqlite3.connect(out_path)
+    out.execute("UPDATE meta SET value=? WHERE key='krcn_ids'",
+                (json.dumps({"works": ["w_k"], "lines": {_id("rl_", held): "loc"}}),))
+    out.commit()
+    out.close()
+    n = len(TA.FAILS)
+    TA.run_krcn_licence(out_path, src_path)
+    r["r6_fails"] = TA.FAILS[n:]
+    del TA.FAILS[:]
+    return r
 
 
 def fixture_local_names():

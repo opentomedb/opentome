@@ -26,23 +26,29 @@ CC BY-NC 4.0 plus the strictest terms of any source in it. Those terms, per sour
 |---|---|---|
 | Bibliothèque nationale de France (BnF) | Etalab Open Licence (Licence Ouverte) | any use, attribution required |
 | Deutsche Nationalbibliothek (DNB) | CC0 | any use, no conditions — the German primary source: German volumes, ISBNs, year dates and page counts. Bibliographic data only: DNB's cover images (VG Bild-Kunst / VLB agreement) and publisher blurbs are not CC0 and are never read |
+| Library of Congress (LoC) | US government work (17 USC §105), public domain in the US — records created by LoC only (`040 $a DLC`) | English volumes, ISBNs, year dates and page counts of licensed Korean/Chinese comics. Records LoC copied from other libraries are excluded; publisher summaries (`520`) and links (`856`) are never read |
 | Wikipedia | facts only | we extract facts (dates, ISBNs, counts), never prose; CC BY-SA does not attach to facts |
 | openBD | purpose-limited | granted for "book promotion and introduction"; the data must not be altered |
 | Open Library / Internet Archive | non-commercial, research | access is for scholarship and research; use certified non-commercial |
+
+The LoC row is an inference, not a stated licence: LoC's MDSConnect says only "research and
+development usage", and treating LoC-created records as public domain rests on 17 USC §105 (a
+US government work) — Nick's decision (2026-09-27, `docs/krcn-design.md` §2). Outside the US
+that status is an assumption, and the EU database-right caveat below applies.
 
 **Google Books, MangaDex and Rakuten Books are not used.** All three forbid
 database-building and/or commercial use.
 
 Because openBD and Open Library values are in the full build and the file does not
 say which values they are, the full build is non-commercial. A commercial-clean
-subset (BnF, DNB and Wikipedia-fact values only, selected from the pipeline's
+subset (BnF, DNB, LoC and Wikipedia-fact values only, selected from the pipeline's
 provenance) is possible and is a separate, later decision.
 
 ## Attribution
 
 Ship this with any copy of the data (it is `meta.attribution` in the artifact):
 
-> Bibliographic data: Bibliotheque nationale de France (Licence Ouverte/Open Licence); Deutsche Nationalbibliothek (CC0); openBD; Open Library / Internet Archive; Wikipedia contributors (facts only). Cover art is not included.
+> Bibliographic data: Bibliotheque nationale de France (Licence Ouverte/Open Licence); Deutsche Nationalbibliothek (CC0); Library of Congress (US government work; LoC-created records only); openBD; Open Library / Internet Archive; Wikipedia contributors (facts only). Cover art is not included.
 
 ## What we do not know
 

@@ -35,6 +35,9 @@ VALUE_CASES = [
     ("dnb year alone",                          {"dnb": "2019"},                            "2019"),
     # the rule is DNB's alone: a Wikipedia year keeps precedence over Open Library
     ("wikipedia year vs openlibrary day",       {"wikipedia": "2005", "openlibrary": "2003-11-14"}, "2005"),
+    # krcn-design §12: a bare LoC / BnF year never beats a finer date it disagrees with (DNB's rule)
+    ("loc year vs openlibrary day, years differ", {"loc": "2021", "openlibrary": "2020-12-29"}, "2020-12-29"),
+    ("bnf year vs openlibrary day, years differ", {"bnf": "2021", "openlibrary": "2020-12-29"}, "2020-12-29"),
 ]
 
 

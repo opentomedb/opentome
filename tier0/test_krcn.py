@@ -2493,6 +2493,90 @@ Em["rl_x9"]["vols"].update({n: ("v" + n, i) for n, i in I5})
 eq("gate: ... not when the existing line holds a strict majority (5 of 5)",
    BK.gate_report([ml], {}, {"taken": []}, Km, Em)["absorbed_weak"], [])
 
+# ---- Task 13: licence, clean view, meta for the export, publish refusal ----------------------------
+import subprocess, shutil
+from load import LICENCE
+eq("LoC licence label", LICENCE.get("loc"), "us_gov_pd")
+db = schema_db()
+db.execute("INSERT INTO claim VALUES('volume','v1','isbn13','9781975319434','loc','https://lccn.loc.gov/2020950228','us_gov_pd','x')")
+eq("clean_claim lists us_gov_pd (a new label must not fall OUT of the commercial subset)",
+   db.execute("SELECT COUNT(*) FROM clean_claim WHERE source='loc'").fetchone()[0], 1)
+
+# record_meta / krcn_ids (controller rulings 1 and 3): what the export copies
+db.executescript(BK.STAGING_DDL)
+db.execute("""INSERT INTO meta VALUES('dnb:degraded','{"reason": "HTTP 502", "kept_previous": ["jp q"]}')""")
+_ln = lambda key, src, tid, role, work: {"key": key, "source": src, "tome_id": tid, "role": role, "work": work,
+                                         "exported": role in BK.EXPORTED}
+m_lines = [_ln("loc:1", "loc", "rl_n", "new_work", "w_new"), _ln("bnf:2", "bnf", "rl_s", "new_work", "w_new"),
+           _ln("dnb:3", "dnb", "rl_l", "linked", "w_wiki"), _ln("dnb:4", "dnb", "rl_m", "merged", "w_wiki"),
+           _ln("loc:5", "loc", "rl_h", "held", None), _ln("dnb:6", "dnb", "rl_k", "kept", "w_pub"),
+           _ln("loc:7", "loc", "rl_a", "linked", "w_old")]
+m_plan = {"works": {"w_new": {"created": True}, "w_pub": {"created": False}, "w_quiet": {"created": True}},
+          "adopt_works": [("w_wiki2", "w_old")]}
+eq("krcn_ids: library works that ship (created, frozen, adopted public ids), the created ones, "
+   "exported library-born lines (not merged, not held)",
+   BK.krcn_ids(m_lines, m_plan),
+   {"works": ["w_new", "w_old", "w_pub"], "created": ["w_new"],
+    "lines": {"rl_n": "loc", "rl_s": "bnf", "rl_l": "dnb", "rl_k": "dnb", "rl_a": "loc"}})
+mv = lambda k: (db.execute("SELECT value FROM meta WHERE key=?", (k,)).fetchone() or [None])[0]
+with contextlib.redirect_stdout(io.StringIO()):
+    BK.record_meta(db, m_lines, m_plan, {
+        "loc": {"degraded": "LadderExhausted: p", "degraded_queries": ["bath.isbn=97988554*"]},
+        "bnf": {"degraded": None, "degraded_queries": []},
+        "dnb": {"degraded": "URLError: t", "degraded_queries": ["spo=kor and jhr=2021"]}})
+eq("record_meta: krcn:ids written", json.loads(mv("krcn:ids")), BK.krcn_ids(m_lines, m_plan))
+eq("record_meta: a degraded LoC refresh -> loc:degraded {reason, kept_previous}", json.loads(mv("loc:degraded")),
+   {"reason": "LadderExhausted: p", "kept_previous": ["bath.isbn=97988554*"]})
+eq("record_meta: a clean BnF run writes no bnf:degraded", mv("bnf:degraded"), None)
+eq("record_meta: KR/CN DNB degradation merges into 3e's dnb:degraded (3e's value kept)", json.loads(mv("dnb:degraded")),
+   {"reason": "HTTP 502", "kept_previous": ["jp q"],
+    "krcn": {"reason": "URLError: t", "kept_previous": ["spo=kor and jhr=2021"]}})
+with contextlib.redirect_stdout(io.StringIO()):
+    BK.record_meta(db, m_lines, m_plan, {"bnf": {"degraded": None, "degraded_queries": ["q1"]}})
+eq("record_meta: a clean LoC run clears loc:degraded; an incomplete BnF set (queries, no reason) is degraded",
+   (mv("loc:degraded"), json.loads(mv("bnf:degraded"))), (None, {"reason": "incomplete", "kept_previous": ["q1"]}))
+eq("record_meta: a clean KR/CN DNB run never clears 3e's dnb:degraded", json.loads(mv("dnb:degraded"))["reason"], "HTTP 502")
+db2 = schema_db()
+with contextlib.redirect_stdout(io.StringIO()):
+    BK.record_meta(db2, [], {}, {"dnb": {"degraded": "HTTPError: 503", "degraded_queries": ["spo=chi"]}})
+eq("record_meta: KR/CN DNB degraded with 3e clean -> dnb:degraded of its own", json.loads(
+   db2.execute("SELECT value FROM meta WHERE key='dnb:degraded'").fetchone()[0]),
+   {"reason": "HTTPError: 503", "kept_previous": ["spo=chi"], "round": "krcn"})
+
+# publish.sh refuses loc_degraded / bnf_degraded. publish.sh cd's to its repo root and writes
+# build/version.json: run a copy (tier0/test_dnb.py's pattern). The artifact here is cold-start with
+# OPENTOME_COLD_START=1, so the degraded flag is the ONLY refusal left: a stub `gh` first on PATH
+# (it leaves a marker and fails), GH_TOKEN removed and a dummy REPO / TAG make sure a broken refusal
+# can never reach the real release.
+pub = tempfile.mkdtemp(prefix="krcn-pub-")
+for d_ in ("build", "export", "fakebin"):
+    os.makedirs(os.path.join(pub, d_))
+shutil.copy(os.path.join(ROOT, "export", "publish.sh"), os.path.join(pub, "export", "publish.sh"))
+marker = os.path.join(pub, "gh-was-called")
+with open(os.path.join(pub, "fakebin", "gh"), "w") as fh:
+    fh.write('#!/bin/sh\ntouch "%s"\nexit 1\n' % marker)
+os.chmod(os.path.join(pub, "fakebin", "gh"), 0o755)
+penv = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", "CARRY_SHA256", "ROLLBACK_TO")}
+penv.update(PATH=os.path.join(pub, "fakebin") + os.pathsep + os.environ["PATH"], REPO="invalid/krcn-test",
+            TAG="krcn-test", OPENTOME_COLD_START="1")
+for flag in ("loc_degraded", "bnf_degraded"):
+    art = os.path.join(pub, "build", "a-%s.sqlite" % flag)
+    A = sqlite3.connect(art)
+    A.executescript("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT); CREATE TABLE series (x); CREATE TABLE volumes (x);")
+    A.executemany("INSERT INTO meta VALUES(?,?)", [("gcd_dump", "opentome-2026-09-28"), ("alias_provenance", "opentome"),
+                                                   ("licence", "x"), ("carried_from", "cold-start"),
+                                                   (flag, "SourceThrottled: test")])
+    A.commit()
+    A.close()
+    r = subprocess.run(["bash", os.path.join(pub, "export", "publish.sh"), art], cwd=pub,
+                       env=dict(penv, PUBLISH="1"), capture_output=True, text=True)
+    eq("publish.sh refuses a build with meta.%s (and never reaches gh)" % flag,
+       (r.returncode, "refusing: meta.%s is set" % flag in r.stderr, os.path.exists(marker)), (1, True, False))
+    r = subprocess.run(["bash", os.path.join(pub, "export", "publish.sh"), art], cwd=pub,
+                       env=dict(penv, PUBLISH="0"), capture_output=True, text=True)
+    eq("... its dry run passes and names the flag", (r.returncode, flag in r.stderr, os.path.exists(marker)),
+       (0, True, False))
+
 # ==== summary ====
 print()
 if FAILS:

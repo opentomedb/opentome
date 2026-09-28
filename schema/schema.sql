@@ -278,7 +278,7 @@ CREATE TABLE meta (
 -- purpose-limited to book promotion, and Open Library inherits Internet
 -- Archive terms restricting use to noncommercial scholarship and research.
 CREATE VIEW clean_claim AS
-    SELECT * FROM claim WHERE licence IN ('cc0', 'open', 'facts_only');
+    SELECT * FROM claim WHERE licence IN ('cc0', 'open', 'facts_only', 'us_gov_pd');
 
 -- Everything usable in a FREE, non-commercial release.
 CREATE VIEW free_claim AS

@@ -30,6 +30,10 @@ LICENCE = {
     "bnf":         "open",
     # CC0 -- public domain, no conditions at all.
     "dnb":         "cc0",
+    # US government work (17 USC §105): public domain in the US -- Nick's decision (2026-09-27), not a
+    # stated LoC licence; ONLY records LoC created (040 $a DLC). Records LoC copied from other libraries
+    # are never read (docs/krcn-design.md §2, R4). Outside the US the EU database-right caveat applies.
+    "loc":         "us_gov_pd",
     # Facts are not copyrightable (Feist). Defensible in the US. The EU sui
     # generis database right is a genuine open question and Europe is the
     # target market -- needs counsel before any commercial launch.
