@@ -40,20 +40,21 @@ def read_carry(carry):
         return None
     K = {"works": set(), "lines": {}, "series_ids": set(), "work_ids": set(), "int": {},
          "line_work": {}, "line_name": {}, "line_medium": {}, "line_pub": {},
-         "line_vols": collections.defaultdict(list), "redirect": {}}
+         "line_vols": collections.defaultdict(list), "redirect": {}, "line_market": {}}
     try:
         ids = json.loads(A.execute("SELECT value FROM meta WHERE key='krcn_ids'").fetchone()[0])
         K["works"], K["lines"] = set(ids.get("works", [])), dict(ids.get("lines", {}))
     except (sqlite3.OperationalError, TypeError, ValueError):
         pass
     sid_of = {}
-    for sid, tid, wid, name, medium, pub in A.execute(
-            "SELECT gcd_series_id, tome_id, %s, name, %s, %s FROM series" % (
+    for sid, tid, wid, name, medium, pub, market in A.execute(
+            "SELECT gcd_series_id, tome_id, %s, name, %s, %s, %s FROM series" % (
                 "tome_work_id" if "tome_work_id" in cols else "NULL", "medium" if "medium" in cols else "NULL",
-                "publisher" if "publisher" in cols else "NULL")):
+                "publisher" if "publisher" in cols else "NULL", "country" if "country" in cols else "NULL")):
         if not tid:
             continue
         sid_of[sid] = tid
+        K["line_market"][tid] = market      # the market (series.country): build_krcn.decide's fragment rule
         K["series_ids"].add(tid)
         K["line_work"][tid], K["line_name"][tid], K["line_medium"][tid] = wid, name, medium
         K["line_pub"][tid] = pub

@@ -58,7 +58,7 @@ COMIC_ANCHOR = ("manhwa", "manhua")
 LATIN_MIN = 5
 KANA_CJK = re.compile("[぀-ヿ一-鿿]+")
 NO_K = {"works": set(), "lines": {}, "series_ids": set(), "work_ids": set(), "int": {}, "line_work": {},
-        "line_name": {}, "line_medium": {}, "line_pub": {}, "line_vols": {}, "redirect": {}}
+        "line_name": {}, "line_medium": {}, "line_pub": {}, "line_vols": {}, "redirect": {}, "line_market": {}}
 
 STAGING_DDL = """
 CREATE TABLE IF NOT EXISTS krcn_line (      -- one row per KR/CN library line, exported or not
@@ -243,6 +243,13 @@ def _join(*reasons):
     return "+".join(r for r in reasons if r) or None
 
 
+def _is_vol1(number):
+    try:
+        return float(number) == 1
+    except (TypeError, ValueError):
+        return False
+
+
 def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_override=None, present=None):
     """The decision order of the module plan (Task 12), steps 1-7. Pure: no database.
     Review reasons from the line builder (controller ruling): a line with medium_why goes to review
@@ -413,6 +420,18 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
         for ln in cl:
             ln.update(role="new_work", work=wid)
         idx.add_krcn_work(wid, [t for l in cl for t in list(l["titles"]) + list(l["native"]) + [l["name"] or ""]])
+    # a fragment (export fixes E1, 2026-09-28): a NEW library line linked by title (not a hand-checked link_work
+    # correction) or an ISBN sibling (attach_roles merges exactly one line per target; a second line sharing its
+    # ISBNs is a sibling with its own id), with no vol 1, in a work and market that already has a carried line,
+    # goes to review. Exported, it became that market's counterpart / is_main / parent over the carried line
+    # (Solo Leveling FR: a Kbooks 4/15/17 line over the 19-volume Medias line; DE: a vol-15-only sibling)
+    carried_wm = {(home(w), K.get("line_market", {}).get(t)) for t, w in K["line_work"].items() if w}
+    for ln in lines:
+        if ln["carried"] or not ln["work"] or (ln["work"], ln["market"]) not in carried_wm:
+            continue
+        if (ln["role"] == "sibling" or (ln["role"] == "linked" and not (ln["via"] or "").startswith("correction"))) \
+                and not any(_is_vol1(v["number"]) for v in ln["vols"]):
+            ln.update(role="review", reason="fragment", candidates=[ln["work"]], work=None)
     for ln in lines:                                                   # 5
         if ln["role"] in ("review", "unlinked", "held") and ln["carried"]:
             w = K["line_work"].get(ln["tome_id"])
