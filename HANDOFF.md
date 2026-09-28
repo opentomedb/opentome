@@ -235,6 +235,17 @@ report `.superpowers/sdd/2026-09-27-krcn-coverage/export-fixes-report.md`):**
 - **Measure floor:** the offline dry run's DE exported volumes drop 273 -> 270 (the DE fragment's
   3 volumes), under the provisional floor 273 (`KRCN_EXPORTED_FLOORS`, set for real at C4).
 
+## 2026-09-28 — Moved to the `opentomedb` GitHub org
+
+`opentome`, `mangarr-metadata` (the catalogue releases) and `opentome-cache` moved from DrAwesome441 to the
+**`opentomedb`** org (Nick's decision; Mangarr's repos moved too). Old URLs redirect, release-asset downloads included.
+Every repo reference, the site links and the source user agents now say `opentomedb`. **Tokens:** the two
+Actions secrets `MANGARR_METADATA_TOKEN` (write, mangarr-metadata) and `OPENTOME_CACHE_TOKEN` (read, opentome-cache)
+were personal-account fine-grained PATs and could not reach the org's repos after the move (checked with a
+throwaway workflow: 404); they are replaced by org-owned fine-grained tokens (resource owner `opentomedb`).
+Publish command is now `gh workflow run catalogue.yml -R opentomedb/opentome --ref main -f publish=true`.
+The site serves `catalogue/version.json` (a copy of the release manifest) for Mangarr's stable-URL fetch.
+
 ## 2026-09-25 — branch `alias-fix`: work_title des/du, a general carried-id redirect writer
 
 Not merged, not pushed, not published -- Nick's gate (CI build-only first; publish = standing OK
