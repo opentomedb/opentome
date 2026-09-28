@@ -517,7 +517,7 @@ def export(src_path, out_path, carry_ids_from=None):
     # KR/CN library lines (stage 3f, docs/krcn-design.md §8): the name and publisher the line builder
     # saw (krcn_line). The next build's carry lookup compares both with series.name / series.publisher
     # (krcn_identity._qualifies), so the series row carries them -- not whichever line_name claim an
-    # adoption (adopt_line) left first. Library-born lines only: the lines catalogue meta krcn:ids lists
+    # adoption (adopt_line) left first (the claim subquery above has no order). Library-born lines only: the lines catalogue meta krcn:ids lists
     # (the set the carry lookup reads) -- never a merged row, whose volumes ship inside an existing
     # line. No krcn_line table: nothing changes.
     born = set(json.loads((src.execute("SELECT value FROM meta WHERE key='krcn:ids'").fetchone()
@@ -528,7 +528,13 @@ def export(src_path, out_path, carry_ids_from=None):
                WHERE exported=1 AND rl_id IS NOT NULL AND role<>'merged'""") if r in born}
     except sqlite3.OperationalError:
         lib_line = {}
-    lines = [row[:4] + ((lib_line[row[0]][1] or row[4]),) + row[5:8] + ((lib_line[row[0]][0] or row[8]),)
+    # Controller ruling (Task 13 review): the builder's NAME only where the line has no Wikipedia
+    # line_name claim -- a line Wikipedia names keeps that name (display quality; identity is continuity
+    # first, and rule (b) folds). The publisher is always the builder's.
+    wiki_name = dict(src.execute("""SELECT entity_id, value FROM claim WHERE entity='release_line'
+                                    AND field='line_name' AND source='wikipedia' ORDER BY rowid DESC"""))
+    lines = [row[:4] + ((lib_line[row[0]][1] or row[4]),) + row[5:8] +
+             ((wiki_name.get(row[0]) or lib_line[row[0]][0] or row[8]),)
              if row[0] in lib_line else row for row in lines]
 
     # Every work's normalized title, so a subtitle head that IS another work's
