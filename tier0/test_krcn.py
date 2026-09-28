@@ -2353,6 +2353,46 @@ eq("fixture check: a romanisation variant of the creator (Sing Syong vs Sing Sho
 eq("fixture check: an MR original title (Chŏnjijŏk tokcha sijŏm) keys nothing against RR/English titles -> linker none (DE only: held)",
    got["dnb:53"][:2], ("held", "none"))
 
+
+# ---- Task 12 controller rulings (pre-review): the anchor is an English COMIC line; LoC imprint series ----------
+db6 = schema_db()
+idx6 = L.Index(db6)
+ls = [mkline("loc:2025033006", "EN", "Semantic error", medium="novel", comic=False),     # the Ize novel record
+      mkline("dnb:1362777552", "DE", "Semantic error", medium="novel", comic=False),
+      mkline("dnb:1369956126", "DE", "Semantic error")]                                   # the DE comic
+plan = BK.decide(ls, idx6, None)
+eq("Semantic Error: the only English line is a novel -> no new work, held 'no-english-comic-line' (R6 entry)",
+   ([(l["role"], l["reason"], l["work"]) for l in ls], plan["works"], [(h["reason"], h["lines"]) for h in plan["held"]]),
+   ([("held", "no-english-comic-line", None)] * 3, {},
+    [("no-english-comic-line", ["dnb:1362777552", "dnb:1369956126", "loc:2025033006"])]))
+ls = [mkline("loc:2025000001", "EN", "Dark moon", medium="novel", comic=False),
+      mkline("loc:2025000002", "EN", "Dark moon")]
+plan = BK.decide(ls, idx6, None)
+eq("an English comic line anchors the work even when an English novel line has the lower key",
+   (list(plan["works"]), plan["works"][_id("w_", "krcn", "loc:2025000002")]["anchor"]),
+   ([_id("w_", "krcn", "loc:2025000002")], "loc:2025000002"))
+
+
+def dd(cid, lccn, title, s490, isbn):
+    return lrec("01000cam a2200000 i 4500", "720302s1972    nyu           000 1 eng  ", ("010", [("a", lccn)]),
+                ("020", [("a", isbn)]), DLC, ("041", [("a", "eng"), ("h", "chi")]), ("082", [("a", "741.5")]),
+                ("245", [("a", title)]), ("264", [("b", "Doubleday,")]), ("490", s490), VOL338, cid=cid)
+
+
+# spike cache f6a8890ec5bdf5ffe5f71c0df5a118ef.xml, LCCN 72076226 (trimmed): 490 'A Doubleday Anchor original ; AO-44'
+DA = dd("da", "  72076226", "The people's comic book", [("a", "A Doubleday Anchor original ;"), ("v", "AO-44")], isbn13("97803", 1))
+DB = dd("db", "  72076227", "Another comic book", [("a", "A Doubleday Anchor original ;"), ("v", "AO-45")], isbn13("97803", 2))
+DC = dd("dc", "  72076228", "A third comic", [("a", "An imprint collection")], isbn13("97803", 3))
+lines, _, _ = KL.loc_lines({r["cf"]["001"]: r for r in (DA, DB, DC)})
+eq("LoC: a publisher series numbered by catalogue code (490 $v AO-44) is neither series key nor name nor title",
+   sorted((l["name"], "A Doubleday Anchor original" in l["titles"]) for l in lines),
+   [("A third comic", False), ("Another comic book", False), ("The people's comic book", False)])
+MSD = [dd("m%d" % n, "  202401705%d" % n, "Mystery science detectives. %d" % n,
+          [("a", "Mystery science detectives ;"), ("v", v)], isbn13("97813", n)) for n, v in ((1, "book 2"), (2, "#5"))]
+lines, _, _ = KL.loc_lines({r["cf"]["001"]: r for r in MSD})
+eq("LoC: a real series ($v 'book 2', '#5') still names and keys the line", [l["name"] for l in lines],
+   ["Mystery science detectives"])
+
 # ==== summary ====
 print()
 if FAILS:

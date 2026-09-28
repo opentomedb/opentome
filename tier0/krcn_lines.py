@@ -177,6 +177,19 @@ def dnb_lines(recs, parents):
 
 # ---- LoC ------------------------------------------------------------------------------------------------
 
+# a publisher's catalogue number in 490 / 830 $v ('A Doubleday Anchor original ; AO-44', 'An Evergreen
+# book, E-209'): an imprint collection's numbering, not a volume of a series ('3', 'v. 3', 'book 4', '#5',
+# 'omnibus' all stay)
+CATALOGUE_V = re.compile(r"^\W*[A-Z]{1,4}\s*-\s*\d+\W*$")
+
+
+def _series(r):
+    """LoC series statements that name a series. The DNB rule (dnb_marc.series_statements, which
+    LM.series reads: a 490 without $v is an imprint collection), and a $v that is a publisher's
+    catalogue code marks an imprint collection too -- never a line's series key, name or title."""
+    return [(n, v) for n, v in LM.series(r) if not CATALOGUE_V.match(v or "")]
+
+
 def _loc_row(r, lc, number, set_record, member):
     return (lc, number, LM.f040a(r), LM.encoding_level(r), LM.date_type(r), int(set_record),
             (M.first(r, "263", "a") or "").strip() or None, member)
@@ -200,7 +213,7 @@ def _loc_titles(rs):
     t = []
     for r in rs:
         t += [_own_title(r), LM.full_title(r)] if _has_b(r) else [LM.title_proper(r), LM.bare_title(r)]
-        t += [n for n, _ in LM.series(r)] + LM.variant_titles(r)
+        t += [n for n, _ in _series(r)] + LM.variant_titles(r)
     return [x for x in dict.fromkeys(t) if x]
 
 
@@ -243,7 +256,7 @@ def _loc_line(key, set_rec, singles):
                       "members": [m], "announced": LM.is_prelim(r), "set_record": False, "rows": [row],
                       "_pref": (LM.is_prelim(r), lc)})
     loose.sort(key=lambda v: v["_pref"])
-    one_shot = set_rec is None and len(singles) == 1 and not LM.series(singles[0][1]) and \
+    one_shot = set_rec is None and len(singles) == 1 and not _series(singles[0][1]) and \
         not re.search(r"\d", LM.title_proper(singles[0][1]))
     kept, lost = _number_volumes(loose, one_shot)
     kept = [v for v in kept if v["number"] not in vols]           # a set volume wins its number
@@ -262,7 +275,7 @@ def _loc_line(key, set_rec, singles):
     pubs = collections.Counter(LM.publisher(r) for r in rs if LM.publisher(r))
     pub = pubs.most_common(1)[0][0] if pubs else None
     name = LM.full_title(set_rec) if set_rec is not None else \
-        (next((n for n, _ in LM.series(singles[0][1])), None) or _own_title(singles[0][1]))
+        (next((n for n, _ in _series(singles[0][1])), None) or _own_title(singles[0][1]))
     for v in allv:
         v.pop("_pref", None)
     if key is None:
@@ -315,7 +328,7 @@ def loc_lines(recs):
     by_isbn = {i: lc for lc, r in sets.items() for cs in LM.volume_isbns(r).values() for i, _ in cs}
 
     def sig(r):
-        s = LM.series(r)
+        s = _series(r)
         return (L.fold(s[0][0] if s else _own_title(r), False), LM.pubfam(LM.publisher(r)),
                 LM.classify(r) == "prose")
     set_sig = collections.defaultdict(list)

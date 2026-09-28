@@ -14,8 +14,10 @@ before the enrichment:
                  whose own-key id shipped keeps it; the carry lookup only for the others; no absorption
   5. attach      krcn_identity.attach_roles -- ISBN majority with an existing line, in any direction
   6. decide      link (full-name authors, JP guard, link_work), cluster the unlinked lines of all
-                 markets, create works that pass §9's four criteria AND have an English line, hold the
-                 rest (R6: no id, no integer, build/krcn-held.tsv), keep published lines, adopt ids (R1)
+                 markets, create works that pass §9's four criteria AND have an English COMIC line
+                 (manhwa / manhua; the anchor), hold the rest (R6: no id, no integer,
+                 build/krcn-held.tsv; reason no-english-line | no-english-comic-line), keep published
+                 lines, adopt ids (R1)
   7. load        works, lines, volumes, claims (source dnb / loc / bnf, their licences, record urls),
                  staging krcn_line / krcn_member / loc_member, adoption renames -- all BEFORE 4c / 7b
   8. files       build/krcn-review.tsv, krcn-held.tsv, krcn-new-works.tsv, krcn-report.json
@@ -38,6 +40,7 @@ from load import _id
 EXPORTED = ("merged", "sibling", "adopting", "linked", "kept", "new_work")
 ROLES = EXPORTED + ("held", "review", "unlinked", "absorbed")
 ATTACHED = ("merged", "sibling", "adopting")
+COMIC_ANCHOR = ("manhwa", "manhua")
 LATIN_MIN = 5
 KANA_CJK = re.compile("[぀-ヿ一-鿿]+")
 NO_K = {"works": set(), "lines": {}, "series_ids": set(), "work_ids": set(), "int": {}, "line_work": {},
@@ -239,7 +242,9 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None):
                 for ln in cl:
                     ln.update(role="review", reason=why, candidates=cands)
                 continue
-        en = [l for l in cl if l["market"] == "EN"]
+        # the anchor of a new work is an English COMIC line (controller ruling): a cluster whose only
+        # English lines are novels is held like one with no English line
+        en = [l for l in cl if l["market"] == "EN" and l["medium"] in COMIC_ANCHOR]
         hits = containment_hits(cl, idx)
         c2, c3 = any(l["explicit"] for l in cl), any(l["comic"] for l in cl)
         entry = _entry(cid, cl, {"linker": "none", "explicit_origin": c2, "comic": c3, "containment": sorted(hits)}, None)
@@ -260,10 +265,10 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None):
                 ln.update(role="unlinked", reason=entry["reason"])
             continue
         elif not en:
-            entry["reason"] = "no-english-line"
+            entry["reason"] = "no-english-comic-line" if any(l["market"] == "EN" for l in cl) else "no-english-line"
             plan["held"].append(entry)
             for ln in cl:
-                ln.update(role="held", reason="no-english-line", work=None)
+                ln.update(role="held", reason=entry["reason"], work=None)
             continue
         else:
             wid, created = _id("w_", "krcn", min(l["key"] for l in en)), True
