@@ -3700,6 +3700,20 @@ finally:
     CORR.DIR = _saved_dir
 shutil.rmtree(_tf, ignore_errors=True)
 
+# ==== export fixes (2026-09-28: krcn-consumer-findings §7, §8 "Solo Leveling") ====
+# E2: a vernacular 880 paired with a 240 carries the 240 $l language note inside its $a ("멸망 이후의 세계.
+# English", LoC 2022942912 / 2024951923): its normalize() is 'english', which became an alias of both works
+LEW = lrec("01234cam a2200301 i 4500", "240101s2024    nyua          000 1 eng  ",
+           ("010", [("a", "  2024951923")]), DLC,
+           ("240", [("6", "880-02"), ("a", "Sar'inma Lewellyn-ssieui nangmanjeog'in jeongchan."), ("l", "English")]),
+           ("245", [("a", "Murderous Lewellyn's candlelit dinner /")]),
+           ("246", [("a", "멸망 이후의 세계. Korean")]),
+           ("880", [("6", "240-02/$1"), ("a", "살인마 르웰린 씨의 낭만적인 정찬. English")]), cid="2")
+eq("E2: an 880's trailing '. English' (the 240 $l) is not part of the native title",
+   LM.native_titles(LEW), ["살인마 르웰린 씨의 낭만적인 정찬", "멸망 이후의 세계"])
+eq("E2: a title that merely contains a language word keeps it",
+   LM.native_titles(lrec("x", "x", ("880", [("6", "245-01"), ("a", "영어 English Club")]))), ["영어 English Club"])
+
 # ==== summary ====
 print()
 if FAILS:
