@@ -40,9 +40,7 @@ Done (design `docs/krcn-design.md`, results `docs/krcn-market.md`):
   `LOC_MAX_REQUESTS` = 260; a "LoC reachability" and a "BnF reachability" step, each a single
   probe that appends one line to `build/loc-netlog.tsv` / `bnf-netlog.tsv` (lib_sru's columns)
   and on failure sets `LOC_OFFLINE=1`/`BNF_OFFLINE=1` plus `LOC_UNREACHABLE=1`/`BNF_UNREACHABLE=1`
-  rather than failing the job; the source cache is restored with `actions/cache/restore` and
-  saved with `actions/cache/save` after the rebuild whenever the run was not cancelled (a
-  failed gate no longer throws away that run's fetches); the KR/CN files
+  rather than failing the job; the KR/CN files
   (`krcn-review.tsv`, `krcn-held.tsv`, `krcn-new-works.tsv`, `krcn-report.json`,
   `loc-report.json`, `loc-netlog.tsv`, `bnf-netlog.tsv`) added to the run's uploaded artifact.
 - Docs: `docs/legal-position.md` (LoC row + the §105-inference note), README.md (LoC in the
@@ -120,9 +118,8 @@ Gotchas:
   past their refresh window) in catalogue meta and `krcn-report.json` and prints a NOTE; the
   export does not copy it and `publish.sh` does not refuse it (P13). Only `loc:degraded` /
   `bnf:degraded` (a refresh that failed mid-run) still block. `unload` clears both.
-- **The CI cache is saved even when a gate fails** (not on a cancelled or timed-out run). A
-  failed build's LoC / BnF / DNB fetches therefore reach the next run; a set is only ever stored
-  whole, so nothing partial is saved.
+- **The CI cache is still saved only on success** (final review I4, pending a controller
+  ruling): a run that fails a gate after 3f throws away its LoC / BnF / DNB fetches.
 - **3e's DNB stop carries into 3f.** `build_krcn.run` seeds `dnb_sru.DEGRADED` from catalogue
   meta `dnb:degraded` (3e's value; read after `unload`), so 3f serves stale DNB sets from the
   cache instead of re-requesting DNB after 3e was throttled; the run is then DNB-degraded.
