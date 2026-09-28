@@ -6,7 +6,8 @@
 #
 # Every step keys on the one before it: a rebuild that fails at any gate stops
 # the job, so the manifest, the upload and the publish never see a half-built or
-# stale artifact. Never add `if: always()` / `continue-on-error` to a step here.
+# stale artifact. Never add `if: always()` / `continue-on-error` to a step here --
+# the one exception is the source-cache save at the end, which ships nothing.
 name: catalogue
 
 on:
@@ -45,14 +46,15 @@ jobs:
         with:
           python-version: '3.12'
       # Restores the newest `opentome-cache-*` entry (seed, keepalive or a previous
-      # build) and saves this run's cache under its own key at job end, so the
+      # build); the last step saves this run's cache under its own key, so the
       # responses a run fetched are there for the next one. A warm run hits close to
       # zero network -- the seed-cache workflow is what makes the first run warm. Beyond the
       # source refresh windows below, one more recurring cost: Open Library per-ISBN negatives refresh every
       # OL_NEG_REFRESH_DAYS (60, tier1/enrich_more.py) days by mtime, so once they age
       # past that window a build re-requests them -- ~77 requests on today's 3,833
       # negatives (ceil(3833/50)), first wave ~2026-11-26.
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cache
         with:
           path: .cache
           key: opentome-cache-${{ github.run_id }}
@@ -194,3 +196,13 @@ jobs:
           EOF
           )
           curl -sS -o /dev/null -w 'discord: %{http_code}\n' -A "OpenTome-CI/1.0" -H 'Content-Type: application/json' --data "$body" "$HOOK"
+      # Saves the source cache, also when a gate after stage 3f failed: that run's LoC / BnF / DNB
+      # fetches reach the next run instead of being re-requested from a gateway that throttled us.
+      # Only once tier0/rebuild_all.sh wrote build/.sources-complete (after 3f, every library set
+      # enumerated and stored whole); a failure or kill before it saves nothing, as before. Never on a
+      # cancelled run, never over an exact hit (a re-run attempt) -- the old combined step's behaviour.
+      - uses: actions/cache/save@v4
+        if: ${{ !cancelled() && hashFiles('build/.sources-complete') != '' && steps.cache.outputs.cache-hit != 'true' }}
+        with:
+          path: .cache
+          key: opentome-cache-${{ github.run_id }}
