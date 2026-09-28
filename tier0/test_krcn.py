@@ -2914,6 +2914,95 @@ except SystemExit:
     eq("unload refuses a catalogue whose ids 3f adopted", True, True)
 
 
+# ---- Task 14 fix round 1 ----------------------------------------------------------------------------------------
+# I1 (review repro build/t14-review/adopt_s8.py): adoption keeps the Wikipedia volume's present columns; the library
+# fills only what is empty (the fill_attached rule), even with a finer date
+dbs8 = schema_db()
+dbs8.executescript(BK.STAGING_DDL)
+dbs8.execute("INSERT INTO work VALUES('w_ad','Adopt me',NULL,NULL,NULL,NULL,'x','x')")
+line_row(dbs8, "rl_wad", "w_ad", "manhwa", "EN", "en")
+dbs8.execute("""INSERT INTO volume(id,release_line_id,number,isbn13,page_count,release_date,release_date_precision,
+                release_date_type,created_at,updated_at) VALUES('v_wad1','rl_wad','1','9798400950001',200,'2021','year',
+                'on_sale','x','x')""")
+dbs8.execute("""INSERT INTO volume(id,release_line_id,number,isbn13,release_date_type,created_at,updated_at)
+                VALUES('v_wad2','rl_wad','2',NULL,'unknown','x','x')""")
+a8 = lib_line("loc:3000000011", "rl_pubA", "adopting", "rl_wad", carried=True,
+              vols=[("1", "9798400950001", "loc:3000000011"), ("2", "9798400950002", "loc:3000000012")])
+a8["vols"][0].update(pages=180, date=("2022-05", "month", "published"))
+a8["vols"][1].update(pages=190, date=("2022", "year", "published"))
+BK.load(dbs8, [a8], [], {"works": {}, "adopt_works": [], "held": []}, BK.NO_K)
+eq("I1: after adoption the Wikipedia volume's pages / ISBN / date survive (not the library's 180 / 2022-05)",
+   dbs8.execute("SELECT isbn13, page_count, release_date, release_date_precision, release_date_type FROM volume WHERE id=?",
+                (_id("v_", "rl_pubA", "1"),)).fetchone(), ("9798400950001", 200, "2021", "year", "on_sale"))
+eq("I1: a column Wikipedia left empty takes the library's value",
+   dbs8.execute("SELECT isbn13, page_count, release_date, release_date_precision, release_date_type FROM volume WHERE id=?",
+                (_id("v_", "rl_pubA", "2"),)).fetchone(), ("9798400950002", 190, "2022", "year", "published"))
+
+# I2 (review repro build/t14-review/conflict.py): two works adopting one public id fail before anything is written
+dbc = schema_db()
+dbc.executescript(BK.STAGING_DDL)
+for w in ("w1", "w2"):
+    dbc.execute("INSERT INTO work VALUES(?,?,NULL,NULL,NULL,NULL,'x','x')", (w, w))
+cl1 = lib_line("loc:1", "rl_a01", "linked", None, vols=[("1", "9798400950101", "loc:1")], carried=True, work="w_P")
+cl2 = lib_line("loc:2", "rl_b02", "linked", None, vols=[("1", "9798400950202", "loc:2")], carried=True, work="w_P")
+cl1["adopted_from"], cl2["adopted_from"] = "w1", "w2"
+try:
+    BK.load(dbc, [cl1, cl2], [], {"works": {}, "adopt_works": [("w1", "w_P"), ("w2", "w_P")],
+                                  "adopt_conflicts": [("w1", "w_P"), ("w2", "w_P")], "held": []}, BK.NO_K)
+    eq("I2: two works adopting one public id raise SystemExit", "no error", "SystemExit")
+except SystemExit as e:
+    eq("I2: the message names both works, their lines, the public id and the link_work fix",
+       all(x in str(e) for x in ("w1 (lines loc:1)", "w2 (lines loc:2)", "w_P", "link_work")), True)
+eq("I2: nothing written -- no release_line, no work w_P, no staging row",
+   (dbc.execute("SELECT COUNT(*) FROM release_line").fetchone()[0], sorted(dbc.execute("SELECT id FROM work")),
+    dbc.execute("SELECT COUNT(*) FROM krcn_line").fetchone()[0]), (0, [("w1",), ("w2",)], 0))
+
+# Minor 1: an attached volume's claim from another stage (enrich_bnf's per-ISBN SRU url) is kept, not displaced
+dbm = schema_db()
+dbm.executescript(BK.STAGING_DDL)
+dbm.execute("INSERT INTO work VALUES('w_fr','X',NULL,NULL,NULL,NULL,'x','x')")
+line_row(dbm, "rl_fr", "w_fr", "manhwa", "FR", "fr")
+dbm.execute("INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at) VALUES('v_fr1','rl_fr','1','9782382880371','x','x')")
+SRU_URL = "https://catalogue.bnf.fr/api/SRU?query=bib.isbn+all+%229782382880371%22"
+dbm.execute("INSERT INTO claim VALUES('volume','v_fr1','volume_number','1','bnf',?,'open','x')", (SRU_URL,))
+ark = "bnf:ark:/12148/cb47253773p"
+bfl = dict(lib_line("bnf:ark:/12148/cb47253773p", "rl_bfl", "linked", None, vols=[("1", "9782382880371", ark)], work="w_fr"),
+           source="bnf", market="FR", language="fr", loc=[])
+BK.load(dbm, [bfl], [], {"works": {}, "adopt_works": [], "held": []}, BK.NO_K)
+eq("Minor 1: enrich_bnf's claim survives 3f on an attached volume; 3f's other claims land",
+   sorted(dbm.execute("SELECT field, source_url FROM claim WHERE entity_id='v_fr1' AND source='bnf'")),
+   [("isbn13", "https://catalogue.bnf.fr/ark:/12148/cb47253773p"), ("release_date", "https://catalogue.bnf.fr/ark:/12148/cb47253773p"),
+    ("volume_number", SRU_URL)])
+
+# Minor 2: unload takes back 3f's part of dnb:degraded only
+for label, before, after in (
+        ("3e's value with 3f's 'krcn' part -> 3e's value back",
+         {"reason": "3e", "kept_previous": ["q"], "krcn": {"reason": "x", "kept_previous": []}}, {"reason": "3e", "kept_previous": ["q"]}),
+        ("3f's own value (round krcn; 3e was clean) -> the key deleted", {"reason": "x", "kept_previous": [], "round": "krcn"}, None),
+        ("3e's value alone -> untouched", {"reason": "3e", "kept_previous": []}, {"reason": "3e", "kept_previous": []})):
+    dbd = schema_db()
+    dbd.executescript(BK.STAGING_DDL)
+    dbd.execute("INSERT INTO meta VALUES('dnb:degraded',?)", (json.dumps(before),))
+    BK.unload(dbd.cursor())
+    got = dbd.execute("SELECT value FROM meta WHERE key='dnb:degraded'").fetchone()
+    eq("Minor 2: unload and dnb:degraded: " + label, json.loads(got[0]) if got else None, after)
+
+# Minor 3: a volume one merged line creates is the target's volume of that number for the next merged line
+dbt = schema_db()
+dbt.executescript(BK.STAGING_DDL)
+dbt.execute("INSERT INTO work VALUES('w_t','T',NULL,NULL,NULL,NULL,'x','x')")
+line_row(dbt, "rl_t", "w_t", "manhwa", "EN", "en")
+dbt.execute("INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at) VALUES('v_t1','rl_t','1','9798400960001','x','x')")
+mA = lib_line("loc:4000000001", _id("rl_", "loc:4000000001"), "merged", "rl_t", vols=[("9", "9798400960009", "loc:4000000001")], work="w_t")
+mB = lib_line("loc:4000000002", _id("rl_", "loc:4000000002"), "merged", "rl_t", vols=[("9", "9798400960009", "loc:4000000002")], work="w_t")
+mC = lib_line("loc:4000000003", _id("rl_", "loc:4000000003"), "merged", "rl_t", vols=[("9", "9798400960099", "loc:4000000003")], work="w_t")
+fates = BK.load(dbt, [mA, mB, mC], [], {"works": {}, "adopt_works": [], "held": []}, BK.NO_K)
+eq("Minor 3: the first merged line creates v.9, the second attaches to it, a third with another ISBN clashes",
+   sorted(dbt.execute("SELECT member, fate, volume_id FROM krcn_member")),
+   [("loc:4000000001", "created", _id("v_", "rl_t", "9")), ("loc:4000000002", "attached", _id("v_", "rl_t", "9")),
+    ("loc:4000000003", "dropped_number_clash", None)])
+
+
 # ==== summary ====
 print()
 if FAILS:
