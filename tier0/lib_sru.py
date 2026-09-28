@@ -23,7 +23,7 @@ import fcntl, hashlib, http.client, json, os, re, time, urllib.error, urllib.par
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(ROOT, ".cache")
 UA = ("OpenTome/0.1 (open manga/manhwa catalogue; %s; serial, >=3s between requests; "
-      "https://github.com/DrAwesome441/opentome)")
+      "https://github.com/opentomedb/opentome)")
 ID_001 = re.compile(r'tag="001">([^<]+)<')
 MAX_RETRY_AFTER = 600
 
