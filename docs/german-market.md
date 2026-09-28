@@ -214,3 +214,11 @@ complete set and never publishes (`meta.dnb_degraded`), a first run stays strict
 a refresh window, >25 retired carried German volumes fail the contract; `kept` never overrides
 "authors differ"; a single cased book keeps its cased ISBN (Death Note All-in-One is back);
 245$c role labels stripped after the last ':'; photo books are extras.
+
+## Korean and Chinese editions
+
+Since the KR/CN coverage round, German manhwa and manhua come from stage 3f's own staging
+(`krcn_line` / `krcn_member`, DNB's `spo=kor` / `spo=chi` channels), not from `dnb_line`: the
+two populations are kept apart so mixing them cannot quietly move the German JP link-rate floor.
+The existing German (JP) gates — link rate, dates — are unchanged. See
+`docs/krcn-market.md` for the KR/CN method, sources and figures.

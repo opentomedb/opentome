@@ -2,8 +2,8 @@
 # Full rebuild pipeline, in dependency order. Every stage is cache-backed, so a
 # complete re-run costs minutes rather than hours and zero additional network.
 #
-#   0. unit tests      parser / collapse / resolve -- a rebuild on a broken
-#                      parser is worse than no rebuild
+#   0. unit tests      parser / collapse / resolve / dnb / carried ids / krcn -- a rebuild on a
+#                      broken parser is worse than no rebuild
 #   1. work identity   langlinks -> cross-language work classes  (MUST precede build)
 #   2. corpus en+fr    Wikipedia volume-list templates
 #   3. corpus de       wikitables, discovered via langlinks

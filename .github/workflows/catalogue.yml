@@ -46,8 +46,12 @@ jobs:
           python-version: '3.12'
       # Restores the newest `opentome-cache-*` entry (seed, keepalive or a previous
       # build) and saves this run's cache under its own key at job end, so the
-      # responses a run fetched are there for the next one. A warm run hits zero
-      # network -- the seed-cache workflow is what makes the first run warm.
+      # responses a run fetched are there for the next one. A warm run hits close to
+      # zero network -- the seed-cache workflow is what makes the first run warm. The
+      # one recurring exception: Open Library per-ISBN negatives refresh every
+      # OL_NEG_REFRESH_DAYS (60, tier0/enrich_more.py) days by mtime, so once they age
+      # past that window a build re-requests them -- ~77 requests on today's 3,833
+      # negatives (ceil(3833/50)), first wave ~2026-11-26.
       - uses: actions/cache@v4
         with:
           path: .cache
@@ -87,9 +91,34 @@ jobs:
       # A DNB failure in a refresh run keeps each affected result set's previous complete page
       # set and marks the build degraded (built and gated, never published); a result set with
       # no complete earlier set fails the build (an unseeded cache is not a refresh).
+      # KR/CN sources (docs/krcn-design.md §3): LoC ECIP records are upgraded later; BnF barely moves.
+      # A 28-day window on the weekly cron: ~110-160 LoC and ~11 BnF requests every fourth week, the
+      # canary (1 request) every week. A failure keeps the previous complete set and marks the build
+      # degraded (built and gated, never published); a set with no complete copy fails the build.
+      - name: LoC reachability
+        run: |
+          if curl -fsS -m 20 -o /dev/null -A "OpenTome-CI/1.0 (reachability probe)" \
+               "http://lx2.loc.gov:210/lcdb?version=1.1&operation=searchRetrieve&query=bath.isbn%3D9781975319434&recordSchema=marcxml&maximumRecords=1&startRecord=1"; then
+            echo "LoC reachable"
+          else
+            echo "::warning::lx2.loc.gov:210 unreachable from this runner -- LoC is read from the cache (LOC_OFFLINE=1)"
+            echo "LOC_OFFLINE=1" >> "$GITHUB_ENV"
+          fi
+      # The same fallback for BnF (spec §3 names both LOC_OFFLINE and BNF_OFFLINE): one HEAD-sized probe.
+      - name: BnF reachability
+        run: |
+          if curl -fsS -m 20 -o /dev/null -A "OpenTome-CI/1.0 (reachability probe)" \
+               "https://catalogue.bnf.fr/api/SRU?version=1.2&operation=searchRetrieve&query=bib.isbn%20all%20%229782382880371%22&recordSchema=unimarcxchange&maximumRecords=1"; then
+            echo "BnF reachable"
+          else
+            echo "::warning::catalogue.bnf.fr unreachable from this runner -- BnF is read from the cache (BNF_OFFLINE=1)"
+            echo "BNF_OFFLINE=1" >> "$GITHUB_ENV"
+          fi
       - name: rebuild (every gate)
         env:
           DNB_REFRESH_DAYS: "6"
+          LOC_REFRESH_DAYS: "28"
+          BNF_REFRESH_DAYS: "28"
         run: bash tier0/rebuild_all.sh
       # Without PUBLISH=1 publish.sh only writes build/version.json and prints the
       # per-build tag; it also runs the two clean-room refusals.
@@ -107,6 +136,13 @@ jobs:
             build/dnb-review.tsv
             build/dnb-report.json
             build/dnb-netlog.tsv
+            build/krcn-review.tsv
+            build/krcn-held.tsv
+            build/krcn-new-works.tsv
+            build/krcn-report.json
+            build/loc-report.json
+            build/loc-netlog.tsv
+            build/bnf-netlog.tsv
       # The human gate. The PAT (not GITHUB_TOKEN) is what writes to the
       # mangarr-metadata releases, so this workflow needs no write permission.
       - name: publish
