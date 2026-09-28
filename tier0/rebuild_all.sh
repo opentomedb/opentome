@@ -132,10 +132,10 @@ echo "== 3. corpus de ==";         python3 tier0/build_corpus_de.py "$DB"
 echo "== 3b. official titles ==";  python3 tier0/main_titles.py "$DB"
 echo "== 3c. main articles ==";     python3 tier0/main_articles.py "$DB"
 echo "== 3d. relations ==";         python3 tier0/relations.py "$DB"
-rm -f build/.sources-complete         # the CI cache-save marker (catalogue.yml): never a stale one from an earlier run
+rm -f build/sources-complete.marker         # the CI cache-save marker (catalogue.yml): never a stale one from an earlier run
 echo "== 3e. dnb (German market) =="; python3 tier0/build_dnb.py "$DB" "$ID_CARRY"
 echo "== 3f. krcn (Korean / Chinese editions) =="; python3 tier0/build_krcn.py "$DB" "$ID_CARRY"
-touch build/.sources-complete        # every DNB / LoC / BnF set is enumerated and cached whole: CI may save .cache
+touch build/sources-complete.marker        # every DNB / LoC / BnF set is enumerated and cached whole: CI may save .cache
 echo "== 4. enrichment ==";        python3 tier1/enrich.py "$DB"
                                    # `both` already runs EN Open Library, FR Open Library
                                    # AND BnF. A second `olfr` line re-queried every French

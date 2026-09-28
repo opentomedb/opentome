@@ -198,11 +198,11 @@ jobs:
           curl -sS -o /dev/null -w 'discord: %{http_code}\n' -A "OpenTome-CI/1.0" -H 'Content-Type: application/json' --data "$body" "$HOOK"
       # Saves the source cache, also when a gate after stage 3f failed: that run's LoC / BnF / DNB
       # fetches reach the next run instead of being re-requested from a gateway that throttled us.
-      # Only once tier0/rebuild_all.sh wrote build/.sources-complete (after 3f, every library set
+      # Only once tier0/rebuild_all.sh wrote build/sources-complete.marker (after 3f, every library set
       # enumerated and stored whole); a failure or kill before it saves nothing, as before. Never on a
       # cancelled run, never over an exact hit (a re-run attempt) -- the old combined step's behaviour.
       - uses: actions/cache/save@v4
-        if: ${{ !cancelled() && hashFiles('build/.sources-complete') != '' && steps.cache.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && hashFiles('build/sources-complete.marker') != '' && steps.cache.outputs.cache-hit != 'true' }}
         with:
           path: .cache
           key: opentome-cache-${{ github.run_id }}
