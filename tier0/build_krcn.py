@@ -438,6 +438,9 @@ def gate_report(lines, plan, rep, K, E=None, deferred=()):
       authors_differ       lines whose linker verdict was a title collision (authors differ; MR vs RR)
       deferred_to_jp_round P25
       jp_guard_overrides   link_work corrections that lifted the JP guard (line key, work, why)
+      adoption_isbn_clash  review: an adopted Wikipedia volume's ISBN already on another volume of the
+                           public line (offset numbering) -- [line key, public, number, Wikipedia ISBN,
+                           ISBN kept]; set by load (adopt), so gate_report runs after load
     """
     K, E = K or NO_K, E or {}
     taken = {k for _, k in rep.get("taken", [])}
@@ -447,7 +450,8 @@ def gate_report(lines, plan, rep, K, E=None, deferred=()):
            "adopt_conflicts": [list(t) for t in plan.get("adopt_conflicts", [])],
            "carried_not_exported": [], "carried_work_changed": [], "hangul_only_authors": [],
            "authors_differ": [], "deferred_to_jp_round": sorted(ln["key"] for ln in deferred),
-           "jp_guard_overrides": [list(t) for t in plan.get("jp_overrides", [])]}
+           "jp_guard_overrides": [list(t) for t in plan.get("jp_overrides", [])],
+           "adoption_isbn_clash": [list(t) for t in plan.get("adoption_isbn_clash", [])]}
     renamed = dict(plan.get("adopt_works", []))
     for ln in lines:
         mine = {i for v in ln["vols"] for i in v["isbns"]}
@@ -654,25 +658,35 @@ def unload(c):
             c.execute("UPDATE meta SET value=? WHERE key='dnb:degraded'", (json.dumps(val),))
 
 
-def adopt(c, internal, public):
+def adopt(c, internal, public, key=None):
     """krcn_identity.adopt_line (R1 / P2) plus the staging rows it does not know (controller ruling):
     the staging is written before adoption, so krcn_member / loc_member volume ids pointing at the
     internal line's volumes move to what adopt_line made of them (a moved volume: v_(public, n); a
     merged one: the public line's volume of that number), and krcn_line target / rl_id move to the
     public id. A merged volume keeps the internal (Wikipedia) volume's present values -- isbn13, page_count
     and the date triple -- over the library's: the library only fills what Wikipedia left empty, the
-    fill_attached rule (§8, controller ruling), even when the library's date is finer.
-    -> adopt_line's (moved, merged)."""
+    fill_attached rule (§8, controller ruling), even when the library's date is finer. A Wikipedia ISBN
+    that already sits on ANOTHER volume of the public line (the two sources number the line differently)
+    is not written: the volume keeps its value, and the clash is returned for review (gate list
+    adoption_isbn_clash) -- one ISBN never lands on two volumes.
+    -> (moved, merged, clashes: [[line key, public, number, Wikipedia ISBN, ISBN kept]])."""
     have = {n: v for v, n in c.execute("SELECT id, number FROM volume WHERE release_line_id=?", (public,))}
     wiki = c.execute("""SELECT id, number, isbn13, page_count, release_date, release_date_precision, release_date_type
                         FROM volume WHERE release_line_id=?""", (internal,)).fetchall()
     remap = {v: have.get(n) or _id("v_", public, n) for v, n, *_ in wiki}
     moved, merged = KI.adopt_line(c, internal, public)
+    clashes = []
     for _, n, isbn, pc, rd, rp, rt in wiki:
         if n not in have:
             continue
         if isbn:
-            c.execute("UPDATE volume SET isbn13=? WHERE id=?", (isbn, have[n]))
+            other = c.execute("SELECT id FROM volume WHERE release_line_id=? AND isbn13=? AND id<>? LIMIT 1",
+                              (public, isbn, have[n])).fetchone()
+            if other:
+                kept = c.execute("SELECT isbn13 FROM volume WHERE id=?", (have[n],)).fetchone()[0]
+                clashes.append([key, public, n, isbn, kept])
+            else:
+                c.execute("UPDATE volume SET isbn13=? WHERE id=?", (isbn, have[n]))
         if pc is not None:
             c.execute("UPDATE volume SET page_count=? WHERE id=?", (pc, have[n]))
         if rd:
@@ -683,7 +697,7 @@ def adopt(c, internal, public):
             c.execute("UPDATE %s SET volume_id=? WHERE volume_id=?" % t, (new, old))
     for col in ("target", "rl_id"):
         c.execute("UPDATE krcn_line SET %s=? WHERE %s=?" % (col, col), (public, internal))
-    return moved, merged
+    return moved, merged, clashes
 
 
 def load(db, lines, lost, plan, K):
@@ -703,10 +717,14 @@ def load(db, lines, lost, plan, K):
         # a work that does not exist, or merge two works silently -- fail before anything is written
         msg = []
         for p in clash:
-            for w in sorted(w for w, q in plan["adopt_works"] if q == p):
-                ks = sorted(l["key"] for l in lines if l.get("adopted_from") == w) or \
-                    sorted(l["key"] for l in lines if l.get("work") == p)
-                msg.append("work %s (lines %s) -> public id %s" % (w, " ".join(ks), p))
+            ws = sorted(w for w, q in plan["adopt_works"] if q == p)
+            by_w = {w: sorted(l["key"] for l in lines if l.get("adopted_from") == w) for w in ws}
+            if all(by_w.values()):
+                msg += ["work %s (lines %s) -> public id %s" % (w, " ".join(by_w[w]), p) for w in ws]
+            else:             # decide sets adopted_from; a plan from elsewhere may not
+                msg.append("works %s -> public id %s (the lines cannot be attributed to a work; lines now under "
+                           "%s: %s)" % (", ".join(ws), p, p, " ".join(sorted(l["key"] for l in lines
+                                                                           if l.get("work") == p)) or "none"))
         raise SystemExit("stage 3f: two works would adopt one public work id -- %s. Decide which work the "
                          "lines belong to and add a link_work correction (corrections/lines.json)." % "; ".join(msg))
     c = db.cursor()
@@ -821,7 +839,10 @@ def load(db, lines, lost, plan, K):
     adopted = []
     for ln in lines:                                   # R1 / P2: before 4c and 7b, never a redirect
         if ln["role"] == "adopting" and ln["exported"]:
-            adopt(c, ln["target"], ln["tome_id"])
+            for x in adopt(c, ln["target"], ln["tome_id"], ln["key"])[2]:
+                print("  WARNING adoption ISBN clash -- %s (%s) v.%s: Wikipedia ISBN %s is on another volume of the "
+                      "line; kept %s (review: gate adoption_isbn_clash)" % tuple(x))
+                plan.setdefault("adoption_isbn_clash", []).append(x)
             adopted.append(["release_line", ln["target"], ln["tome_id"]])
     conflicts = {tuple(t) for t in plan.get("adopt_conflicts", [])}
     for internal, public in plan["adopt_works"]:

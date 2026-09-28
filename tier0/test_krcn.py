@@ -3003,6 +3003,46 @@ eq("Minor 3: the first merged line creates v.9, the second attaches to it, a thi
     ("loc:4000000003", "dropped_number_clash", None)])
 
 
+# ---- Task 14 fix round 2 ----------------------------------------------------------------------------------------
+# new issue 1 (re-review repro): offset numbering -- Wikipedia v1=X1 v2=X2, the library v1=X0 v2=X1 v3=X2. The I1
+# re-apply must never put one ISBN on two volumes of the public line; each clash is a review gate entry
+X0, X1, X2 = "9798400970000", "9798400970001", "9798400970002"
+dbo = schema_db()
+dbo.executescript(BK.STAGING_DDL)
+dbo.execute("INSERT INTO work VALUES('w_ad','Adopt me',NULL,NULL,NULL,NULL,'x','x')")
+line_row(dbo, "rl_wad", "w_ad", "manhwa", "EN", "en")
+for n, i in (("1", X1), ("2", X2)):
+    dbo.execute("INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at) VALUES(?,?,?,?,'x','x')",
+                ("v_wad" + n, "rl_wad", n, i))
+ao = lib_line("loc:3000000011", "rl_pubA", "adopting", "rl_wad", carried=True,
+              vols=[("1", X0, "loc:3000000011"), ("2", X1, "loc:3000000012"), ("3", X2, "loc:3000000013")])
+plan_o = {"works": {}, "adopt_works": [], "held": []}
+BK.load(dbo, [ao], [], plan_o, BK.NO_K)
+eq("round 2: offset numbering -- no ISBN on two volumes of the public line; each volume keeps its value",
+   (dbo.execute("""SELECT COUNT(*) FROM (SELECT isbn13 FROM volume WHERE release_line_id='rl_pubA' AND isbn13 IS NOT NULL
+                   GROUP BY isbn13 HAVING COUNT(*) > 1)""").fetchone()[0],
+    sorted(dbo.execute("SELECT number, isbn13 FROM volume WHERE release_line_id='rl_pubA'"))),
+   (0, [("1", X0), ("2", X1), ("3", X2)]))
+eq("round 2: one adoption_isbn_clash entry per clash [line key, public, number, Wikipedia ISBN, ISBN kept]",
+   plan_o.get("adoption_isbn_clash"),
+   [["loc:3000000011", "rl_pubA", "1", X1, X0], ["loc:3000000011", "rl_pubA", "2", X2, X1]])
+eq("round 2: the clash reaches the gate report (krcn-report.json 'gate')",
+   BK.gate_report([ao], plan_o, {}, BK.NO_K)["adoption_isbn_clash"],
+   [["loc:3000000011", "rl_pubA", "1", X1, X0], ["loc:3000000011", "rl_pubA", "2", X2, X1]])
+eq("round 2: no clash, no entry (the I1 scenario)", BK.gate_report([], {}, {}, BK.NO_K)["adoption_isbn_clash"], [])
+
+# new issue 2: without adopted_from the SystemExit says it cannot attribute lines, instead of one list twice
+dbc2 = schema_db()
+dbc2.executescript(BK.STAGING_DDL)
+try:
+    BK.load(dbc2, [dict(cl1, adopted_from=None), dict(cl2, adopted_from=None)], [],
+            {"works": {}, "adopt_works": [("w1", "w_P"), ("w2", "w_P")], "held": []}, BK.NO_K)
+    eq("round 2: the fallback message", "no error", "SystemExit")
+except SystemExit as e:
+    eq("round 2: without adopted_from the message names both works once and says the lines cannot be attributed",
+       ("works w1, w2 -> public id w_P" in str(e), "cannot be attributed" in str(e), str(e).count("loc:1")), (True, True, 1))
+
+
 # ==== summary ====
 print()
 if FAILS:
