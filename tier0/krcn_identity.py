@@ -90,15 +90,18 @@ def line_ids(lines, K):
     -> {"ambiguous": [], "adopted": n, "split": [(carried id, [minor part keys])]}.
 
     A built line is a PART of carried line T (same source) when it holds at least one of T's
-    volumes (the vote rule below); a line holding none of them never takes T by the lookup.
+    volumes (the vote rule below) AND (refined ruling) at least 2 of them, or a strict majority of
+    them, or T's folded name; a line holding none of them never takes T by the lookup (by natural
+    key only when no part holds any of it).
 
-    Controller ruling 2026-09-27, clarified the same day (docs/id-scheme.md "Merges and splits"):
+    Controller ruling 2026-09-27, clarified and refined the same day (docs/id-scheme.md "Merges and splits"):
       1. PLURALITY: the part holding the most of T's volumes keeps T, whatever its own natural key,
          provided it holds at least one -- so a lone surviving part with 2 of 5 keeps T; a tie goes
          to the part holding T's lowest volume number, then to the lowest own key;
       2. every other part mints a NEW id, split_id(T, its own key) -- never T, and never its bare
          key hash when that equals T (a line whose key once minted T but that now holds a minority
-         or none of T's volumes);
+         or none of T's volumes); but a part whose own bare key hash is a carried id nobody took
+         keeps that id;
       3. the moved volumes' published ids are left to 7b's general writer (carried_ids.redirects:
          a lost volume goes to the volume now holding its ISBN, else its number).
     This supersedes the brief's strict majority and "a tie is ambiguous": 'ambiguous' stays empty
@@ -116,9 +119,12 @@ def line_ids(lines, K):
             if not tv:
                 continue
             share = any(i in isb for _, i in tv if i)
-            same_name = not any(i for _, i in tv) and L.fold(K["line_name"].get(t) or "", False) == L.fold(ln["name"] or "", False)
+            name_eq = L.fold(K["line_name"].get(t) or "", False) == L.fold(ln["name"] or "", False)
+            same_name = not any(i for _, i in tv) and name_eq
             held = {k for k, (n, i) in enumerate(tv) if (i and i in isb) or (not i and n in bare and (share or same_name))}
-            if held:
+            # controller ruling 2026-09-27, refined: one stray ISBN makes no part -- a part holds at
+            # least 2 of T's volumes, or a strict majority of them, or carries T's (folded) name
+            if held and (len(held) >= 2 or 2 * len(held) > len(tv) or name_eq):
                 parts[t].append((held, n_))
     got, minor = collections.defaultdict(list), collections.defaultdict(list)
     for t, ps in parts.items():
@@ -139,16 +145,16 @@ def line_ids(lines, K):
             ln["carried"] = True
             ln["absorbed_ids"] = sorted(set(ts) - {ln["tome_id"]})
             rep["adopted"] += 1
-        elif minor.get(n_):
-            ln["tome_id"] = split_id(older(minor[n_], K), ln["key"])
-            ln["carried"] = False
         else:
             mint = _id("rl_", ln["key"])
-            if mint in taken:             # its key once minted a carried id another part now keeps
-                ln["tome_id"], ln["carried"] = split_id(mint, ln["key"]), False
-            else:
+            if minor.get(n_) and not (K and mint in K["series_ids"] and mint not in taken):
+                ln["tome_id"] = split_id(older(minor[n_], K), ln["key"])
+            elif mint in taken:           # its key once minted a carried id another part now keeps
+                ln["tome_id"] = split_id(mint, ln["key"])
+            else:                         # incl. a minor part whose own key is a carried id nobody took
                 ln["tome_id"] = mint
-                ln["carried"] = bool(K) and mint in K["series_ids"]
+            # a split id published by an earlier build is carried too
+            ln["carried"] = bool(K) and ln["tome_id"] in K["series_ids"]
     owner = collections.defaultdict(list)          # an invariant, not a policy: one id, one line
     for ln in lines:
         for t in [ln["tome_id"]] + ln["absorbed_ids"]:
@@ -270,7 +276,8 @@ def adopt_line(c, internal, public):
             c.execute("UPDATE OR IGNORE %s SET entity_id=? WHERE entity='release_line' AND entity_id=?" % t, (public, internal))
             c.execute("DELETE FROM %s WHERE entity='release_line' AND entity_id=?" % t, (internal,))
     c.execute("UPDATE composition SET ref_line_id=? WHERE ref_line_id=?", (public, internal))
-    c.execute("UPDATE release_line SET parent_id=? WHERE parent_id=?", (public, internal))
+    c.execute("UPDATE release_line SET parent_id=CASE WHEN id=? THEN NULL ELSE ? END WHERE parent_id=?",
+              (public, public, internal))     # never a line's own parent (carried_ids.merge_line)
     c.execute("UPDATE id_redirect SET new_id=? WHERE new_id=?", (public, internal))
     if CI._table(c, "dnb_line"):
         c.execute("UPDATE dnb_line SET rl_id=? WHERE rl_id=?", (public, internal))
