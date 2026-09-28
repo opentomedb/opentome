@@ -196,6 +196,42 @@ Open for Nick (listed, not argued):
   `duplicate_numbers` review**, contrary to the original prediction, which assumed a headless
   (no-461-$0) matching mechanism these 4 titles don't actually use.
 
+**2026-09-28 export fixes E1-E4 (from the Mangarr consumer scoping, `krcn-consumer-findings.md`;
+report `.superpowers/sdd/2026-09-27-krcn-coverage/export-fixes-report.md`):**
+- **E1, Solo Leveling. New library lines never take precedence over carried lines.** Two layers:
+  - 3f `decide`: a NEW library line (not carried) that is linked by title (not a `link_work`
+    correction) or is an ISBN `sibling`, has no vol 1, and sits in a work + market that already
+    has a carried line goes to **review, reason `fragment`**. The dry run's two: FR Kbooks
+    `bnf:ark:/12148/cb46910428j` (vols 4/15/17) and DE `dnb:1281034274` (8/11/15; the existing
+    rules cannot merge it -- `attach_roles` merges one line per target and `dnb:1216062943` holds
+    that merge). `read_carry` now records each carried line's market (`K["line_market"]`).
+  - `to_mangarr`: a new library-born line (in `krcn:ids`, absent from the carry) sorts after every
+    carried line of its (work, market, medium) group for `is_main`, is never the named line a
+    carried group's unnamed lines hang under, and keeps an `orig_series_id` only when a carried
+    line of its work, market and novel/comic class shares it (Mangarr's `PickSibling` ranks a
+    counterpart first). Without a carry (cold export) nothing changes.
+- **E2.** `loc_marc.native_titles` strips a trailing ". English|Korean|Chinese|Japanese|French|
+  German" (a 240 `$l` a vernacular 880 folds into its `$a`); the alias `english` is gone.
+- **E3.** `to_mangarr`'s origin lookup treats manga / manhwa / manhua as one comic family, used
+  only when a line's own medium has no origin line (a same-medium origin always wins): King of
+  Hell DE, Unbalance X2 FR, Biao Ren DE gain an origin; one carried line changes (ORV
+  "(Physical publication)" EN: NULL -> the ko line, status NULL -> ongoing), listed in
+  `ORIG_CHANGE_OK`. `run()`'s "orig_series_id ... origin-market mismatch" rule accepts a
+  comic-family medium pair (never a novel).
+- **E4.** A library-born FR line whose work has no official fr title takes its `bnf` line_name as
+  `local_name` (5 lines).
+- **New BLOCKING rules in `run_krcn`:** with a carry -- no carried line loses `is_main`,
+  `local_name` or alias rows, or is parented under a line absent from the carry (allowed: a
+  carried id redirect -- the old parent redirected to the new one, or a carried line of the same
+  work + market retired -- and `ALIAS_LOSS_OK`, today the 3 Kindaichi lines' broken
+  "s Enquêtes" aliases, base drift); carried `orig_series_id` changes only in `ORIG_CHANGE_OK`;
+  always -- no alias, series name, local_name or catalogue work title that is only a language name
+  (en/fr/de forms, raw or normalized). Gotcha: the carried-line rule has no churn allowance -- a
+  Wikipedia refresh that legitimately renames or re-mains a carried line fails it until the row is
+  listed or explained.
+- **Measure floor:** the offline dry run's DE exported volumes drop 273 -> 270 (the DE fragment's
+  3 volumes), under the provisional floor 273 (`KRCN_EXPORTED_FLOORS`, set for real at C4).
+
 ## 2026-09-25 — branch `alias-fix`: work_title des/du, a general carried-id redirect writer
 
 Not merged, not pushed, not published -- Nick's gate (CI build-only first; publish = standing OK
