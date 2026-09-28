@@ -323,9 +323,16 @@ def original_titles(r):
     return [x for x in (_isbd(v) for v in M.subs(r, "240", "a") + M.subs(r, "765", "t")) if x]
 
 
+# A uniform title's language note ($l) that a vernacular 880 folds into its $a: the 880 paired with 240
+# "Myŏlmang ihu ŭi segye. $l English" reads "멸망 이후의 세계. English" (LoC 2022942912, 2024951923).
+# Kept, its normalize() is 'english' -- an alias Mangarr then matched on (export fixes E2, 2026-09-28).
+_LANG_NOTE = re.compile(r"\s*\.\s*(?:English|Korean|Chinese|Japanese|French|German)\s*$")
+
+
 def native_titles(r):
     """Vernacular titles: 880 fields paired ($6) with 245 / 246 / 240 / 130, and 246 $a in Hangul or
-    Hanzi. An 880 paired with a 700 (a related work's author) is not a title."""
+    Hanzi, each without a trailing '. <language>' note. An 880 paired with a 700 (a related work's
+    author) is not a title."""
     out = []
     for f in M.fields(r, "880"):
         six = next((v for c, v in f if c == "6"), "")
@@ -334,7 +341,8 @@ def native_titles(r):
             if a and _isbd(a):
                 out.append(_isbd(a))
     out += [_isbd(v) for v in M.subs(r, "246", "a") if re.search("[\uac00-\ud7a3\u4e00-\u9fff]", v)]
-    return list(dict.fromkeys(out))
+    out = [_isbd(_LANG_NOTE.sub("", t)) for t in out]
+    return list(dict.fromkeys(t for t in out if t))
 
 
 def variant_titles(r):
