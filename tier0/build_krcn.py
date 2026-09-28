@@ -5,9 +5,11 @@ before the enrichment:
     python3 tier0/build_krcn.py build/opentome.db [carry-artifact]
 
   1. records     dnb_enumerate.enumerate_krcn, loc_sru.enumerate_loc (canary first), bnf_sru.enumerate_bnf
-  2. lines       krcn_lines (one builder per source), the Ize medium order
+  2. lines       krcn_lines (one builder per source)
   3. defer       a DNB line whose key the German JP round mints stays with that round (plan P25:
-                 defer_jp_round, BEFORE ids; krcn-report.json deferred_to_jp_round)
+                 defer_jp_round, BEFORE the Ize order and ids -- a deferred line feeds no title to
+                 3f; krcn-report.json deferred_to_jp_round); then the Ize medium order
+                 (krcn_lines.resolve_media) on the lines 3f keeps
   4. ids         krcn_identity.line_ids(reserved=the JP round's ids) -- "continuity first": a line
                  whose own-key id shipped keeps it; the carry lookup only for the others; no absorption
   5. attach      krcn_identity.attach_roles -- ISBN majority with an existing line, in any direction
@@ -42,10 +44,14 @@ NO_K = {"works": set(), "lines": {}, "series_ids": set(), "work_ids": set(), "in
         "line_name": {}, "line_medium": {}, "line_pub": {}, "line_vols": {}}
 
 STAGING_DDL = """
-CREATE TABLE IF NOT EXISTS krcn_line (      -- one row per KR/CN library line, exported or not
+CREATE TABLE IF NOT EXISTS krcn_line (      -- one row per KR/CN library line, exported or not.
+                                            -- Placeholder for the controller ruling (a work column);
+                                            -- Task 14 owns the staging DDL (krcn_member, loc_member)
     key TEXT PRIMARY KEY,                   -- 'dnb:<IDN>' | 'loc:<LCCN>' | 'bnf:<ark>' (krcn_lines)
     source TEXT NOT NULL, market TEXT NOT NULL,
-    rl_id TEXT NOT NULL,                    -- the line's tome_id: carried (kept or taken) or minted
+    rl_id TEXT NOT NULL,                    -- the line's tome_id: carried (kept or taken) or minted;
+                                            -- a held / review / unlinked row's id is never loaded
+                                            -- (R6: absent from release_line, id_map, the artifact)
     carried INTEGER NOT NULL,
     work TEXT,                              -- the work it ships under (NULL unless exported);
                                             -- rename_work follows adoption renames
