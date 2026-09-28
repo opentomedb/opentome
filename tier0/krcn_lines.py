@@ -382,7 +382,10 @@ def bnf_lines(recs):
             drop["no_ark"] += 1
             continue
         o = U.origin(r)
-        if not o and U.head_number(r) in heads:
+        # the head's origin only for a volume with NO 101 $c of its own: an own jpn / fre / ... is not
+        # KR/CN, whatever its head says (controller ruling, Task 15 fix round 1)
+        own = [v for v in M.subs(r, "101", "c") if v.strip()]
+        if not o and not own and U.head_number(r) in heads:
             o = U.origin(heads[U.head_number(r)])
             inherited += bool(o)
         if not o:

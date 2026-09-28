@@ -973,8 +973,9 @@ def run(dbpath, carry=None):
     print("  works: created %d, frozen %d; held clusters %d; review %d -> build/krcn-review.tsv" % (
         stats["works_created"], stats["works_frozen"], len(plan["held"]), n_rev))
     print("  volume fates: %s" % ", ".join("%s %d" % kv for kv in sorted(fates.items())))
-    print("  ids: carried lines kept %d, taken %d (weak %d), left %d; adopted %d" % (
-        id_rep["kept"], len(id_rep["taken"]), len(id_rep["taken_weak"]), len(id_rep["left"]), len(stats["adopted"])))
+    print("  ids: carried lines kept %d, taken %d (weak %d for the gate, %d raw incl. 0-of-0), left %d; adopted %d" % (
+        id_rep["kept"], len(id_rep["taken"]), len(stats["gate"]["taken_weak"]), len(id_rep["taken_weak"]),
+        len(id_rep["left"]), len(stats["adopted"])))
     if deferred:
         print("  deferred to the German JP round (a DNB set split across the rounds, P25): %d %s" % (
             len(deferred), stats["deferred_to_jp_round"][:5]))
