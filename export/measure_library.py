@@ -202,8 +202,16 @@ def measure_de(art_path, catalogue=None):
     announced = set()
     if catalogue:
         C = sqlite3.connect(catalogue)
-        announced = {r[0] for r in C.execute("""SELECT DISTINCT volume_id FROM dnb_member WHERE volume_id IS NOT NULL
-                                                GROUP BY volume_id HAVING MIN(announced_only)=1""")}
+        # an announced-only KR/CN volume (stage 3f's krcn_member) is announced too: the union, not dnb_member
+        # alone, or undated KR/CN announcements count as deposited-undated (docs/krcn-design.md §13)
+        try:
+            announced = {r[0] for r in C.execute("""SELECT volume_id FROM (
+                             SELECT volume_id, announced_only FROM dnb_member WHERE volume_id IS NOT NULL
+                             UNION ALL SELECT volume_id, announced_only FROM krcn_member WHERE volume_id IS NOT NULL)
+                         GROUP BY volume_id HAVING MIN(announced_only)=1""")}
+        except sqlite3.OperationalError:        # a catalogue without stage 3f
+            announced = {r[0] for r in C.execute("""SELECT DISTINCT volume_id FROM dnb_member WHERE volume_id IS NOT NULL
+                                                    GROUP BY volume_id HAVING MIN(announced_only)=1""")}
     rows = A.execute("""SELECT v.tome_id, v.release_date_raw, v.release_date_type FROM volumes v
                         JOIN series s USING(gcd_series_id) WHERE s.language='de'""").fetchall()
     dep = [r for r in rows if r[0] not in announced]
@@ -257,9 +265,73 @@ def same_ids(catalogue):
             "%s member records, %d in another line, %d line ids re-keyed" % (format(len(now), ","), moved, rekeyed))
 
 
+# KR/CN floors (docs/krcn-design.md §13). STAGED: what stage 3f built (krcn_line, held and review lines
+# included), from the spike at ~75-80%. EXPORTED: provisional (the spike under R6, ~85%) -- the controller
+# resets them at ~85% of the first real build's measurement, in the commit that records it (plan C4).
+KRCN_STAGED_FLOORS = {"DE": (300, 1250), "FR": (160, 1000), "EN": (65, 360)}      # (lines, volumes)
+KRCN_STAGED_COVERAGE = {"DE": {"deposited_year": 0.95, "pages": 0.90}, "FR": {"year": 0.95}}
+KRCN_EXPORTED_FLOORS = {"DE": (45, 273), "FR": (25, 162), "EN": (59, 338)}
+KRCN_MIN_WORKS = 48
+
+
+def measure_krcn(art_path, catalogue, carry=None, check_ids=True):
+    """-> failed KR/CN gate labels. Printed after the German gates."""
+    C = sqlite3.connect(catalogue)
+    A = sqlite3.connect(art_path)
+    fails = []
+
+    def gate(label, ok, detail):
+        print(("  ok   " if ok else "  FAIL ") + label + ": " + detail)
+        if not ok:
+            fails.append(label)
+    try:
+        C.execute("SELECT 1 FROM krcn_line LIMIT 1")
+    except sqlite3.OperationalError:
+        gate("KR/CN staging", False, "no krcn_line table (stage 3f did not run)")
+        return fails
+    print("\nKorean / Chinese editions (stage 3f):")
+    for m, (fl, fv) in sorted(KRCN_STAGED_FLOORS.items()):
+        n, v = C.execute("SELECT COUNT(*), COALESCE(SUM(n_volumes),0) FROM krcn_line WHERE market=?", (m,)).fetchone()
+        gate("%s staged lines" % m, n >= fl, "%s (floor %s)" % (format(n, ","), format(fl, ",")))
+        gate("%s staged volumes" % m, v >= fv, "%s (floor %s)" % (format(v, ","), format(fv, ",")))
+        vols = C.execute("""SELECT MIN(announced_only), MAX(dated), MAX(paged) FROM krcn_member WHERE fate NOT LIKE 'dropped%'
+                            AND line_key IN (SELECT key FROM krcn_line WHERE market=?) GROUP BY line_key, number""", (m,)).fetchall()
+        dep = [r for r in vols if not r[0]]
+        cov = {"deposited_year": (sum(r[1] for r in dep), len(dep)), "year": (sum(r[1] for r in vols), len(vols)),
+               "pages": (sum(r[2] for r in vols), len(vols))}
+        for kind, floor in KRCN_STAGED_COVERAGE.get(m, {}).items():
+            num, den = cov[kind]
+            if den:
+                gate("%s staged %s coverage" % (m, kind.replace("_", " ")), num / den >= floor,
+                     "%.1f%% (%d/%d; floor %.0f%%)" % (100 * num / den, num, den, 100 * floor))
+        num, den = cov["year"]
+        print("  info  %s staged volumes dated %.1f%% (%d/%d), announced-only %d" % (
+            m, 100 * num / max(den, 1), num, den, len(vols) - len(dep)))
+    for m, (fl, fv) in sorted(KRCN_EXPORTED_FLOORS.items()):
+        n, v = C.execute("SELECT COUNT(*), COALESCE(SUM(n_volumes),0) FROM krcn_line WHERE market=? AND exported=1", (m,)).fetchone()
+        gate("%s exported lines" % m, n >= fl, "%s (floor %s, provisional until the first build)" % (n, fl))
+        gate("%s exported volumes" % m, v >= fv, "%s (floor %s)" % (v, fv))
+    try:
+        ids = json.loads(A.execute("SELECT value FROM meta WHERE key='krcn_ids'").fetchone()[0])
+    except (TypeError, ValueError, sqlite3.OperationalError):
+        ids = {}
+    gate("library works exported", len(ids.get("works", [])) >= KRCN_MIN_WORKS,
+         "%d (floor %d); created in this build %d" % (len(ids.get("works", [])), KRCN_MIN_WORKS, len(ids.get("created", []))))
+    held = C.execute("SELECT COUNT(DISTINCT cluster), COUNT(*), COALESCE(SUM(n_volumes),0) FROM krcn_line WHERE role='held'").fetchone()
+    print("  info  held (R6, build/krcn-held.tsv): %d clusters, %d lines, %d volumes" % held)
+    if check_ids:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        sys.path.insert(0, os.path.join(root, "tier0"))
+        import build_krcn
+        gate("KR/CN reload gives the same ids", *build_krcn.same_ids(catalogue, carry))
+    return fails
+
+
 if __name__ == "__main__":
-    args = [a for a in sys.argv[1:] if not a.startswith("--catalogue=")]
+    args = [a for a in sys.argv[1:] if not a.startswith(("--catalogue=", "--carry="))]
     cat = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--catalogue=")), None)
+    carry = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--carry=")), None) or None
     rows, fails = measure(args[0], args[1], args[2] if len(args) > 2 else None)
     de_fails = measure_de(args[0], cat)
-    sys.exit(1 if fails or de_fails else 0)
+    kr_fails = measure_krcn(args[0], cat, carry) if cat else []
+    sys.exit(1 if fails or de_fails or kr_fails else 0)

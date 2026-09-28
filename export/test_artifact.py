@@ -668,7 +668,8 @@ def run_krcn_licence(path, catalogue):
         summary or blurb can slip in under a new field name;
       - licence: loc us_gov_pd; the url: loc https://lccn.loc.gov/<LCCN>, dnb https://d-nb.info/<IDN>
         (anchored: no /04 cover or TOC path), bnf an ark URL -- enrich_bnf's per-ISBN SRU URL only on
-        an enrichment entity (its bnf claims all volume_number / page_count, none an ark);
+        an enrichment entity (its bnf claims all volume_number / page_count, none an ark, and not a
+        krcn_member volume of a bnf line);
       - no claim value that is or embeds a link ('://' or 'www.' anywhere, a leading '//'); no artifact
         cover_url on a library host (LIB_HOSTS); sources and cover_source compared case-insensitively;
       - no isbn13_alt column; meta.attribution names the Library of Congress;
@@ -692,6 +693,14 @@ def run_krcn_licence(path, catalogue):
     rule("dnb claims whose source_url is not https://d-nb.info/<IDN>", len(bad), str(bad[:3]))
     line_src = {(e, i) for e, i, f, _, s, u, _ in rows
                 if s == "bnf" and (e != "volume" or f not in BNF_ENRICH_FIELDS or ARK_URL.match(u or ""))}
+    # a volume staged by a BnF KR/CN line (krcn_member) IS line-source, even when its only bnf claims
+    # look like enrichment (volume_number / page_count on the per-ISBN SRU url): ark urls only
+    try:
+        line_src |= {("volume", v) for (v,) in cat.execute(
+            """SELECT m.volume_id FROM krcn_member m JOIN krcn_line k ON k.key=m.line_key
+               WHERE m.volume_id IS NOT NULL AND lower(k.source)='bnf'""")}
+    except sqlite3.OperationalError:
+        pass                            # no stage 3f staging in this catalogue
     bad = [u for e, i, f, _, s, u, _ in rows if s == "bnf" and not (
         ARK_URL.match(u or "") or ((e, i) not in line_src and BNF_ISBN_URL.match(u or "")))]
     rule("bnf claims whose source_url is not an ark URL (the per-ISBN lookup: enrichment only)", len(bad),
@@ -722,14 +731,185 @@ def run_krcn_licence(path, catalogue):
          str(held[:5]))
 
 
+MAX_NEW_LIBRARY_WORKS = 20       # a refresh build (docs/krcn-design.md §9 flood gate; the MAX_MOVED_IDS pattern)
+KRCN_FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
+COMIC = ("manga", "manhwa", "manhua", "webtoon")
+SHIPS = ("linked", "merged", "sibling", "adopting", "kept")
+
+
+def _meta(d, k):
+    try:
+        return (d.execute("SELECT value FROM meta WHERE key=?", (k,)).fetchone() or [None])[0]
+    except sqlite3.OperationalError:
+        return None
+
+
+def run_krcn(path, catalogue, carry=None):
+    """The KR/CN contract (docs/krcn-design.md §13). Calls run_krcn_licence -- THE licence and R6 id
+    gate (per-source field allowlists = no loc 520 / 856 / 955 and no cover / summary field; loc
+    us_gov_pd; anchored lccn / d-nb / ark urls with bnf line sources ark-only; no links in values; no
+    library covers; no isbn13_alt; the LoC attribution; a held / review / unlinked line holds no id
+    anywhere) -- and adds only what it does not cover: DLC provenance through loc_member, clean_claim,
+    the library dates, the works a build creates, never-demoted carried lines, the flood gate, novels,
+    disjoint keys, taken_weak, carried volumes' ISBNs, and the fixtures (P19 / P21). Provenance is read
+    from the catalogue (claims, krcn_line / krcn_member / loc_member, meta krcn:stats); the artifact
+    carries meta.krcn_ids; the carry is opened read-only."""
+    db, cat = sqlite3.connect(path), sqlite3.connect(catalogue)
+    g = lambda q, *a: db.execute(q, a).fetchone()[0]
+    c = lambda q, *a: cat.execute(q, a).fetchone()[0]
+    try:
+        c("SELECT COUNT(*) FROM krcn_line")
+    except sqlite3.OperationalError:
+        rule("KR/CN staging missing from the catalogue (stage 3f did not run)", 1)
+        return
+    run_krcn_licence(path, catalogue)
+    ids = json.loads(_meta(db, "krcn_ids") or "{}")
+    created = ids.get("created", [])
+    C = sqlite3.connect("file:%s?mode=ro" % carry, uri=True) if carry and os.path.exists(carry) else None
+    carried_ids = json.loads(_meta(C, "krcn_ids") or "null") if C else None
+    url = "'https://lccn.loc.gov/' || m.lccn = x.source_url"
+    # provenance: LoC-created records only (the 040 $a of the record each loc claim cites)
+    rule("loc_member rows whose 040 $a is not DLC", c("SELECT COUNT(*) FROM loc_member WHERE f040a<>'DLC'"))
+    rule("loc claims whose record is not a DLC loc_member", c(
+        """SELECT COUNT(*) FROM claim x WHERE lower(x.source)='loc'
+           AND NOT EXISTS (SELECT 1 FROM loc_member m WHERE %s AND m.f040a='DLC')""" % url))
+    rule("clean_claim misses loc claims (us_gov_pd must be in the commercial subset)",
+         c("SELECT COUNT(*) FROM claim WHERE lower(source)='loc'")
+         - c("SELECT COUNT(*) FROM clean_claim WHERE lower(source)='loc'"))
+    # dates (dnb's precision rules are run_dnb's)
+    rule("loc date claims from a set record", c("""SELECT COUNT(*) FROM claim x JOIN loc_member m ON %s
+         WHERE lower(x.source)='loc' AND x.field IN ('release_date','projected_date') AND m.set_record=1""" % url))
+    rule("loc published dates from a record at encoding level 5 / 8", c("""SELECT COUNT(*) FROM claim x
+         JOIN loc_member m ON %s WHERE lower(x.source)='loc' AND x.field='release_date'
+         AND m.encoding_level IN ('5','8')""" % url))
+    rule("loc / bnf published dates not year precision", c("""SELECT COUNT(*) FROM claim WHERE
+         lower(source) IN ('loc','bnf') AND field='release_date' AND value NOT GLOB '[12][0-9][0-9][0-9]'"""))
+    rule("loc / bnf projected dates not month precision", c("""SELECT COUNT(*) FROM claim WHERE
+         lower(source) IN ('loc','bnf') AND field='projected_date' AND value NOT GLOB '[12][0-9][0-9][0-9]-[01][0-9]'"""))
+    rule("volumes dated from a 263 1111", c("""SELECT COUNT(*) FROM claim x JOIN loc_member m ON %s
+         WHERE lower(x.source)='loc' AND x.field='projected_date' AND m.f263='1111'""" % url))
+    # works created in this build (§9; R6)
+    rule("library-created works without a line of explicit KR/CN origin", sum(
+        1 for w in created if not c("SELECT COUNT(*) FROM krcn_line WHERE work=? AND exported=1 AND explicit=1", w)))
+    rule("library-created works without a comic line", sum(1 for w in created if not c(
+        "SELECT COUNT(*) FROM release_line WHERE work_id=? AND medium IN (%s)" % ",".join("?" * len(COMIC)), w, *COMIC)))
+    rule("library-created works with a Japanese line", sum(1 for w in created if c(
+        "SELECT COUNT(*) FROM release_line WHERE work_id=? AND market='JP' AND medium NOT IN ('manhwa','manhua','webtoon')", w)))
+    rule("R6: library works created in this build exported without an English line", sum(
+        1 for w in created if not g("SELECT COUNT(*) FROM series WHERE tome_work_id=? AND language='en'", w)))
+    art_ids = {r[0] for r in db.execute("SELECT tome_id FROM series")}
+    if carried_ids is not None:
+        try:
+            red = {r[0] for r in db.execute("SELECT old_tome_id FROM id_redirect")}
+        except sqlite3.OperationalError:
+            red = set()
+        gone = sorted(t for t in carried_ids.get("lines", {}) if t not in art_ids and t not in red)
+        rule("published KR/CN lines absent from the artifact (never demoted to held)", len(gone), str(gone[:5]))
+        new = sorted(set(created) - set(carried_ids.get("works", [])))
+        rule("more than %d new library works in a refresh build (flood gate)" % MAX_NEW_LIBRARY_WORKS,
+             0 if len(new) <= MAX_NEW_LIBRARY_WORKS else len(new), str(new[:5]))
+    novel_bad = 0
+    for t in ids.get("lines", {}):
+        row = db.execute("SELECT tome_work_id, medium FROM series WHERE tome_id=?", (t,)).fetchone()
+        if row and row[1] == "novel" and not g("SELECT COUNT(*) FROM series WHERE tome_work_id=? AND medium IN (%s)"
+                                               % ",".join("?" * len(COMIC)), row[0], *COMIC):
+            novel_bad += 1
+    rule("KR/CN novel lines in a work without a comic line", novel_bad)
+    try:
+        rule("dnb_line and krcn_line keys overlap", c("SELECT COUNT(*) FROM krcn_line k JOIN dnb_line d ON d.key=k.key"))
+    except sqlite3.OperationalError:
+        pass
+    # ids: step-2 takes without a strict ISBN majority (krcn_identity.line_ids; build_krcn.gate_report
+    # drops 0-of-0 takes) block until a person confirms them in the linker fixture's "taken_ok"
+    fx = lambda n: json.load(open(os.path.join(KRCN_FIXTURES, n), encoding="utf8"))
+    labels = fx("krcn_linker_labels.json")
+    try:
+        gate = json.loads(_meta(cat, "krcn:stats"))["gate"]
+    except (TypeError, ValueError, KeyError):
+        gate = None
+    if gate is None:
+        rule("catalogue meta krcn:stats (the gate lists) missing: taken_weak unreadable", 1)
+    else:
+        ok = {tuple(p) for p in labels.get("taken_ok", [])}
+        weak = [t for t in gate.get("taken_weak", []) if (t[1], t[0]) not in ok]
+        rule("step-2 takes of a carried id without a strict ISBN majority (taken_weak), not confirmed in "
+             "krcn_linker_labels.json taken_ok", len(weak), str(weak[:5]))
+        for k in sorted(gate):
+            if gate[k] and k != "taken_weak":
+                print("  info  gate list %s (review, not failed): %d %s" % (k, len(gate[k]), json.dumps(gate[k][:3])))
+    if C is not None:
+        bad = carried_isbn_moved(db, cat, C, ids, carried_ids)
+        rule("carried KR/CN-scope volumes whose carried ISBN now sits on another present volume", len(bad), str(bad[:3]))
+    # fixtures
+    pre = [l["tome_id"] for l in fx("krcn_lines_pre.json")["lines"]]
+    rule("pre-round KR/CN line ids (and the library-fixture lines) missing", sum(1 for t in pre if t not in art_ids),
+         str([t for t in pre if t not in art_ids][:5]))
+    verdict = {k: (r, w) for k, r, w in cat.execute("SELECT key, role, work FROM krcn_line")}
+    wrong = [m["key"] for m in labels.get("must_link", []) if m["key"] in verdict and
+             (verdict[m["key"]][0] not in SHIPS or verdict[m["key"]][1] != m["expected_work"])]
+    rule("KR/CN linker fixture: must_link lines not linked to the expected work", len(wrong),
+         str([(k, verdict[k]) for k in wrong[:5]]))
+    bad = [m["key"] for m in labels.get("must_not_link", []) if verdict.get(m["key"], (None, None))[1] == m["wrong_work"]]
+    rule("KR/CN linker fixture: must_not_link lines linked to the wrong work", len(bad), str(bad[:5]))
+    missing = [m["key"] for m in labels.get("must_link", []) + labels.get("must_not_link", []) if m["key"] not in verdict]
+    if missing:
+        print("  info  linker fixture keys this build does not have: %s" % missing[:10])
+    nw = fx("krcn_new_works.json")["works"]
+    works_out = set(ids.get("works", []))
+    rule("new-work fixture: must_not_create works exported",
+         sum(1 for w, e in nw.items() if e["verdict"] == "must_not_create" and w in works_out))
+    rule("new-work fixture: must_create works missing",
+         sum(1 for w, e in nw.items() if e["verdict"] == "must_create" and w not in works_out))
+    unlabelled = [w for w in created if w not in nw]
+    if carried_ids is None:
+        rule("new-work fixture: new works of the first KR/CN build not labelled (build/krcn-new-works.tsv)",
+             len(unlabelled), str(unlabelled[:5]))
+    elif unlabelled:
+        print("  info  new library works not in the fixture (reported, not failed after the first build): %s" % unlabelled)
+    roles = dict(cat.execute("SELECT market || ' ' || role, COUNT(*) FROM krcn_line GROUP BY 1"))
+    print("  info  KR/CN lines: %s; works created %d, exported %d" % (json.dumps(roles, sort_keys=True), len(created), len(works_out)))
+
+
+def carried_isbn_moved(db, cat, C, ids, carried_ids):
+    """A present carried volume id whose carried ISBN now sits on ANOTHER present volume -- one that
+    did not already hold it in the carry (controller ruling, Task 11: an ISBN moving off a published
+    volume id is an id-contract break 7b cannot see). Scope: carried volumes of KR/CN lines (the
+    carry's and this build's meta krcn_ids, the catalogue's exported krcn_line rows) and of the lines
+    of every work a KR/CN line touches. -> [(volume id, isbn, [other volume ids])]."""
+    lines = set(ids.get("lines", {})) | set((carried_ids or {}).get("lines", {}))
+    works = set(ids.get("works", [])) | set((carried_ids or {}).get("works", []))
+    for rid, w in cat.execute("SELECT rl_id, work FROM krcn_line WHERE exported=1"):
+        lines.add(rid)
+        works.add(w)
+    cols = {r[1] for r in C.execute("PRAGMA table_info(series)")}
+    wcol = "s.tome_work_id" if "tome_work_id" in cols else "NULL"
+    held_then = {}
+    scope = []
+    for vid, isbn, tid, w in C.execute("""SELECT v.tome_id, v.isbn13, s.tome_id, %s FROM volumes v
+                                          JOIN series s USING(gcd_series_id) WHERE v.isbn13 IS NOT NULL""" % wcol):
+        held_then.setdefault(isbn, set()).add(vid)
+        if tid in lines or w in works:
+            scope.append((vid, isbn))
+    now = {}
+    for vid, isbn in db.execute("SELECT tome_id, isbn13 FROM volumes WHERE isbn13 IS NOT NULL"):
+        now.setdefault(isbn, set()).add(vid)
+    present = {r[0] for r in db.execute("SELECT tome_id FROM volumes")}
+    out = []
+    for vid, isbn in scope:
+        others = now.get(isbn, set()) - {vid} - held_then.get(isbn, set())
+        if vid in present and others:
+            out.append((vid, isbn, sorted(others)))
+    return sorted(out)
+
+
 if __name__ == "__main__":
     fails = run(sys.argv[1])
     if len(sys.argv) > 2:
         print("\n  -- German (DNB) rules, catalogue %s --" % sys.argv[2])
         run_dnb(sys.argv[1], sys.argv[2])
         run_link_work(sys.argv[2])
-        print("\n  -- KR/CN licence and R6 rules --")
-        run_krcn_licence(sys.argv[1], sys.argv[2])
+        print("\n  -- KR/CN rules (licence, R6, provenance, dates, works, ids, fixtures) --")
+        run_krcn(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else None)
     if len(sys.argv) > 3 and sys.argv[3] and os.path.exists(sys.argv[3]):
         print("\n  -- ids, carried artifact %s --" % sys.argv[3])
         run_ids(sys.argv[1], sys.argv[3])

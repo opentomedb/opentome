@@ -1,0 +1,186 @@
+{
+ "source": "KR/CN spike 2026-09-27 title links (DNB: dnb_lines.json linked->krcn-work and linked->other-work; BnF: combine.py's non-ISBN title links, kept where the Task 14 dry run links the line to the same work; LoC: none linked in the dry run), plus the authors-differ collision; verified by eye at plan C5",
+ "must_link": [
+  {
+   "key": "dnb:1220461628",
+   "expected_work": "w_a974f61c1b9d",
+   "name": "Die Klingen der Wächter",
+   "from": "spike dnb_lines.json linked->other-work"
+  },
+  {
+   "key": "dnb:1235188582",
+   "expected_work": "w_e08cdcbc22fe",
+   "name": "Solo leveling",
+   "from": "spike dnb_lines.json linked->krcn-work"
+  },
+  {
+   "key": "dnb:1250705460",
+   "expected_work": "w_662c5a982c85",
+   "name": "A returner's magic should be special",
+   "from": "spike dnb_lines.json linked->krcn-work"
+  },
+  {
+   "key": "dnb:1278727744",
+   "expected_work": "w_69fd373c37a0",
+   "name": "Tomb raider king",
+   "from": "spike dnb_lines.json linked->krcn-work"
+  },
+  {
+   "key": "dnb:1300125888",
+   "expected_work": "w_05536d525a06",
+   "name": "The boxer",
+   "from": "spike dnb_lines.json linked->krcn-work"
+  },
+  {
+   "key": "dnb:1306452414",
+   "expected_work": "w_e08cdcbc22fe",
+   "name": "Solo leveling",
+   "from": "spike dnb_lines.json linked->krcn-work"
+  },
+  {
+   "key": "dnb:1325535427",
+   "expected_work": "w_1d0da51ff6e0",
+   "name": "Omniscient reader's viewpoint",
+   "from": "spike dnb_lines.json linked->krcn-work"
+  },
+  {
+   "key": "dnb:1325611948",
+   "expected_work": "w_1d0da51ff6e0",
+   "name": "Omniscient Reader's Viewpoint",
+   "from": "spike dnb_lines.json linked->krcn-work"
+  },
+  {
+   "key": "dnb:1362772356",
+   "expected_work": "w_93b9fda66f3c",
+   "name": "All of us are dead",
+   "from": "spike dnb_lines.json linked->krcn-work"
+  },
+  {
+   "key": "dnb:1362776327",
+   "expected_work": "w_015d8619f82f",
+   "name": "Delusion",
+   "from": "spike dnb_lines.json linked->krcn-work"
+  },
+  {
+   "key": "dnb:1368765688",
+   "expected_work": "w_97ecc892bd5f",
+   "name": "Penelope - Das Böse ist dem Tod geweiht",
+   "from": "spike dnb_lines.json linked->krcn-work"
+  },
+  {
+   "key": "dnb:1369696299",
+   "expected_work": "w_c2a74d1e1893",
+   "name": "Romance 101",
+   "from": "spike dnb_lines.json linked->krcn-work"
+  },
+  {
+   "key": "dnb:1373836172",
+   "expected_work": "w_c59df190d314",
+   "name": "Viral hit",
+   "from": "spike dnb_lines.json linked->krcn-work"
+  },
+  {
+   "key": "dnb:1379818710",
+   "expected_work": "w_9334079cccbe",
+   "name": "Her tale of Shim Chong",
+   "from": "spike dnb_lines.json linked->krcn-work"
+  },
+  {
+   "key": "dnb:1380201772",
+   "expected_work": "w_6350c07f36a8",
+   "name": "Sweet Home",
+   "from": "spike dnb_lines.json linked->krcn-work"
+  },
+  {
+   "key": "dnb:1390587851",
+   "expected_work": "w_a615a33acc9c",
+   "name": "Love is an Illusion!",
+   "from": "spike dnb_lines.json linked->other-work"
+  },
+  {
+   "key": "dnb:1392735890",
+   "expected_work": "w_97ecc892bd5f",
+   "name": "Penelope - Das Böse ist dem Tod geweiht",
+   "from": "spike dnb_lines.json linked->krcn-work"
+  },
+  {
+   "key": "dnb:97996590X",
+   "expected_work": "w_4db5887a1611",
+   "name": "Devil's bride",
+   "from": "spike dnb_lines.json linked->krcn-work"
+  },
+  {
+   "key": "dnb:987397419",
+   "expected_work": "w_bd2ccd05221e",
+   "name": "Recast",
+   "from": "spike dnb_lines.json linked->krcn-work"
+  },
+  {
+   "key": "dnb:989873013",
+   "expected_work": "w_004a43f2e56a",
+   "name": "King of hell",
+   "from": "spike dnb_lines.json linked->other-work"
+  },
+  {
+   "key": "dnb:997592818",
+   "expected_work": "w_004a43f2e56a",
+   "name": "King of hell",
+   "from": "spike dnb_lines.json linked->other-work"
+  },
+  {
+   "key": "bnf:ark:/12148/cb46807767k",
+   "expected_work": "w_874ce24bf260",
+   "name": "Noblesse",
+   "from": "spike combine.py BnF title link; Task 14 dry run linked (title)"
+  },
+  {
+   "key": "bnf:ark:/12148/cb46988662n",
+   "expected_work": "w_1ca42fe9a5ef",
+   "name": "God of high school",
+   "from": "spike combine.py BnF title link; Task 14 dry run linked (title+author)"
+  },
+  {
+   "key": "bnf:ark:/12148/cb47198989g",
+   "expected_work": "w_97ecc892bd5f",
+   "name": "Seule la mort attend la vilaine",
+   "from": "spike combine.py BnF title link; Task 14 dry run linked (title)"
+  },
+  {
+   "key": "bnf:ark:/12148/cb473526124",
+   "expected_work": "w_662c5a982c85",
+   "name": "A returner's magic should be special",
+   "from": "spike combine.py BnF title link; Task 14 dry run linked (title)"
+  },
+  {
+   "key": "bnf:ark:/12148/cb474465312",
+   "expected_work": "w_a615a33acc9c",
+   "name": "Love is an illusion",
+   "from": "spike combine.py BnF title link; Task 14 dry run linked (title)"
+  },
+  {
+   "key": "bnf:ark:/12148/cb47463359k",
+   "expected_work": "w_19039254507d",
+   "name": "Dites-moi, princesse !",
+   "from": "spike combine.py BnF title link; Task 14 dry run linked (title)"
+  },
+  {
+   "key": "bnf:ark:/12148/cb476800333",
+   "expected_work": "w_3ba932a5a30c",
+   "name": "Comment Raeliana a survécu au manoir Wynknight",
+   "from": "spike combine.py BnF title link; Task 14 dry run linked (title)"
+  }
+ ],
+ "must_not_link": [
+  {
+   "key": "dnb:131420646X",
+   "wrong_work": "w_eb90e6f65aca",
+   "name": "Ouroboros (papertoons) is not the Japanese Ouroboros"
+  },
+  {
+   "key": "dnb:1380595053",
+   "wrong_work": "w_8784db47236d",
+   "name": "Bastard (Korean webtoon; DNB authors Kim, Carnby / Hwang, Youngchan) is not the Japanese Bastard!! (authors differ)"
+  }
+ ],
+ "taken_ok": []
+}

@@ -41,6 +41,7 @@ import dnb_enumerate as E
 import dnb_sru as S
 import loc_sru as LS
 import bnf_sru as BS
+import lib_sru as SRU
 import krcn_lines as KL
 import loc_marc as LM
 import bnf_unimarc as U
@@ -422,7 +423,9 @@ def _isbns(vols):
 def gate_report(lines, plan, rep, K, E=None, deferred=()):
     """The lists the Task 15 publish gate reads (controller rulings, krcn-report.json). Pure.
     rep: krcn_identity.line_ids' report; E: krcn_identity.existing_lines' E, merged over the markets.
-      taken_weak           step-2 takes without a strict majority of the carried line's ISBNs
+      taken_weak           step-2 takes without a strict majority of the carried line's ISBNs, except a
+                           0-of-0 take (no ISBN on either side) -- BLOCKING in test_artifact.run_krcn
+                           unless krcn_linker_labels.json taken_ok confirms [line key, carried id]
       left                 carried library ids neither kept nor taken: 7b redirects or orphans them
       kept_no_overlap      step-1 keeps (own key carried) sharing 0 ISBNs with their carried line
       absorbed_weak        a published id that goes away into another line (a carried line merged into
@@ -445,7 +448,11 @@ def gate_report(lines, plan, rep, K, E=None, deferred=()):
     K, E = K or NO_K, E or {}
     taken = {k for _, k in rep.get("taken", [])}
     lv = K.get("line_vols") or {}
-    out = {"taken_weak": [list(t) for t in rep.get("taken_weak", [])], "left": list(rep.get("left", [])),
+    # a 0-of-0 take (neither the line nor the carried line has an ISBN; it qualified by the same name and
+    # publisher family) is the only evidence such a line can ever give: not weak (controller ruling)
+    no_isbn = {ln["key"] for ln in lines if not any(v["isbns"] for v in ln["vols"])}
+    weak = [list(t) for t in rep.get("taken_weak", []) if not (t[3] == 0 and t[1] in no_isbn)]
+    out = {"taken_weak": weak, "left": list(rep.get("left", [])),
            "kept_no_overlap": [], "absorbed_weak": [], "p22_thin": [], "work_redirects": [],
            "adopt_conflicts": [list(t) for t in plan.get("adopt_conflicts", [])],
            "carried_not_exported": [], "carried_work_changed": [], "hangul_only_authors": [],
@@ -973,6 +980,38 @@ def run(dbpath, carry=None):
             len(deferred), stats["deferred_to_jp_round"][:5]))
     print("  live requests: DNB %d, LoC %d, BnF %d" % (S.live_requests[0], LS.LOC.live, BS.BNF.live))
     return stats
+
+
+def same_ids(catalogue, carry):
+    """Rebuild the KR/CN lines offline from the cached records, with the carry lookup, and compare:
+    every exported non-merged krcn_line row must get the same rl_id (§13 'The idempotent reload gives
+    the same ids'). The steps before the ids mirror run(): the P25 deferral and its reserved ids from
+    the catalogue's dnb_line. Adopting rows keep their public (carried) id by construction and merged
+    rows ship inside another line, so both are left out (the offline reload has no attach roles). An
+    uncached result set fails the gate (R7), it never goes live. -> (ok, detail)."""
+    for s in ("DNB", "LOC", "BNF"):
+        os.environ[s + "_OFFLINE"] = "1"
+    S.OFFLINE = True
+    LS.LOC.offline = BS.BNF.offline = True
+    try:
+        d_recs, d_parents, _ = E.enumerate_krcn(verbose=False)
+        l_recs = LS.enumerate_loc(verbose=False)[0]
+        b_recs = BS.enumerate_bnf(verbose=False)[0]
+    except SRU.FAIL as e:           # an offline miss, a failed canary, an incomplete set
+        return False, "the cached records are incomplete (%s: %s)" % (type(e).__name__, e)
+    lines = KL.dnb_lines(d_recs, d_parents)[0] + KL.loc_lines(l_recs)[0] + KL.bnf_lines(b_recs)[0]
+    C = sqlite3.connect(catalogue)
+    try:
+        jp_rows = C.execute("SELECT key, rl_id FROM dnb_line").fetchall()
+    except sqlite3.OperationalError:
+        jp_rows = []
+    lines, _, reserved = defer_jp_round(lines, jp_rows)
+    KI.line_ids(lines, KI.read_carry(carry) or NO_K, reserved=reserved)
+    now = {l["key"]: l["tome_id"] for l in lines}
+    was = dict(C.execute("SELECT key, rl_id FROM krcn_line WHERE exported=1 AND role NOT IN ('merged','adopting')"))
+    moved = sorted(k for k, rid in was.items() if now.get(k) != rid)
+    return (not moved and set(was) <= set(now),
+            "%d exported lines, %d with another id on reload %s" % (len(was), len(moved), moved[:3]))
 
 
 if __name__ == "__main__":

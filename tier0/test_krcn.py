@@ -2560,11 +2560,13 @@ for label, reps in (("a missing source report", {"LoC": {"degraded": "x"}, "bnf"
 import test_artifact as TART
 
 
-def lic_gate(claims, cover=None, cover_source="openlibrary"):
+def lic_gate(claims, cover=None, cover_source="openlibrary", staging=""):
     d = tempfile.mkdtemp(prefix="krcn-lic-", dir=os.path.join(ROOT, "build"))
     catp, artp = os.path.join(d, "cat.db"), os.path.join(d, "art.sqlite")
     C = sqlite3.connect(catp)
     C.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+    if staging:
+        C.executescript(BK.STAGING_DDL + staging)
     base = [("volume", "v_ok", "isbn13", "9781975319434", "loc", "https://lccn.loc.gov/2020950228", "us_gov_pd"),
             ("volume", "v_d", "page_count", "192", "dnb", "https://d-nb.info/1234567890", "cc0"),
             ("volume", "v_b", "volume_number", "1", "bnf", "https://catalogue.bnf.fr/ark:/12148/cb47253773p", "open"),
@@ -3042,6 +3044,296 @@ except SystemExit as e:
     eq("round 2: without adopted_from the message names both works once and says the lines cannot be attributed",
        ("works w1, w2 -> public id w_P" in str(e), "cannot be attributed" in str(e), str(e).count("loc:1")), (True, True, 1))
 
+
+
+# ---- Task 15: contract gates and measure floors -----------------------------------------------------------
+import test_artifact as TA, measure_library as ML
+_t15 = tempfile.mkdtemp(prefix="krcn-t15-", dir=os.path.join(ROOT, "build"))
+_saved_fx = TA.KRCN_FIXTURES
+
+
+def krcn_fx(new_works=None, pre=(), must_link=(), must_not_link=(), taken_ok=()):
+    d = tempfile.mkdtemp(prefix="fx-", dir=_t15)
+    for name, body in (("krcn_lines_pre.json", {"lines": list(pre)}),
+                       ("krcn_linker_labels.json", {"must_link": list(must_link), "must_not_link": list(must_not_link),
+                                                    "taken_ok": [list(p) for p in taken_ok]}),
+                       ("krcn_new_works.json", {"works": new_works or {}})):
+        with open(os.path.join(d, name), "w") as f:
+            json.dump(body, f)
+    return d
+
+
+def gate_pair(taken_weak=()):
+    """A catalogue with 3f staging + claims + meta krcn:stats and its artifact, on which every KR/CN rule is
+    green (the licence gate included: the artifact has cover_url, the catalogue the current clean_claim)."""
+    d = tempfile.mkdtemp(prefix="gate-", dir=_t15)
+    catp, artp = os.path.join(d, "cat.db"), os.path.join(d, "art.sqlite")
+    cat = sqlite3.connect(catp)
+    cat.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+    cat.executescript(BK.STAGING_DDL)
+    cat.execute("INSERT INTO work VALUES('w_new','New',NULL,NULL,NULL,NULL,'x','x')")
+    line_row(cat, "rl_new", "w_new", "manhwa", "EN", "en")
+    cat.execute("INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at) VALUES('v_n1','rl_new','1','9798400900648','x','x')")
+    for f_, v_, u_ in (("isbn13", "9798400900648", "2023941160"), ("release_date", "2023", "2023000077")):
+        cat.execute("INSERT INTO claim VALUES('volume','v_n1',?,?,'loc',?,'us_gov_pd','x')", (f_, v_, "https://lccn.loc.gov/" + u_))
+    cat.execute("""INSERT INTO krcn_line(key,source,market,rl_id,carried,name,medium,n_volumes,origin,explicit,comic,role,work,exported)
+                   VALUES('loc:2023941160','loc','EN','rl_new',0,'New','manhwa',1,'kor',1,1,'new_work','w_new',1),
+                         ('dnb:77','dnb','DE',NULL,0,'Held','manhwa',3,'kor',1,1,'held',NULL,0)""")
+    cat.execute("""INSERT INTO loc_member VALUES('2023941160','1','DLC','5','m',1,NULL,'loc:2023941160#1','loc:2023941160','v_n1','created'),
+                                                ('2023000077','1','DLC',' ','s',0,NULL,'loc:2023000077','loc:2023941160','v_n1','created')""")
+    cat.execute("INSERT INTO meta VALUES('krcn:stats',?)", (json.dumps({"gate": {"taken_weak": [list(t) for t in taken_weak],
+                                                                                 "adoption_isbn_clash": []}}),))
+    cat.commit()
+    A = sqlite3.connect(artp)
+    A.executescript("""CREATE TABLE series (gcd_series_id INTEGER, tome_id TEXT, tome_work_id TEXT, language TEXT, medium TEXT);
+        CREATE TABLE volumes (gcd_series_id INTEGER, tome_id TEXT, isbn13 TEXT, cover_url TEXT, cover_source TEXT);
+        CREATE TABLE id_map (opentome_id TEXT, int_id INTEGER, kind TEXT); CREATE TABLE meta (key TEXT, value TEXT);
+        CREATE TABLE id_redirect (old_tome_id TEXT, new_tome_id TEXT);
+        INSERT INTO series VALUES(1,'rl_new','w_new','en','manhwa');
+        INSERT INTO volumes VALUES(1,'v_n1','9798400900648',NULL,NULL);""")
+    A.executemany("INSERT INTO meta VALUES(?,?)", [
+        ("attribution", "Bibliographic data: ... Library of Congress (US government work; LoC-created records only) ..."),
+        ("krcn_ids", json.dumps({"works": ["w_new"], "created": ["w_new"], "lines": {"rl_new": "loc"}}))])
+    A.commit()
+    return artp, catp
+
+
+LABELLED = {"w_new": {"verdict": "must_create", "anchor_key": "loc:2023941160", "title": "New"}}
+
+
+def krcn_fails(mutate_cat=(), mutate_art=(), fx=None, carry=None, taken_weak=()):
+    artp, catp = gate_pair(taken_weak)
+    for sql in mutate_cat:
+        sqlite3.connect(catp).executescript(sql)
+    for sql in mutate_art:
+        sqlite3.connect(artp).executescript(sql)
+    TA.KRCN_FIXTURES = fx or krcn_fx(new_works=LABELLED)
+    n = len(TA.FAILS)
+    with contextlib.redirect_stdout(io.StringIO()):
+        TA.run_krcn(artp, catp, carry)
+    got = TA.FAILS[n:]
+    del TA.FAILS[n:]
+    return got
+
+
+has = lambda fails, s: any(s in f for f in fails)
+eq("a clean KR/CN build passes every rule", krcn_fails(), [])
+eq("a non-DLC loc_member fails", has(krcn_fails(["UPDATE loc_member SET f040a='ZCU' WHERE lccn='2023000077';"]), "not DLC"), True)
+eq("a loc claim citing a record that is no loc_member fails", has(krcn_fails(
+    ["UPDATE claim SET source_url='https://lccn.loc.gov/2099000001' WHERE field='release_date';"]),
+    "record is not a DLC loc_member"), True)
+eq("a loc date from a set record fails", has(krcn_fails(
+    ["UPDATE claim SET source_url='https://lccn.loc.gov/2023941160' WHERE field='release_date';"]), "set record"), True)
+eq("a loc published date from an ECIP record fails", has(krcn_fails(
+    ["UPDATE loc_member SET encoding_level='5' WHERE lccn='2023000077';"]), "level 5 / 8"), True)
+eq("a loc published date at month precision fails", has(krcn_fails(
+    ["UPDATE claim SET value='2023-04' WHERE field='release_date';"]), "not year precision"), True)
+eq("a volume dated from a 263 1111 fails", has(krcn_fails(
+    ["UPDATE claim SET field='projected_date', value='2023-01' WHERE field='release_date';"
+     "UPDATE loc_member SET f263='1111', encoding_level='8' WHERE lccn='2023000077';"]), "263 1111"), True)
+eq("a clean_claim view without us_gov_pd fails (pre-Task-13 catalogue)", has(krcn_fails(
+    ["DROP VIEW clean_claim; CREATE VIEW clean_claim AS SELECT * FROM claim WHERE licence IN ('cc0','open','facts_only');"]),
+    "clean_claim misses loc claims"), True)
+eq("a held line with an id fails R6 (the licence gate's rule, called from run_krcn)", has(krcn_fails(
+    ["UPDATE krcn_line SET rl_id='rl_x' WHERE key='dnb:77';"]), "non-exported krcn_line rows holding a tome_id"), True)
+eq("a created work without an English line fails R6", has(krcn_fails(
+    mutate_art=["UPDATE series SET language='de';"]), "English line"), True)
+eq("a created work without explicit KR/CN origin fails", has(krcn_fails(
+    ["UPDATE krcn_line SET explicit=0 WHERE key='loc:2023941160';"]), "explicit KR/CN origin"), True)
+eq("a created work with a JP manga line fails", has(krcn_fails(
+    ["INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at) VALUES('rl_jp','w_new','manga','JP','ja','x','x');"]),
+    "Japanese line"), True)
+eq("a KR/CN novel line in a work without a comic line fails", has(krcn_fails(
+    mutate_art=["UPDATE series SET medium='novel';"]), "novel lines"), True)
+eq("dnb_line and krcn_line keys overlapping fails", has(krcn_fails(
+    ["CREATE TABLE dnb_line (key TEXT); INSERT INTO dnb_line VALUES('dnb:77');"]), "overlap"), True)
+eq("the licence gate runs inside run_krcn (a loc summary fails its allowlist)", has(krcn_fails(
+    ["INSERT INTO claim VALUES('volume','v_n1','summary','A story','loc','https://lccn.loc.gov/2023000077','us_gov_pd','x');"]),
+    "field allowlist"), True)
+eq("no stage 3f staging: fails closed", has(krcn_fails(["DROP TABLE krcn_line;"]), "staging missing"), True)
+eq("first KR/CN build: an unlabelled new work fails (P19/P21)", has(krcn_fails(fx=krcn_fx()), "not labelled"), True)
+eq("a must_not_create work exported fails", has(krcn_fails(fx=krcn_fx(new_works={"w_new": {"verdict": "must_not_create"}})),
+                                                "must_not_create"), True)
+eq("a must_create work missing fails", has(krcn_fails(fx=krcn_fx(new_works=dict(LABELLED, w_gone={"verdict": "must_create"}))),
+                                           "must_create works missing"), True)
+refresh = carry_file("cflood", [("rl_old", "w_old", "Old", "manhwa", "en", [])], works=["w_old"], krcn_lines={"rl_old": "loc"})
+eq("refresh build: an unlabelled new work is reported, not failed (P21)", krcn_fails(fx=krcn_fx(), carry=refresh),
+   ["published KR/CN lines absent from the artifact (never demoted to held)"])
+many = {"works": ["w_%02d" % i for i in range(21)], "created": ["w_%02d" % i for i in range(21)], "lines": {}}
+eq("flood gate: 21 new library works in a refresh build fail", has(krcn_fails(
+    mutate_art=["UPDATE meta SET value='%s' WHERE key='krcn_ids';" % json.dumps(many)], fx=krcn_fx(), carry=refresh),
+    "new library works"), True)
+# fixtures: pre-round ids, the linker labels
+eq("a pre-round KR/CN line id missing from the artifact fails", has(krcn_fails(fx=krcn_fx(
+    new_works=LABELLED, pre=[{"tome_id": "rl_gone", "name": "Gone", "language": "en", "work": "w_x"}])), "pre-round"), True)
+eq("must_link: a line under the expected work but not linked (new_work) counts as wrong", krcn_fails(fx=krcn_fx(
+    new_works=LABELLED, must_link=[{"key": "loc:2023941160", "expected_work": "w_new"}])),
+   ["KR/CN linker fixture: must_link lines not linked to the expected work"])
+eq("must_link: a linked line under the expected work passes", krcn_fails(
+    ["UPDATE krcn_line SET role='linked' WHERE key='loc:2023941160';"],
+    fx=krcn_fx(new_works=LABELLED, must_link=[{"key": "loc:2023941160", "expected_work": "w_new"}])), [])
+eq("must_link: a key the build does not have is reported, not failed", krcn_fails(
+    fx=krcn_fx(new_works=LABELLED, must_link=[{"key": "dnb:999", "expected_work": "w_new"}])), [])
+eq("must_not_link: the line under the wrong work fails", has(krcn_fails(
+    fx=krcn_fx(new_works=LABELLED, must_not_link=[{"key": "loc:2023941160", "wrong_work": "w_new"}])), "must_not_link"), True)
+eq("must_not_link: a held line (work NULL) against a real wrong work passes", krcn_fails(
+    fx=krcn_fx(new_works=LABELLED, must_not_link=[{"key": "dnb:77", "wrong_work": "w_new"}])), [])
+
+# ruling 3: taken_weak is BLOCKING until a person confirms it; read from the catalogue (krcn:stats), 0-of-0 exempt
+WEAK = [["rl_T", "loc:500", 1, 5]]
+eq("taken_weak: an unconfirmed weak take fails", has(krcn_fails(taken_weak=WEAK), "taken_weak"), True)
+eq("taken_weak: a take confirmed in taken_ok [line key, carried id] passes", krcn_fails(
+    taken_weak=WEAK, fx=krcn_fx(new_works=LABELLED, taken_ok=[("loc:500", "rl_T")])), [])
+eq("taken_weak: a confirmation for another pair does not count", has(krcn_fails(
+    taken_weak=WEAK, fx=krcn_fx(new_works=LABELLED, taken_ok=[("loc:500", "rl_U")])), "taken_weak"), True)
+eq("taken_weak: a catalogue without meta krcn:stats fails closed", has(krcn_fails(["DELETE FROM meta WHERE key='krcn:stats';"]),
+                                                                       "krcn:stats"), True)
+_gl = lambda ln: dict(ln, role="linked", work="w_x", exported=True, reason=None, via="title", tier="medium", link_work="w_x",
+                      authors=[], target=None)
+lz = bl("loc:803", "loc", "Rebirth", [("1", None), ("2", None)], "Ize Press")
+rz = KI.line_ids([lz], KR2)
+eq("0-of-0: line_ids' raw report still lists the take (S2')", rz["taken_weak"], [("rl_rb2", "loc:803", 0, 0)])
+eq("0-of-0: a take with no ISBN on either side (same name + publisher family) is NOT listed by gate_report",
+   BK.gate_report([_gl(lz)], {"adopt_works": [], "works": {}}, rz, KR2)["taken_weak"], [])
+lzi = bl("loc:806", "loc", "Rebirth", [("1", None), ("2", None), ("3", "9798400999993")], "Ize Press")
+rzi = KI.line_ids([lzi], KR2)
+eq("... but a line WITH ISBNs taking an ISBN-less carried line stays listed",
+   (lzi["tome_id"], BK.gate_report([_gl(lzi)], {"adopt_works": [], "works": {}}, rzi, KR2)["taken_weak"]),
+   ("rl_rb2", [["rl_rb2", "loc:806", 0, 0]]))
+l4 = bl("loc:804", "loc", "Rebirth", [("3", I5[2][1])], YEN)
+r4 = KI.line_ids([l4], KR)
+eq("... and a 1-of-5 take stays listed (S3_alt)", BK.gate_report([_gl(l4)], {"adopt_works": [], "works": {}}, r4, KR)["taken_weak"],
+   [["rl_rb", "loc:804", 1, 5]])
+
+# ruling 4 (required): a present carried volume's carried ISBN now on ANOTHER present volume fails
+VW = _id("v_", "rl_w", "1")
+cw = carry_file("cvol", [("rl_w", "w_new", "Wiki", "manhwa", "en", [("1", "9798400900648")])])
+PRESENT_W = "INSERT INTO series VALUES(2,'rl_w','w_new','en','manhwa'); INSERT INTO volumes VALUES(2,'%s',NULL,NULL,NULL);" % VW
+MOVED = "carried KR/CN-scope volumes whose carried ISBN now sits on another present volume"
+eq("carried volume gate: the ISBN of a present carried volume (a line of a touched work) now on a 3f volume fails",
+   krcn_fails(mutate_art=[PRESENT_W], carry=cw), [MOVED])
+eq("... not when the carried volume is gone (run_ids' redirect rules own that)", krcn_fails(carry=cw), [])
+cw2 = carry_file("cvol2", [("rl_w", "w_new", "Wiki", "manhwa", "en", [("1", "9798400900648")]),
+                           ("rl_new", "w_new", "New", "manhwa", "en", [("1", "9798400900648")])])
+eq("... not when the other volume already held that ISBN in the carry (a pre-existing duplicate)",
+   krcn_fails(mutate_art=[PRESENT_W, "UPDATE volumes SET tome_id='%s' WHERE tome_id='v_n1';" % _id("v_", "rl_new", "1")],
+              carry=cw2), [])
+cw3 = carry_file("cvol3", [("rl_w", "w_other", "Wiki", "manga", "en", [("1", "9798400900648")])])
+eq("... and out of scope: a line of a work no KR/CN line touches",
+   krcn_fails(mutate_art=[PRESENT_W.replace("'w_new'", "'w_other'")], carry=cw3), [])
+
+# ruling 2: the BnF search-URL hole -- a volume of a BnF KR/CN line whose only bnf claims are SRU-cited
+# enrichment-shaped fields is line-source (krcn_member join): ark urls only
+SRU_URL = "https://catalogue.bnf.fr/api/SRU?query=bib.isbn+all+%229782811600009%22"
+BNF_STAGE = """INSERT INTO krcn_line(key,source,market,carried,role,exported) VALUES('bnf:ark:/12148/cb47000001x','bnf','FR',0,'new_work',1),
+                                                                             ('dnb:1400000001','dnb','DE',0,'linked',1);
+               INSERT INTO krcn_member(member,line_key,number,volume_id,fate) VALUES
+                 ('bnf:ark:/12148/cb47000001x','bnf:ark:/12148/cb47000001x','1','v_bl','created'),
+                 ('dnb:1400000002','dnb:1400000001','1','v_dl','attached');"""
+eq("licence gate: a BnF-line volume whose only bnf claims carry the per-ISBN SRU url fails (krcn_member join)",
+   lic_gate([("volume", "v_bl", "page_count", "150", "bnf", SRU_URL, "open")], staging=BNF_STAGE), [BNFU])
+eq("... an SRU enrichment claim on a volume staged only by a DNB line still passes",
+   lic_gate([("volume", "v_dl", "page_count", "150", "bnf", SRU_URL, "open")], staging=BNF_STAGE), [])
+eq("... and an ark-cited claim on the BnF-line volume passes",
+   lic_gate([("volume", "v_bl", "page_count", "150", "bnf", "https://catalogue.bnf.fr/ark:/12148/cb47000001x", "open")],
+            staging=BNF_STAGE), [])
+
+# ruling 6: a BnF child whose own 101 $c contradicts its KR/CN head -- the child's own origin wins
+def child(c):
+    kid = brec(("101", [("a", "fre"), ("c", c)]), ("010", [("a", isbn13("97823", 141))]), ("200", [("a", "Chonchu"), ("h", "9")]),
+               ("210", [("c", "Tokebi"), ("d", "2004")]), ("461", [("0", "39026600"), ("t", "Chonchu"), ("v", "9")]),
+               cf3="http://catalogue.bnf.fr/ark:/12148/cb39026900x")        # fr()'s record (the name was rebound since)
+    res = KL.bnf_lines({U.ark(r): r for r in [HEAD, kid]})
+    return [(l["key"][-11:], l["origin"], l["medium"]) for l in res[0]], res[2]["origin_inherited"]
+
+
+eq("BnF child 101 $c chi under a kor head (461 $0): its own origin wins -> manhua, nothing inherited",
+   child("chi"), ([("cb39026900x", "chi", "manhua")], 0))
+_gap = child("jpn")
+if _gap != ([], 0):     # controller ruling 6: reported, krcn_lines' rulings are not changed in Task 15
+    print("  KNOWN GAP (not failed; Task 15 report): a BnF child whose own 101 $c is jpn under a kor head inherits the "
+          "head's origin: %r -- expected out of scope (own origin wins)" % (_gap,))
+
+# measure_krcn floors
+_saved_floors = (ML.KRCN_STAGED_FLOORS, ML.KRCN_EXPORTED_FLOORS, ML.KRCN_MIN_WORKS, ML.KRCN_STAGED_COVERAGE)
+try:
+    ML.KRCN_STAGED_FLOORS = {"DE": (1, 3), "FR": (0, 0), "EN": (1, 1)}
+    ML.KRCN_EXPORTED_FLOORS = {"DE": (0, 0), "FR": (0, 0), "EN": (1, 1)}
+    ML.KRCN_MIN_WORKS = 1
+    artp, catp = gate_pair()
+
+    def mk():
+        with contextlib.redirect_stdout(io.StringIO()):
+            return ML.measure_krcn(artp, catp, None, check_ids=False)
+    eq("measure_krcn: floors met", mk(), [])
+    ML.KRCN_EXPORTED_FLOORS = {"DE": (0, 0), "FR": (0, 0), "EN": (2, 1)}
+    eq("measure_krcn: an exported line floor missed fails", mk(), ["EN exported lines"])
+    ML.KRCN_EXPORTED_FLOORS = {"DE": (0, 0), "FR": (0, 0), "EN": (1, 1)}
+    ML.KRCN_STAGED_FLOORS = {"DE": (2, 3), "FR": (0, 0), "EN": (1, 2)}
+    eq("measure_krcn: staged floors missed fail", mk(), ["DE staged lines", "EN staged volumes"])
+    ML.KRCN_STAGED_FLOORS = {"DE": (1, 3), "FR": (0, 0), "EN": (1, 1)}
+    sqlite3.connect(catp).executescript("""INSERT INTO krcn_member(member,line_key,number,fate,announced_only,dated,paged) VALUES
+        ('dnb:78','dnb:77','1','line_held',0,0,1), ('dnb:79','dnb:77','2','line_held',0,1,1),
+        ('dnb:80','dnb:77','3','line_held',1,0,1);""")
+    eq("measure_krcn: DE deposited-year coverage below 95% fails (announced-only volumes left out)", mk(),
+       ["DE staged deposited year coverage"])
+    ML.KRCN_MIN_WORKS = 2
+    eq("measure_krcn: library works below the floor fail", "library works exported" in mk(), True)
+finally:
+    ML.KRCN_STAGED_FLOORS, ML.KRCN_EXPORTED_FLOORS, ML.KRCN_MIN_WORKS, ML.KRCN_STAGED_COVERAGE = _saved_floors
+
+# measure_de: the announced set is the union of dnb_member and krcn_member (an undated KR/CN announcement
+# is not a deposited-undated volume)
+dde = os.path.join(_t15, "de-cat.db")
+Cd = sqlite3.connect(dde)
+Cd.executescript(BK.STAGING_DDL + """CREATE TABLE dnb_member (idn TEXT, volume_id TEXT, announced_only INTEGER);
+    INSERT INTO dnb_member VALUES('1','v_d1',0);
+    INSERT INTO krcn_member(member,line_key,number,volume_id,fate,announced_only) VALUES('dnb:9','dnb:8','2','v_k2','created',1),
+                                                                                      ('dnb:10','dnb:8','3','v_k3','created',0);""")
+Cd.commit()
+ade = os.path.join(_t15, "de-art.sqlite")
+Ad = sqlite3.connect(ade)
+Ad.executescript("""CREATE TABLE series (gcd_series_id INTEGER, language TEXT); CREATE TABLE meta (key TEXT, value TEXT);
+    CREATE TABLE volumes (gcd_series_id INTEGER, tome_id TEXT, release_date_raw TEXT, release_date_type TEXT, page_count INTEGER);
+    INSERT INTO series VALUES(1,'de');
+    INSERT INTO volumes VALUES(1,'v_d1','2020','published',100),(1,'v_k2',NULL,NULL,100),(1,'v_k3','2021','published',100);""")
+Ad.commit()
+_saved_same = ML.same_ids
+ML.same_ids = lambda catalogue: (True, "stub")
+try:
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        ML.measure_de(ade, dde)
+    eq("measure_de: an announced-only krcn_member volume is left out of the deposited date coverage (2/2 = 100%)",
+       "DE date coverage (deposited volumes): 100.0% (2/2" in out.getvalue(), True)
+finally:
+    ML.same_ids = _saved_same
+
+# same_ids: the offline reload (enumerators replaced as in the Task 14 end-to-end test)
+_saved_enum = (E2.enumerate_krcn, LS2.enumerate_loc, BS2.enumerate_bnf, BK.BUILD)
+BK.BUILD = _t15
+cat15 = os.path.join(_t15, "cat15.db")
+try:
+    E2.enumerate_krcn = lambda verbose=False: ({k: r for k, r in dk.items() if k != "1400000003"}, {}, {"degraded": None})
+    LS2.enumerate_loc = lambda verbose=False: ({r["cf"]["001"]: r for r in (SL, SL1, MS, MS4)}, {"degraded": None})
+    BS2.enumerate_bnf = lambda verbose=False: ({U.ark(r): r for r in (gam, g2)}, {"degraded": None})
+    fresh_catalogue(cat15)
+    with contextlib.redirect_stdout(io.StringIO()):
+        BK.run(cat15, None)
+    ok15 = BK.same_ids(cat15, None)
+    eq("same_ids: a first build reloads to the same ids", (ok15[0], ok15[1].split(",")[0] != "0 exported lines"), (True, True))
+    c15 = sqlite3.connect(cat15)
+    c15.execute("UPDATE krcn_line SET rl_id='rl_moved' WHERE role='new_work'")
+    c15.commit()
+    eq("same_ids: an exported line whose staged id differs from the reload fails", BK.same_ids(cat15, None)[0], False)
+    def _miss(verbose=False):
+        raise BK.SRU.SourceOfflineMiss("bath.isbn=97988554* not cached")
+    LS2.enumerate_loc = _miss
+    eq("same_ids: an uncached LoC set fails the gate (never live)", BK.same_ids(cat15, None)[0], False)
+finally:
+    E2.enumerate_krcn, LS2.enumerate_loc, BS2.enumerate_bnf, BK.BUILD = _saved_enum
+    TA.KRCN_FIXTURES = _saved_fx
+    shutil.rmtree(_t15, ignore_errors=True)
 
 # ==== summary ====
 print()
