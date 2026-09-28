@@ -21,6 +21,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "schema"))
 from load import _id
 import carried_ids as CI
 import dnb_link as L
+import build_dnb as B
+import loc_marc as LM
+import bnf_unimarc as U
+
+# the publisher family each source's line builder uses (krcn_lines: ln["pubfam"])
+FAMILY = {"dnb": B.pubkey, "loc": LM.pubfam, "bnf": U.pubfam}
 
 BIG = 1 << 40
 
@@ -33,21 +39,24 @@ def read_carry(carry):
     if "tome_id" not in cols:
         return None
     K = {"works": set(), "lines": {}, "series_ids": set(), "work_ids": set(), "int": {},
-         "line_work": {}, "line_name": {}, "line_medium": {}, "line_vols": collections.defaultdict(list)}
+         "line_work": {}, "line_name": {}, "line_medium": {}, "line_pub": {},
+         "line_vols": collections.defaultdict(list)}
     try:
         ids = json.loads(A.execute("SELECT value FROM meta WHERE key='krcn_ids'").fetchone()[0])
         K["works"], K["lines"] = set(ids.get("works", [])), dict(ids.get("lines", {}))
     except (sqlite3.OperationalError, TypeError, ValueError):
         pass
     sid_of = {}
-    for sid, tid, wid, name, medium in A.execute(
-            "SELECT gcd_series_id, tome_id, %s, name, %s FROM series" % (
-                "tome_work_id" if "tome_work_id" in cols else "NULL", "medium" if "medium" in cols else "NULL")):
+    for sid, tid, wid, name, medium, pub in A.execute(
+            "SELECT gcd_series_id, tome_id, %s, name, %s, %s FROM series" % (
+                "tome_work_id" if "tome_work_id" in cols else "NULL", "medium" if "medium" in cols else "NULL",
+                "publisher" if "publisher" in cols else "NULL")):
         if not tid:
             continue
         sid_of[sid] = tid
         K["series_ids"].add(tid)
         K["line_work"][tid], K["line_name"][tid], K["line_medium"][tid] = wid, name, medium
+        K["line_pub"][tid] = pub
         if wid:
             K["work_ids"].add(wid)
     try:
@@ -89,10 +98,17 @@ def line_ids(lines, K):
     """Rule 1 of the module plan (carry lookup before minting), with the split rule.
     -> {"ambiguous": [], "adopted": n, "split": [(carried id, [minor part keys])]}.
 
-    A built line is a PART of carried line T (same source) when it holds at least one of T's
-    volumes (the vote rule below) AND (refined ruling) at least 2 of them, or a strict majority of
-    them, or T's folded name; a line holding none of them never takes T by the lookup (by natural
-    key only when no part holds any of it).
+    A built line is a PART of carried line T (same source) -- controller ruling 2026-09-27, final --
+    only when it holds at least one of T's volumes (the vote rule below; a bare volume number counts
+    here) AND one of:
+      (a) it shares at least 2 distinct ISBNs with T (volume-number evidence never counts here);
+      (b) its folded name equals T's carried name AND T's carried publisher is not empty AND their
+          publisher families agree (FAMILY, the builders' function for that source);
+      (c) T's carried publisher is empty AND its folded name equals T's AND its natural key is T's
+          minting key (_id('rl_', key) == T: the same record still exists).
+    A line that is no part mints its own key by the normal rules and never takes T by the lookup
+    (by natural key only when no part holds any of it); T is then left to 7b (a redirect, a
+    retirement, or a reported orphan -- loud, never a silent move).
 
     Controller ruling 2026-09-27, clarified and refined the same day (docs/id-scheme.md "Merges and splits"):
       1. PLURALITY: the part holding the most of T's volumes keeps T, whatever its own natural key,
@@ -122,9 +138,15 @@ def line_ids(lines, K):
             name_eq = L.fold(K["line_name"].get(t) or "", False) == L.fold(ln["name"] or "", False)
             same_name = not any(i for _, i in tv) and name_eq
             held = {k for k, (n, i) in enumerate(tv) if (i and i in isb) or (not i and n in bare and (share or same_name))}
-            # controller ruling 2026-09-27, refined: one stray ISBN makes no part -- a part holds at
-            # least 2 of T's volumes, or a strict majority of them, or carries T's (folded) name
-            if held and (len(held) >= 2 or 2 * len(held) > len(tv) or name_eq):
+            if not held:
+                continue
+            # controller ruling 2026-09-27, final: (a) two shared ISBNs, (b) name + publisher family,
+            # (c) no carried publisher: name + the same minting key
+            t_pub = K["line_pub"].get(t) or ""
+            fam = FAMILY.get(ln["source"], lambda p: L.fold(p or "", False)[:6])
+            if (len({i for _, i in tv if i and i in isb}) >= 2
+                    or (t_pub and name_eq and fam(t_pub) and fam(t_pub) == fam(ln.get("publisher") or ""))
+                    or (not t_pub and name_eq and _id("rl_", ln["key"]) == t)):
                 parts[t].append((held, n_))
     got, minor = collections.defaultdict(list), collections.defaultdict(list)
     for t, ps in parts.items():
