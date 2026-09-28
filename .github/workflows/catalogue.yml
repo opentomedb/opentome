@@ -49,7 +49,7 @@ jobs:
       # responses a run fetched are there for the next one. A warm run hits close to
       # zero network -- the seed-cache workflow is what makes the first run warm. The
       # one recurring exception: Open Library per-ISBN negatives refresh every
-      # OL_NEG_REFRESH_DAYS (60, tier0/enrich_more.py) days by mtime, so once they age
+      # OL_NEG_REFRESH_DAYS (60, tier1/enrich_more.py) days by mtime, so once they age
       # past that window a build re-requests them -- ~77 requests on today's 3,833
       # negatives (ceil(3833/50)), first wave ~2026-11-26.
       - uses: actions/cache@v4
@@ -81,20 +81,9 @@ jobs:
                  fi; }
           # the release this build replaces: publish.sh refuses unless the artifact carried from it
           if [ -f build/manga-metadata.sqlite ]; then sha256sum build/manga-metadata.sqlite | cut -d' ' -f1 > build/carry.sha256; fi
-      # Runs every stage including the measure gate (8d, writes build/measure.log)
-      # and exits non-zero on any test, audit, contract or coverage failure.
-      # DNB freshness window (Nick 2026-09-24: a weekly refresh, no manual step): the build
-      # re-reads last year, this year and later and the no-year remainder when older than 6
-      # days -- 6, not 7: the cache files are ~7 days old at the next Sunday run, and a 7-day
-      # window on a 7-day cron is not reliably "older", so alternate weeks would be skipped.
-      # ~62 SRU requests a week at >= 3 s, plus up to 42 small recounts when a total moved.
-      # A DNB failure in a refresh run keeps each affected result set's previous complete page
-      # set and marks the build degraded (built and gated, never published); a result set with
-      # no complete earlier set fails the build (an unseeded cache is not a refresh).
-      # KR/CN sources (docs/krcn-design.md §3): LoC ECIP records are upgraded later; BnF barely moves.
-      # A 28-day window on the weekly cron: ~110-160 LoC and ~11 BnF requests every fourth week, the
-      # canary (1 request) every week. A failure keeps the previous complete set and marks the build
-      # degraded (built and gated, never published); a set with no complete copy fails the build.
+      # lx2.loc.gov:210 is plain HTTP on a non-standard port (docs/krcn-design.md §3). If a runner cannot
+      # reach it, this run builds LoC from the cache (LOC_OFFLINE=1: the seed's complete sets and the
+      # cached canary) and says so; any LoC set missing from the cache then fails the build loudly.
       - name: LoC reachability
         run: |
           if curl -fsS -m 20 -o /dev/null -A "OpenTome-CI/1.0 (reachability probe)" \
@@ -114,9 +103,23 @@ jobs:
             echo "::warning::catalogue.bnf.fr unreachable from this runner -- BnF is read from the cache (BNF_OFFLINE=1)"
             echo "BNF_OFFLINE=1" >> "$GITHUB_ENV"
           fi
+      # Runs every stage including the measure gate (8d, writes build/measure.log)
+      # and exits non-zero on any test, audit, contract or coverage failure.
+      # DNB freshness window (Nick 2026-09-24: a weekly refresh, no manual step): the build
+      # re-reads last year, this year and later and the no-year remainder when older than 6
+      # days -- 6, not 7: the cache files are ~7 days old at the next Sunday run, and a 7-day
+      # window on a 7-day cron is not reliably "older", so alternate weeks would be skipped.
+      # ~62 SRU requests a week at >= 3 s, plus up to 42 small recounts when a total moved.
+      # A DNB failure in a refresh run keeps each affected result set's previous complete page
+      # set and marks the build degraded (built and gated, never published); a result set with
+      # no complete earlier set fails the build (an unseeded cache is not a refresh).
       - name: rebuild (every gate)
         env:
           DNB_REFRESH_DAYS: "6"
+          # KR/CN sources (docs/krcn-design.md §3): LoC ECIP records are upgraded later; BnF barely moves.
+          # A 28-day window on the weekly cron: ~110-160 LoC and ~11 BnF requests every fourth week, the
+          # canary (1 request) every week. A failure keeps the previous complete set and marks the build
+          # degraded (built and gated, never published); a set with no complete copy fails the build.
           LOC_REFRESH_DAYS: "28"
           BNF_REFRESH_DAYS: "28"
         run: bash tier0/rebuild_all.sh

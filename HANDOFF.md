@@ -26,8 +26,9 @@ Done (design `docs/krcn-design.md`, results `docs/krcn-market.md`):
   JP out-of-scope test; the full-name author rule for KR/CN lines), `tier0/dnb_enumerate.py` /
   `tier0/dnb_sru.py` / `tier0/build_dnb.py` (the new channels, `DNB_MAX_REQUESTS`, the
   `IMPRINT_Q` split, P25 deferral to the JP round), `tier2/corrections.py` (`link_work`, R2),
-  `tier2/resolve.py`, `schema/schema.sql` (`krcn_line`/`krcn_member`/`loc_member` staging,
-  `clean_claim` gains `us_gov_pd`), `schema/load.py` (`LICENCE["loc"]`), `export/to_mangarr.py`
+  `tier2/resolve.py`, `schema/schema.sql` (`clean_claim` gains `us_gov_pd` -- the
+  `krcn_line`/`krcn_member`/`loc_member` staging tables are `build_krcn.STAGING_DDL`, not
+  schema.sql), `schema/load.py` (`LICENCE["loc"]`), `export/to_mangarr.py`
   / `export/test_to_mangarr.py` / `export/test_artifact.py` (the KR/CN contract rules of §13),
   `export/measure_library.py` (staged KR/CN floors), `export/publish.sh`, `tier1/enrich_more.py`
   / `tier1/covers.py` / `tier1/verify.py` (Open Library per-ISBN cache keys), LICENSE-DATA.md,
@@ -46,21 +47,23 @@ Done (design `docs/krcn-design.md`, results `docs/krcn-market.md`):
   unchanged), `docs/krcn-market.md` (new: sources, scope, keys/identity, R6, files, gates, the
   spike table, an empty "First build" section for C4).
 
-Measured request counts (Tasks 7-9, all offline-cached on rerun):
-- **BnF (Task 7):** 11 live requests total (cap 20); a rerun made 0.
+Measured request counts (Tasks 7-9):
+- **BnF (Task 7):** 11 live requests total (cap 20); a rerun made 0 (fully cached).
 - **DNB `spo=kor`/`spo=chi` (Task 9):** 80 live requests, all HTTP 200 (netlog 454 → 534
-  lines); reruns made 0. The 14 P25 parent sets that split across the JP and KR/CN rounds are
-  deferred whole to the JP round (exactly as predicted); the set-level split itself is a
-  follow-up left for Nick (see "Open for Nick" below).
-- **LoC (Task 8): BLOCKED, not finished.** 140 of the 400-request cap used (5 probe + 16 run 1
-  + 102 run 2 + 17 run 3); the gateway closed the connection instantly on three consecutive
-  requests after ~120 requests in ~25 minutes, which reads as throttling rather than a paging
-  fault. The controller's ruling: **stop live LoC now.** The live enumeration becomes
-  **controller step C0**, before C1: a >=24h cool-off (not before 2026-09-28 ~23:00 CDT),
-  `LOC_INTERVAL=10` (was the 20 s default), cap = the remaining 260, and on any
-  `RemoteDisconnected`/refusal streak, stop and escalate to Nick -- no further automatic
-  retries. Only 1 of the 24 LoC channels (`bath.isbn=97984009*`, 55 records) is complete in
-  the cache today.
+  lines); reruns made 0 (fully cached). The 14 P25 parent sets that split across the JP and
+  KR/CN rounds are deferred whole to the JP round (exactly as predicted); the set-level split
+  itself is a follow-up left for Nick (see "Open for Nick" below).
+- **LoC (Task 8): BLOCKED, not finished, not fully cached.** 140 of the 400-request cap used
+  (5 probe + 16 run 1 + 102 run 2 + 17 run 3); the gateway closed the connection instantly on
+  three consecutive requests after ~120 requests in ~25 minutes, which reads as throttling
+  rather than a paging fault. The controller's ruling: **stop live LoC now.** The live
+  enumeration becomes **controller step C0**, before C1: a >=24h cool-off (not before
+  2026-09-28 ~23:00 CDT), `LOC_INTERVAL` **20 s** start-to-start (the already-committed
+  default -- pages may slow to ~10 s under strain; watch for a full page slowing from ~3 s to
+  >=8 s as an early warning), a session cap of 260 (the remaining budget under the 400 total),
+  stop on a second `RemoteDisconnected`/refusal and escalate to Nick -- no further automatic
+  retries, estimated 165-230 requests for a complete enumeration. Only 1 of the 24 LoC
+  channels (`bath.isbn=97984009*`, 55 records) is complete in the cache today.
 
 Controller steps still open: **C3** (first full build, needs C0 done first), **C4** (set the
 exported floors + fill `docs/krcn-market.md`'s "First build" section, same commit), **C5**
@@ -88,8 +91,8 @@ Gotchas:
   new cache *file* the naive diff would notice.
 - **A copied catalogue keeps its old `clean_claim` view.** `clean_claim` is a SQL view baked in
   at schema-creation time; a catalogue copied from before this round predates `us_gov_pd` and
-  will silently exclude every LoC claim from the commercial subset until it is rebuilt fresh
-  from `schema/schema.sql` (never `ALTER`ed in place).
+  will silently exclude every LoC claim from the commercial subset; a fresh build recreates it
+  from `schema/schema.sql`.
 - **Ize ECIP records resolve their medium only through the review file or a later LoC
   upgrade.** A level-5 Ize record (no `041`/`082`/`050`/`655`) has no classification signal of
   its own; it either matches an existing DE/FR sibling's medium or goes to `krcn-review.tsv`.
@@ -99,9 +102,10 @@ Gotchas:
   overridden). Measured exposure today: 0 of 3,438 cached BnF records hit the inheriting case
   with a non-empty non-KR/CN own origin.
 - **Only `taken_weak` blocks publishing** among `krcn-report.json`'s `gate` lists (the others --
-  `adopt_conflicts`, `absorbed_weak`, `p22_thin`, `kept_no_overlap`, `left`,
-  `carried_work_changed`, `work_redirects`, `deferred_to_jp_round`, `authors_differ`,
-  `hangul_only_authors` -- are informational). A `taken_weak` entry `[line key, carried id]` is
+  `left`, `kept_no_overlap`, `absorbed_weak`, `p22_thin`, `work_redirects`, `adopt_conflicts`,
+  `carried_not_exported`, `carried_work_changed`, `hangul_only_authors`, `authors_differ`,
+  `deferred_to_jp_round`, `jp_guard_overrides` and `adoption_isbn_clash` -- are informational,
+  per `build_krcn.gate_report`'s docstring). A `taken_weak` entry `[line key, carried id]` is
   confirmed as safe only through `export/fixtures/krcn_linker_labels.json`'s `taken_ok` list.
 - **A refresh that re-clusters DE KR/CN lines counts toward `run_ids`'s retired-line cap of 10**
   (§13 "Watch"). The carry lookup before minting (§8) keeps a re-clustered line from being
