@@ -635,12 +635,62 @@ def run_link_work(catalogue):
         print("  info  link_work keys this build does not have (stale): %s" % stale[:10])
 
 
+LCCN_URL = re.compile(r"^https://lccn\.loc\.gov/[a-z]{0,3}[0-9]+$")
+ARK_URL = re.compile(r"^https://catalogue\.bnf\.fr/ark:/12148/cb[0-9]{8}[0-9a-z]$")
+# tier1/enrich_more.enrich_bnf's per-ISBN lookup: the one other shape a bnf claim's source_url has
+BNF_ISBN_URL = re.compile(r"^https://catalogue\.bnf\.fr/api/SRU\?query=bib\.isbn\+all\+%22[0-9Xx-]+%22$")
+
+
+def run_krcn_licence(path, catalogue):
+    """The KR/CN round's licence rules and the R6 id rule (docs/krcn-design.md §2, §13; controller
+    rulings 4 and 5). Catalogue-side: the artifact carries no per-claim provenance."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "schema"))
+    from load import _id
+    db = sqlite3.connect(path)
+    cat = sqlite3.connect(catalogue)
+    loc = cat.execute("SELECT licence, source_url FROM claim WHERE source='loc'").fetchall()
+    rule("loc claims not licensed us_gov_pd (DLC-created records only)", sum(1 for l, _ in loc if l != "us_gov_pd"))
+    bad = [u for _, u in loc if not LCCN_URL.match(u or "")]
+    rule("loc claims whose source_url is not https://lccn.loc.gov/<LCCN>", len(bad), str(bad[:3]))
+    bad = [u for (u,) in cat.execute("SELECT source_url FROM claim WHERE source='bnf'")
+           if not (ARK_URL.match(u or "") or BNF_ISBN_URL.match(u or ""))]
+    rule("bnf claims whose source_url is neither an ark URL nor the per-ISBN lookup", len(bad), str(bad[:3]))
+    rule("cover or link (856) claims from dnb / loc / bnf", cat.execute(
+        """SELECT COUNT(*) FROM claim WHERE source IN ('dnb','loc','bnf')
+           AND (field LIKE '%cover%' OR value LIKE 'http%')""").fetchone()[0])
+    rule("artifact covers from dnb / loc / bnf", db.execute(
+        "SELECT COUNT(*) FROM volumes WHERE cover_source IN ('dnb','loc','bnf')").fetchone()[0])
+    cols = [(t, c[1]) for (t,) in db.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            for c in db.execute("PRAGMA table_info(%s)" % t) if c[1] == "isbn13_alt"]
+    rule("artifact columns named isbn13_alt (alternative ISBNs are not exported)", len(cols), str(cols))
+    attr = (db.execute("SELECT value FROM meta WHERE key='attribution'").fetchone() or [""])[0]
+    rule("meta.attribution does not name the Library of Congress", 0 if "Library of Congress" in attr else 1)
+    # R6 (§13): a held / review / unlinked line holds no id anywhere. krcn_line.rl_id is NULL for it
+    # (build_krcn.staged_rl_id), so its own-key id is re-derived and looked for; a carried line that
+    # does not export is 7b's (redirect / retirement), not this rule's
+    try:
+        rows = cat.execute("SELECT key, rl_id, work, carried FROM krcn_line WHERE exported=0").fetchall()
+    except sqlite3.OperationalError:
+        return
+    rule("non-exported krcn_line rows holding a tome_id or a work", sum(1 for _, r, w, _ in rows if r or w))
+    mint = {_id("rl_", k) for k, _, _, carried in rows if not carried}
+    ids = json.loads((db.execute("SELECT value FROM meta WHERE key='krcn_ids'").fetchone() or ["{}"])[0])
+    held = sorted(mint & ({r[0] for r in cat.execute("SELECT id FROM release_line")}
+                          | {r[0] for r in db.execute("SELECT tome_id FROM series")}
+                          | {r[0] for r in db.execute("SELECT opentome_id FROM id_map WHERE kind<>'retired'")}
+                          | set(ids.get("lines", {}))))
+    rule("held / review / unlinked KR/CN line ids in release_line, series, id_map or meta.krcn_ids", len(held),
+         str(held[:5]))
+
+
 if __name__ == "__main__":
     fails = run(sys.argv[1])
     if len(sys.argv) > 2:
         print("\n  -- German (DNB) rules, catalogue %s --" % sys.argv[2])
         run_dnb(sys.argv[1], sys.argv[2])
         run_link_work(sys.argv[2])
+        print("\n  -- KR/CN licence and R6 rules --")
+        run_krcn_licence(sys.argv[1], sys.argv[2])
     if len(sys.argv) > 3 and sys.argv[3] and os.path.exists(sys.argv[3]):
         print("\n  -- ids, carried artifact %s --" % sys.argv[3])
         run_ids(sys.argv[1], sys.argv[3])

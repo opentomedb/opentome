@@ -514,6 +514,17 @@ def export(src_path, out_path, carry_ids_from=None):
                   AND entity_id=rl.id AND field='line_name') AS line_name
         FROM release_line rl JOIN work w ON w.id=rl.work_id
         ORDER BY rl.id""").fetchall()
+    # KR/CN library lines (stage 3f, docs/krcn-design.md §8): the name and publisher the line builder
+    # saw (krcn_line). The next build's carry lookup compares both with series.name / series.publisher
+    # (krcn_identity._qualifies), so the series row carries them -- not whichever line_name claim an
+    # adoption (adopt_line) left first. No krcn_line table: nothing changes.
+    try:
+        lib_line = {r: (n, p) for r, n, p in src.execute(
+            "SELECT rl_id, name, publisher FROM krcn_line WHERE exported=1 AND rl_id IS NOT NULL")}
+    except sqlite3.OperationalError:
+        lib_line = {}
+    lines = [row[:4] + ((lib_line[row[0]][1] or row[4]),) + row[5:8] + ((lib_line[row[0]][0] or row[8]),)
+             if row[0] in lib_line else row for row in lines]
 
     # Every work's normalized title, so a subtitle head that IS another work's
     # title ('Attack on Titan: Before the Fall' -> 'Attack on Titan') is never
@@ -874,6 +885,31 @@ def export(src_path, out_path, carry_ids_from=None):
     # the next build merges the same duplicate the same way (not a consumer field)
     merged_lines = json.dumps(sorted([d[2], d[3]] for d in json.loads(
         (src.execute("SELECT value FROM meta WHERE key='carried:merged'").fetchone() or ["[]"])[0])))
+    # KR/CN (stage 3f): a degraded LoC / BnF refresh (publish.sh refuses it, like dnb_degraded), and the
+    # library-born works and lines, listed for the next build's carry lookup (krcn_identity.read_carry,
+    # plan P3) -- only ids this artifact actually ships (R6: a held line's id never reaches it)
+    loc_degraded = (src.execute("SELECT value FROM meta WHERE key='loc:degraded'").fetchone() or [None])[0]
+    bnf_degraded = (src.execute("SELECT value FROM meta WHERE key='bnf:degraded'").fetchone() or [None])[0]
+    krcn_ids = (src.execute("SELECT value FROM meta WHERE key='krcn:ids'").fetchone() or [None])[0]
+    if krcn_ids:
+        ids = json.loads(krcn_ids)
+        ship_l = {r[0] for r in out.execute("SELECT tome_id FROM series")}
+        ship_w = {r[0] for r in out.execute("SELECT DISTINCT tome_work_id FROM series")}
+        kept = dict(ids, works=[w for w in ids.get("works", []) if w in ship_w],
+                    created=[w for w in ids.get("created", []) if w in ship_w],
+                    lines={t: s for t, s in ids.get("lines", {}).items() if t in ship_l})
+        dropped = sorted(set(ids.get("works", []) + ids.get("created", [])) - ship_w) + \
+            sorted(set(ids.get("lines", {})) - ship_l)
+        if dropped:
+            print("  krcn_ids: %d id(s) not in this artifact, not carried: %s" % (len(dropped), dropped[:10]))
+        krcn_ids = json.dumps(kept, sort_keys=True)
+    try:
+        krcn_lines = {"roles": dict(src.execute("SELECT role, COUNT(*) FROM krcn_line GROUP BY 1")),
+                      "by_market": {m: dict(src.execute("SELECT role, COUNT(*) FROM krcn_line WHERE market=? GROUP BY 1",
+                                                        (m,)))
+                                    for m in ("DE", "EN", "FR")}}
+    except sqlite3.OperationalError:
+        krcn_lines = {}
     try:
         dnb_lines = {"roles": dict(src.execute("SELECT role, COUNT(*) FROM dnb_line GROUP BY 1")),
                      "exported_tiers": dict(src.execute("""SELECT tier, COUNT(*) FROM dnb_line
@@ -884,13 +920,14 @@ def export(src_path, out_path, carry_ids_from=None):
         ("schema_version", "2"),
         ("generator", "opentome"),
         ("generated_at", NOW),
-        ("source", "OpenTome — reconciled from Wikipedia, openBD, Open Library, BnF, DNB"),
+        ("source", "OpenTome — reconciled from Wikipedia, openBD, Open Library, BnF, DNB, Library of Congress"),
         # BnF's Etalab licence and openBD's terms both REQUIRE retained attribution; DNB's
         # CC0 does not, but naming it is accurate. Names only the sources the pipeline
         # actually reads; LICENSE-DATA.md carries this string byte-for-byte -- change both
         # together.
         ("attribution", "Bibliographic data: Bibliotheque nationale de France (Licence Ouverte/Open Licence); "
-                        "Deutsche Nationalbibliothek (CC0); openBD; Open Library / Internet Archive; "
+                        "Deutsche Nationalbibliothek (CC0); Library of Congress (US government work; LoC-created "
+                        "records only); openBD; Open Library / Internet Archive; "
                         "Wikipedia contributors (facts only). Cover art is not included."),
         ("licence", "Free/non-commercial use. openBD and Open Library terms are non-commercial; "
                     "see docs/legal-position.md before any paid use."),
@@ -913,16 +950,22 @@ def export(src_path, out_path, carry_ids_from=None):
         ("markets", json.dumps(markets, sort_keys=True)),
         # DNB line tally (tier0/build_dnb.py): the measure gate's link-rate floor reads it
         ("dnb_lines", json.dumps(dnb_lines)),
+        # KR/CN line tally (stage 3f, krcn_line: held and review included) -- the measure gate reads it
+        ("krcn_lines", json.dumps(krcn_lines, sort_keys=True)),
         ("composition_semantics", "volumes.composition = original-market volume numbers this "
                                   "volume contains (omnibus). Chapters are in volume_chapters."),
         ("release_date_semantics", "release_date is day-precision only; coarser values are in "
                                    "release_date_raw with release_date_precision; release_date_type "
                                    "says which milestone (projected = a planned month, not a publication)."),
     ] + ([("dnb_degraded", dnb_degraded)] if dnb_degraded else []) \
+      + ([("krcn_ids", krcn_ids)] if krcn_ids else []) \
+      + ([("loc_degraded", loc_degraded)] if loc_degraded else []) \
+      + ([("bnf_degraded", bnf_degraded)] if bnf_degraded else []) \
       + ([("carried_from", carried_from)] if carried_from else []) \
       + ([("carried_sha256", carried_sha256)] if carried_sha256 else []) \
       + ([("merged_lines", merged_lines)] if merged_lines != "[]" else []):
-        # dnb_degraded: DNB failed during this build's refresh -- export/publish.sh refuses it
+        # dnb_degraded / loc_degraded / bnf_degraded: the source failed during this build's refresh --
+        # export/publish.sh refuses it
         out.execute("INSERT OR REPLACE INTO meta VALUES(?,?)", (k, v))
 
     # Read before publishing: what title_for_export kept vs rejected, and why (fix

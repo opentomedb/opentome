@@ -28,7 +28,9 @@ def _build(name):
 
 
 # who to believe when sources genuinely conflict
-PRECEDENCE = ["override", "publisher", "dnb", "bnf", "openbd", "wikipedia", "gbooks"]
+PRECEDENCE = ["override", "publisher", "dnb", "bnf", "loc", "openbd", "wikipedia", "gbooks"]
+# the libraries whose bare year never beats a finer date it disagrees with (the date branch below)
+LIBRARY_YEAR_SOURCES = ("dnb", "loc", "bnf")
 RANK = {s: i for i, s in enumerate(PRECEDENCE)}
 
 SEMANTIC_MAX_DAYS = 42          # 6 weeks; beyond this a week-multiple is an edition gap
@@ -119,12 +121,14 @@ def resolve(db, verbose=False):
                 # one: precedence used to hand out openBD's '2023-02' over a
                 # corroborated '2023-02-25' on 42,985 fields.
                 best = max(claims, key=lambda vs: (len(vs[0]), -RANK.get(vs[1], 99)))
-            elif best[1] == "dnb" and len(best[0]) == 4 and any(len(v) > 4 for v, _ in claims):
+            elif best[1] in LIBRARY_YEAR_SOURCES and len(best[0]) == 4 and any(len(v) > 4 for v, _ in claims):
                 # DNB's bare 008 year disagrees with a finer date exactly where it is least
                 # reliable: a late-December release catalogued under the next year. DNB ranks
                 # high for what it is (the legal-deposit record), not for its precision -- the
                 # finer claim wins (docs/dnb-design.md). DNB only: generalised to every
                 # bare year it moved 6 Wikipedia years to Open Library dates two years off.
+                # (krcn-design §12: LoC and BnF years follow the same rule; enrich_bnf writes no
+                # dates, so no existing French resolution moves)
                 best = min((vs for vs in claims if len(vs[0]) > 4), key=lambda vs: RANK.get(vs[1], 99))
             n_agree = sum(1 for v, _ in claims if v == best[0])
             note = " | ".join(f"{s}={v}" for v, s in

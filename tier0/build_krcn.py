@@ -21,7 +21,8 @@ before the enrichment:
   7. load        works, lines, volumes, claims (source dnb / loc / bnf, their licences, record urls),
                  staging krcn_line / krcn_member / loc_member, adoption renames -- all BEFORE 4c / 7b
   8. files       build/krcn-review.tsv, krcn-held.tsv, krcn-new-works.tsv, krcn-report.json
-                 (gate_report: the Task 15 publish-gate lists)
+                 (gate_report: the Task 15 publish-gate lists); catalogue meta krcn:ids and
+                 loc:degraded / bnf:degraded (record_meta; the export and publish.sh read them)
 
 Library works are created AFTER Wikipedia works and linking, so a work Wikipedia knows is never
 duplicated in the same build (§9). No covers, no 856, no publisher summaries from any library.
@@ -463,3 +464,55 @@ def gate_report(lines, plan, rep, K, E=None, deferred=()):
     for k in out:
         out[k].sort()
     return out
+
+
+def krcn_ids(lines, plan):
+    """Plan P3, catalogue meta 'krcn:ids' (the export copies it to meta.krcn_ids, keeping only the ids
+    the artifact ships; krcn_identity.read_carry reads it back next build). Pure.
+      works    the library works exported lines ship under: created or frozen in this build, and
+               the public (library) ids that works adopted (decide step 7) -- an adopted id stays
+               library-born, or the next build would not adopt again
+      created  the works created in this build
+      lines    {tome_id: source} of every exported library-born line; a merged line ships inside an
+               existing line, so it is not one"""
+    shipped = {ln["work"] for ln in lines if ln["exported"]}
+    works = (set(plan.get("works", {})) | {p for _, p in plan.get("adopt_works", [])}) & shipped
+    created = {w for w, e in plan.get("works", {}).items() if e.get("created")} & shipped
+    return {"works": sorted(works), "created": sorted(created),
+            "lines": {ln["tome_id"]: ln["source"] for ln in lines if ln["exported"] and ln["role"] != "merged"}}
+
+
+DEGRADED_KEY = {"loc": "loc:degraded", "bnf": "bnf:degraded"}
+
+
+def record_meta(db, lines, plan, reports):
+    """Catalogue meta for the export (controller rulings 1 and 3):
+      krcn:ids                   krcn_ids(lines, plan)
+      loc:degraded, bnf:degraded a source whose refresh failed this build (lib_sru kept the previous
+                                 complete result set) or whose set came back incomplete: {"reason",
+                                 "kept_previous": the degraded queries} (build_dnb's dnb:degraded
+                                 shape). 3f owns both keys: written or cleared here. The export copies
+                                 them to meta.loc_degraded / bnf_degraded; export/publish.sh refuses.
+      dnb:degraded               the KR/CN DNB channels share it with stage 3e (build_dnb, another
+                                 process, so dnb_sru's DEGRADED does not carry over): merged in under
+                                 "krcn", never cleared -- 3e's own value stays.
+    reports: {"loc": loc_sru.enumerate_loc report, "bnf": bnf_sru.enumerate_bnf tally,
+              "dnb": dnb_enumerate.enumerate_krcn tally}; a missing source counts as clean."""
+    db.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('krcn:ids',?)",
+               (json.dumps(krcn_ids(lines, plan), sort_keys=True),))
+    for src in ("dnb", "loc", "bnf"):
+        rep = reports.get(src) or {}
+        bad = bool(rep.get("degraded") or rep.get("degraded_queries"))
+        val = {"reason": rep.get("degraded") or "incomplete", "kept_previous": list(rep.get("degraded_queries") or [])}
+        if bad:
+            print("  WARNING %s refresh degraded (%s): %d result set(s) kept their previous complete set -- "
+                  "this build will not publish" % (src.upper(), val["reason"], len(val["kept_previous"])), flush=True)
+        if src == "dnb":
+            if bad:
+                old = db.execute("SELECT value FROM meta WHERE key='dnb:degraded'").fetchone()
+                cur = dict(json.loads(old[0]), krcn=val) if old else dict(val, round="krcn")
+                db.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('dnb:degraded',?)", (json.dumps(cur),))
+            continue
+        db.execute("DELETE FROM meta WHERE key=?", (DEGRADED_KEY[src],))
+        if bad:
+            db.execute("INSERT INTO meta(key,value) VALUES(?,?)", (DEGRADED_KEY[src], json.dumps(val)))

@@ -131,6 +131,19 @@ if [ -n "$DEGRADED" ]; then
     exit 1
   fi
 fi
+# The KR/CN sources (docs/krcn-design.md §3): a LoC or BnF refresh that kept a previous complete result
+# set is built and gated, never published.
+for SRC_FLAG in loc_degraded bnf_degraded; do
+  VAL="$(q "$SRC_FLAG")"
+  if [ -n "$VAL" ]; then
+    echo
+    echo "$SRC_FLAG: $VAL" >&2
+    if [ "${PUBLISH:-0}" = "1" ]; then
+      echo "refusing: meta.$SRC_FLAG is set -- rebuild once the source answers, then publish that build." >&2
+      exit 1
+    fi
+  fi
+done
 
 # Ids are a public contract: a build that did not carry them from the last published artifact
 # (meta.carried_from absent) re-issued every integer and redirected nothing, and one that carried
