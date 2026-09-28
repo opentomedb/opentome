@@ -649,7 +649,15 @@ DNB_FIELDS = {"isbn13", "line_name", "page_count", "projected_date", "publisher"
 LOC_FIELDS = {"isbn13", "line_name", "page_count", "projected_date", "publisher", "release_date", "volume_number"}
 BNF_FIELDS = {"isbn13", "line_name", "page_count", "projected_date", "publisher", "release_date", "volume_number"}
 LIB_FIELDS = {"dnb": DNB_FIELDS, "loc": LOC_FIELDS, "bnf": BNF_FIELDS}
-LIB_HOSTS = ("d-nb.info", "catalogue.bnf.fr", "loc.gov")
+# library cover hosts: DNB serves covers from portal.dnb.de/opac/mvb/cover and services.dnb.de
+# (docs/dnb-design.md), BnF from catalogue.bnf.fr, LoC from *.loc.gov
+LIB_HOSTS = ("d-nb.info", "dnb.de", "bnf.fr", "loc.gov")
+
+
+def is_link(v):
+    """A claim value that is (or embeds) a link: '://' or 'www.' anywhere, or a leading '//'."""
+    v = (v or "").strip().lower()
+    return "://" in v or v.startswith("//") or "www." in v
 
 
 def run_krcn_licence(path, catalogue):
@@ -661,18 +669,20 @@ def run_krcn_licence(path, catalogue):
       - licence: loc us_gov_pd; the url: loc https://lccn.loc.gov/<LCCN>, dnb https://d-nb.info/<IDN>
         (anchored: no /04 cover or TOC path), bnf an ark URL -- enrich_bnf's per-ISBN SRU URL only on
         an enrichment entity (its bnf claims all volume_number / page_count, none an ark);
-      - no claim value that is a link ('http…', '//…'); no artifact cover_url on a library host;
+      - no claim value that is or embeds a link ('://' or 'www.' anywhere, a leading '//'); no artifact
+        cover_url on a library host (LIB_HOSTS); sources and cover_source compared case-insensitively;
       - no isbn13_alt column; meta.attribution names the Library of Congress;
       - R6: a held / review / unlinked KR/CN line holds no id anywhere."""
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "schema"))
     from load import _id
     db = sqlite3.connect(path)
     cat = sqlite3.connect(catalogue)
-    rows = cat.execute("""SELECT entity, entity_id, field, value, source, source_url, licence FROM claim
-                          WHERE source IN ('dnb','loc','bnf')""").fetchall()
+    # source compared lowered throughout: a 'DNB' claim must not escape the gate
+    rows = cat.execute("""SELECT entity, entity_id, field, value, lower(source), source_url, licence FROM claim
+                          WHERE lower(source) IN ('dnb','loc','bnf')""").fetchall()
     bad = sorted({(s, f) for _, _, f, _, s, _, _ in rows if f not in LIB_FIELDS[s]})
     rule("dnb / loc / bnf claims outside the source's field allowlist", len(bad), str(bad[:5]))
-    bad = [v for _, _, _, v, _, _, _ in rows if (v or "").strip().lower().startswith(("http", "//"))]
+    bad = [v for _, _, _, v, _, _, _ in rows if is_link(v)]
     rule("dnb / loc / bnf claims whose value is a link", len(bad), str(bad[:3]))
     rule("loc claims not licensed us_gov_pd (DLC-created records only)",
          sum(1 for *_, s, _, l in rows if s == "loc" and l != "us_gov_pd"))
@@ -687,7 +697,7 @@ def run_krcn_licence(path, catalogue):
     rule("bnf claims whose source_url is not an ark URL (the per-ISBN lookup: enrichment only)", len(bad),
          str(bad[:3]))
     rule("artifact covers from dnb / loc / bnf (source or host)", db.execute(
-        "SELECT COUNT(*) FROM volumes WHERE cover_source IN ('dnb','loc','bnf') OR " +
+        "SELECT COUNT(*) FROM volumes WHERE lower(cover_source) IN ('dnb','loc','bnf') OR " +
         " OR ".join("cover_url LIKE '%%%s%%'" % h for h in LIB_HOSTS)).fetchone()[0])
     cols = [(t, c[1]) for (t,) in db.execute("SELECT name FROM sqlite_master WHERE type='table'")
             for c in db.execute("PRAGMA table_info(%s)" % t) if c[1] == "isbn13_alt"]

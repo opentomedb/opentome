@@ -2560,7 +2560,7 @@ for label, reps in (("a missing source report", {"LoC": {"degraded": "x"}, "bnf"
 import test_artifact as TART
 
 
-def lic_gate(claims, cover=None):
+def lic_gate(claims, cover=None, cover_source="openlibrary"):
     d = tempfile.mkdtemp(prefix="krcn-lic-", dir=os.path.join(ROOT, "build"))
     catp, artp = os.path.join(d, "cat.db"), os.path.join(d, "art.sqlite")
     C = sqlite3.connect(catp)
@@ -2577,8 +2577,8 @@ def lic_gate(claims, cover=None):
                        CREATE TABLE id_map (opentome_id TEXT, int_id INTEGER, kind TEXT);
                        CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);""")
     A.execute("INSERT INTO meta VALUES('attribution','... Library of Congress (US government work) ...')")
-    if cover:
-        A.execute("INSERT INTO volumes VALUES(?, 'openlibrary')", (cover,))
+    if cover or cover_source != "openlibrary":
+        A.execute("INSERT INTO volumes VALUES(?, ?)", (cover, cover_source))
     A.commit()
     n = len(TART.FAILS)
     with contextlib.redirect_stdout(io.StringIO()):
@@ -2609,9 +2609,19 @@ eq("licence gate: a bnf line-source claim (isbn13) on the per-ISBN SRU url fails
 eq("licence gate: ... and an SRU-cited page_count on an ark-sourced (line-source) volume fails",
    lic_gate([("volume", "v_b", "page_count", "150", "bnf",
               "https://catalogue.bnf.fr/api/SRU?query=bib.isbn+all+%229782811600002%22", "open")]), [BNFU])
-eq("licence gate: an artifact cover_url on a library host fails (whatever cover_source says)",
-   lic_gate([], cover="https://portal.dnb.de/opac/mvb/cover?isbn=x https://d-nb.info/1234567890/04"),
-   ["artifact covers from dnb / loc / bnf (source or host)"])
+COVER = "artifact covers from dnb / loc / bnf (source or host)"
+for label, url, want in (("portal.dnb.de alone", "https://portal.dnb.de/opac/mvb/cover?isbn=9783753935874", [COVER]),
+                         ("services.dnb.de alone", "https://services.dnb.de/fize-service/gvr/full.jpg?isbn=x", [COVER]),
+                         ("d-nb.info alone", "https://d-nb.info/1234567890/04", [COVER]),
+                         ("a non-library host (AniList)", "https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/bx1.jpg", [])):
+    eq("licence gate: artifact cover_url on %s (cover_source openlibrary)" % label, lic_gate([], cover=url), want)
+eq("licence gate: an artifact cover_source 'DNB' (upper case) fails", lic_gate([], cover_source="DNB"), [COVER])
+eq("licence gate: a 'DNB'-sourced description on an /04 url fails (source compared lowered)",
+   lic_gate([("volume", "v_d3", "description", "Klappentext", "DNB", "https://d-nb.info/1234567890/04", "cc0")]),
+   [ALLOW, "dnb claims whose source_url is not https://d-nb.info/<IDN>"])
+eq("licence gate: a link embedded mid-string in a publisher fails the link-value rule",
+   lic_gate([("release_line", "rl_d", "publisher", "Altraverse (see www.altraverse.de/manhwa)", "dnb",
+              "https://d-nb.info/1234567890", "cc0")]), ["dnb / loc / bnf claims whose value is a link"])
 
 # publish.sh refuses loc_degraded / bnf_degraded. publish.sh cd's to its repo root and writes
 # build/version.json: run a copy (tier0/test_dnb.py's pattern). The artifact here is cold-start with
