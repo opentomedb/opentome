@@ -69,12 +69,16 @@ keep their day dates. `docs/german-market.md` has the measurements.
 
 Data is sourced so the catalogue stays as unencumbered as possible: **BnF** (Etalab
 Open Licence), **DNB** (CC0; the German primary source — see
-`docs/german-market.md`), **Wikipedia** as a *citation index* — facts only, never
-prose, every value attributed to the primary source the article itself cites —
+`docs/german-market.md`), **Library of Congress** (English; LoC-created records
+only — see `docs/krcn-market.md`), **Wikipedia** as a *citation index* — facts only,
+never prose, every value attributed to the primary source the article itself cites —
 **openBD** and **Open Library** (both non-commercial by their terms, which is why the
 full build is). **Google Books, MangaDex and Rakuten** forbid database-building
 and/or commercial use and are not used. Every claim carries a `licence`; the verified
 record of each source's terms is [`docs/legal-position.md`](docs/legal-position.md).
+English KR/CN (Korean/Chinese) coverage is Ize/Yen-heavy: LoC records created by
+other libraries (WEBTOON Unscrolled, Inklore, most Seven Seas and Tokyopop) are not
+used.
 
 ## Contribute
 

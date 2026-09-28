@@ -133,8 +133,10 @@ def _key_ok(k):
     return len(k) >= LATIN_MIN
 
 
-# LoC 240 form titles (a uniform title of a collection, not a work): 'Short stories', 'Poems.
-# Selections' -- measured in the cached LoC records: Short stories x7, Poems x3, Essays, Novels
+# Uniform/collective form titles (a uniform title for a collection, not a single work): 'Short
+# stories', 'Poems. Selections' -- measured in the cached LoC records (Short stories x7, Poems
+# x3, Essays, Novels), but the filter is applied to every source's titles in cluster_keys()
+# below, not LoC's 240 field alone.
 FORM_WORDS = {"short", "stories", "story", "poems", "poetry", "selections", "selected", "works", "novels",
               "novellas", "plays", "essays", "prose", "correspondence", "letters", "speeches", "fiction",
               "writings", "collections", "collected", "complete", "english", "and", "other", "the", "n"}

@@ -1,6 +1,135 @@
 # HANDOFF — OpenTome
 
-_Last updated: 2026-09-25_
+_Last updated: 2026-09-27_
+
+## 2026-09-27 — branch `krcn`: Korean / Chinese editions (DNB, BnF, LoC)
+
+Design: `docs/krcn-design.md` (spec + R1–R7 rulings), market doc: `docs/krcn-market.md`. Not
+merged, not pushed, not published, no CI triggered -- Nick's gate (CI build-only first;
+publish = standing OK after a green build-only run, per CLAUDE.md).
+
+Done (design `docs/krcn-design.md`, results `docs/krcn-market.md`):
+- Stages: **3f krcn** (Korean / Chinese print editions, after 3e dnb: DNB `spo=kor`/`spo=chi` +
+  `IMPRINT_Q` split, BnF publisher channels, LoC DLC-created records; lines link to existing
+  works, merge by ISBN, cluster across markets; works created only with an English line, the
+  rest held; ids adopted before 4c/7b).
+- New modules: `tier0/lib_sru.py` (the shared polite-SRU base: throttle, whole-set cache,
+  netlog, `_OFFLINE`, degraded mode, canary hook), `tier0/loc_sru.py` (the R7 paging ladder:
+  100→50→25, then slices; duplicate-position handling), `tier0/loc_marc.py` (LCCN, `$q`
+  volumes, `263` YYMM, `008`, DLC/encoding-level, origin, comic/prose classification),
+  `tier0/bnf_sru.py` / `tier0/bnf_unimarc.py` (BnF client + UNIMARC field map, 101 $c origin),
+  `tier0/krcn_lines.py` (lines per source), `tier0/krcn_identity.py` (carry lookup, split/take
+  rules), `tier0/build_krcn.py` (stage 3f itself), `tier0/krcn_replay.py` (jp-snapshot /
+  jp-diff), `tier0/test_krcn.py` (stage 0).
+- Changed: `tier0/dnb_link.py` (`fold()` keeps Hangul -- NFC after the combining-mark strip,
+  U+AC00–D7A3 added, a 2-syllable minimum for Hangul-only keys; the KR/CN work set and the new
+  JP out-of-scope test; the full-name author rule for KR/CN lines), `tier0/dnb_enumerate.py` /
+  `tier0/dnb_sru.py` / `tier0/build_dnb.py` (the new channels, `DNB_MAX_REQUESTS`, the
+  `IMPRINT_Q` split, P25 deferral to the JP round), `tier2/corrections.py` (`link_work`, R2),
+  `tier2/resolve.py`, `schema/schema.sql` (`krcn_line`/`krcn_member`/`loc_member` staging,
+  `clean_claim` gains `us_gov_pd`), `schema/load.py` (`LICENCE["loc"]`), `export/to_mangarr.py`
+  / `export/test_to_mangarr.py` / `export/test_artifact.py` (the KR/CN contract rules of §13),
+  `export/measure_library.py` (staged KR/CN floors), `export/publish.sh`, `tier1/enrich_more.py`
+  / `tier1/covers.py` / `tier1/verify.py` (Open Library per-ISBN cache keys), LICENSE-DATA.md,
+  `docs/id-scheme.md`, `corrections/README.md`.
+- Fixtures: `export/fixtures/krcn_lines_pre.json` (the 54 existing KR/CN works' EN/FR/DE line
+  ids + the 3 library-fixture lines), `export/fixtures/krcn_linker_labels.json` (`must_link`/
+  `must_not_link`, plus `taken_ok`), `export/fixtures/krcn_new_works.json` (empty until C5).
+- CI (this task): `LOC_REFRESH_DAYS`/`BNF_REFRESH_DAYS` = 28 on the weekly cron; a "LoC
+  reachability" and a "BnF reachability" step, each a single cached-record probe that sets
+  `LOC_OFFLINE=1`/`BNF_OFFLINE=1` on failure rather than failing the job; the KR/CN files
+  (`krcn-review.tsv`, `krcn-held.tsv`, `krcn-new-works.tsv`, `krcn-report.json`,
+  `loc-report.json`, `loc-netlog.tsv`, `bnf-netlog.tsv`) added to the run's uploaded artifact.
+- Docs: `docs/legal-position.md` (LoC row + the §105-inference note), README.md (LoC in the
+  sources list; the Ize/Yen-heavy English-coverage sentence, R4), `docs/german-market.md`
+  (a short pointer: KR/CN German lines are `krcn_line`, not `dnb_line`; the JP gates are
+  unchanged), `docs/krcn-market.md` (new: sources, scope, keys/identity, R6, files, gates, the
+  spike table, an empty "First build" section for C4).
+
+Measured request counts (Tasks 7-9, all offline-cached on rerun):
+- **BnF (Task 7):** 11 live requests total (cap 20); a rerun made 0.
+- **DNB `spo=kor`/`spo=chi` (Task 9):** 80 live requests, all HTTP 200 (netlog 454 → 534
+  lines); reruns made 0. The 14 P25 parent sets that split across the JP and KR/CN rounds are
+  deferred whole to the JP round (exactly as predicted); the set-level split itself is a
+  follow-up left for Nick (see "Open for Nick" below).
+- **LoC (Task 8): BLOCKED, not finished.** 140 of the 400-request cap used (5 probe + 16 run 1
+  + 102 run 2 + 17 run 3); the gateway closed the connection instantly on three consecutive
+  requests after ~120 requests in ~25 minutes, which reads as throttling rather than a paging
+  fault. The controller's ruling: **stop live LoC now.** The live enumeration becomes
+  **controller step C0**, before C1: a >=24h cool-off (not before 2026-09-28 ~23:00 CDT),
+  `LOC_INTERVAL=10` (was the 20 s default), cap = the remaining 260, and on any
+  `RemoteDisconnected`/refusal streak, stop and escalate to Nick -- no further automatic
+  retries. Only 1 of the 24 LoC channels (`bath.isbn=97984009*`, 55 records) is complete in
+  the cache today.
+
+Controller steps still open: **C3** (first full build, needs C0 done first), **C4** (set the
+exported floors + fill `docs/krcn-market.md`'s "First build" section, same commit), **C5**
+(label `krcn-new-works.tsv` by eye, re-verify the linker fixture), **C6** (AniList for the new
+EN lines -- automatic in 8a, no separate step needed beyond letting CI's build-only run make
+the ~8-30 requests), **C7** (regenerate and upload the CI cache seed, dispatch `seed-cache`,
+then a build-only CI run), **C8** (publish -- Nick's gate, only after a green build-only run
+with `CARRY_SHA256` set and no degraded flag).
+
+Gotchas:
+- **Until C0 is done, run this branch's `rebuild_all.sh` / `build_krcn.py` only with
+  `LOC_OFFLINE=1`.** Without it, stage 3f pages LoC live and would re-enter the throttling the
+  cool-off exists to avoid. Offline, an uncached LoC channel fails the stage loudly (R7) --
+  that is the intended behaviour until C0 finishes.
+- **3f cannot re-run after an adoption.** Adoption moves staging rows and remaps their volumes
+  onto the surviving public id; a second `unload`/reload on the same catalogue after that point
+  is not supported.
+- **The new-work fixture must be labelled (plan C5) before the first publish.** 8c fails on an
+  unlabelled `krcn-new-works.tsv` row by design (P19).
+- **Regenerate the seed from the full `.cache`, and merge the manifests as JSON.** The LoC /
+  BnF result sets and `.cache/loc-sets.json` / `.cache/bnf-sets.json` are in the local cache
+  now. When building the seed side directory, merge each `.cache/<src>-sets.json` manifest as
+  JSON (union the entries) rather than copying only the files the seed is missing --
+  copy-only-missing drops set entries a CI run itself fetched that never got a corresponding
+  new cache *file* the naive diff would notice.
+- **A copied catalogue keeps its old `clean_claim` view.** `clean_claim` is a SQL view baked in
+  at schema-creation time; a catalogue copied from before this round predates `us_gov_pd` and
+  will silently exclude every LoC claim from the commercial subset until it is rebuilt fresh
+  from `schema/schema.sql` (never `ALTER`ed in place).
+- **Ize ECIP records resolve their medium only through the review file or a later LoC
+  upgrade.** A level-5 Ize record (no `041`/`082`/`050`/`655`) has no classification signal of
+  its own; it either matches an existing DE/FR sibling's medium or goes to `krcn-review.tsv`.
+- **BnF origin inheritance is child-first.** A child record's own `101 $c` always wins over its
+  head's; it inherits the head's KR/CN origin only when it has *no* `101 $c` of its own (a
+  non-KR/CN own origin, e.g. `jpn`/`fre` under a `kor` head, is `origin_out_of_scope`, never
+  overridden). Measured exposure today: 0 of 3,438 cached BnF records hit the inheriting case
+  with a non-empty non-KR/CN own origin.
+- **Only `taken_weak` blocks publishing** among `krcn-report.json`'s `gate` lists (the others --
+  `adopt_conflicts`, `absorbed_weak`, `p22_thin`, `kept_no_overlap`, `left`,
+  `carried_work_changed`, `work_redirects`, `deferred_to_jp_round`, `authors_differ`,
+  `hangul_only_authors` -- are informational). A `taken_weak` entry `[line key, carried id]` is
+  confirmed as safe only through `export/fixtures/krcn_linker_labels.json`'s `taken_ok` list.
+- **A refresh that re-clusters DE KR/CN lines counts toward `run_ids`'s retired-line cap of 10**
+  (§13 "Watch"). The carry lookup before minting (§8) keeps a re-clustered line from being
+  re-keyed if it was already published -- a trip against the cap is a real change worth looking
+  at, not an artifact of the cap itself.
+- **Step 5 of Task 14 (the offline pipeline-order dry run) must be re-run with the committed
+  `run()` after C0 finishes.** Every dry run so far used an uncommitted driver
+  (`build/krcn-replay/t14/dryrun.py`) that skips only the LoC channels the cache can't serve;
+  it is not `tier0/rebuild_all.sh`'s real call path and was never intended to be committed. Any
+  figure drawn from these dry runs -- including this task's `docs/krcn-design.md` §10 native-
+  title correction, sourced from `build/krcn-replay/t14/f2-pipe.db` -- is provisional until
+  then (1 of 24 LoC channels cached; the LoC-side counts are a lower bound, not the real EN
+  set).
+
+Open for Nick (listed, not argued):
+- **R4: whether non-DLC LoC records may be taken as bare facts** (ISBN, volume number, title,
+  year) rather than excluded outright. Today: DLC-only. Cost of staying DLC-only: 73 English
+  lines / 218 volumes excluded (WEBTOON Unscrolled incl. Tower of God and Noblesse, Inklore,
+  Seven Seas).
+- **P25, the set-level split.** 14 DNB parent sets have some volumes claimed by the JP round's
+  `select` and others by the KR/CN round's; this round defers each whole set to the JP round
+  rather than splitting it. A set-level split (each round keeps only the volumes it claims) is
+  a possible follow-up.
+- **The BnF publisher renames (Tokebi/Saphira → Samji).** 14 French titles run across an
+  imprint rename (e.g. Chiro: Saphira 1-4, Samji 5-8) and become two BnF lines each under the
+  publisher-channel enumeration; most rejoin as one line once head-record identity is applied,
+  but a `samji = tokebi = saphira` publisher-family rule (like DNB's existing publisher
+  families) was not added this round (P10, not acted on).
 
 ## 2026-09-25 — branch `alias-fix`: work_title des/du, a general carried-id redirect writer
 

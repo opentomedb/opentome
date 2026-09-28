@@ -23,6 +23,7 @@ Having actually read the terms, the honest numbers are:
 |---|---:|---|---|
 | **BnF** | 22,409 | **Etalab Open Licence** since 2014. Commercial reuse explicitly permitted, attribution required. | ✅ |
 | **DNB** | (few) | **CC0** — public domain, no conditions. | ✅ |
+| **Library of Congress (LoC)** | (new) | **US government work (17 USC §105)** — public domain in the US. **Nick's inference, not a stated LoC licence**: MDSConnect says only "research and development usage". Kept only from records LoC itself created (`040 $a DLC`); `520`/`856` never read. | ✅ US; ⚠️ EU database right outside it |
 | **Wikipedia** | 194,668 | Facts are not copyrightable (*Feist*). We extract facts only, never prose. | ⚠️ US yes; **EU open question** |
 | **"publisher"** | 50,926 | Wikipedia-derived values whose `<ref>` cites a publisher page. We never fetched the publisher. Provenance is Wikipedia; attribution points onward. | ⚠️ same as Wikipedia |
 | **openBD** | 58,929 | Rights granted for **"book promotion and introduction"**; data must not be altered. | ❌ **purpose-limited** |
@@ -56,6 +57,13 @@ Having actually read the terms, the honest numbers are:
 4. **Attribution is required and not yet surfaced.** BnF's licence and openBD's terms both
    require retaining source attribution. We store `source_url` per claim but no published
    artifact displays it. A dump must ship attribution.
+5. **The LoC public-domain basis is Nick's inference, not a stated LoC licence.** 17 USC §105
+   places US government works in the public domain domestically; MDSConnect's own terms say
+   only "research and development usage" — a use restriction, not a licence grant. Kept only
+   for records LoC itself created (`040 $a DLC`; a record LoC copied from another library is
+   never read as a twin, evidence or a fact); `520` and `856` are never read regardless. Outside
+   the US the same EU sui generis database-right caveat (point 3) applies to LoC-derived facts
+   as to every other source (docs/krcn-design.md §2, §18).
 
 ## Practical consequences
 
