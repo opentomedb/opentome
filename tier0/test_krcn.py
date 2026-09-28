@@ -2687,6 +2687,233 @@ for label, meta in (("with meta.krcn_ids", [STAGED, ("krcn_ids", '{"works": [], 
     eq("publish.sh dry run %s: no krcn_ids complaint" % label, (r.returncode, "KRCN IDS" in r.stderr), (0, False))
     os.remove(os.path.join(pub, "build", "a-ok.sqlite"))
 
+# ---- Task 14: stage 3f end to end (enumerators replaced; synthetic catalogue) ---------------------------------
+import dnb_enumerate as E2, loc_sru as LS2, bnf_sru as BS2
+gam = U.records(GAMER)[0]                     # the BnF 'The gamer 1' record (Task 7; `g` was rebound since)
+_saved_enum = (E2.enumerate_krcn, LS2.enumerate_loc, BS2.enumerate_bnf, BK.BUILD)
+_btmp = tempfile.mkdtemp(prefix="krcn-3f-")
+BK.BUILD = _btmp
+cat = os.path.join(_btmp, "cat.db")
+
+
+def fresh_catalogue(path):
+    if os.path.exists(path):
+        os.remove(path)
+    db = sqlite3.connect(path)
+    db.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+    db.execute("INSERT INTO meta VALUES('x','y')")
+    for wid, t in (("w_sl", "Solo Leveling"), ("w_rae", "Why Raeliana Ended Up at the Duke's Mansion")):
+        db.execute("INSERT INTO work VALUES(?,?,NULL,NULL,NULL,NULL,'x','x')", (wid, t))
+    line_row(db, "rl_sl_en", "w_sl", "manhwa", "EN", "en")
+    line_row(db, "rl_rae_en", "w_rae", "manhwa", "EN", "en")
+    for n, i, d in (("1", "9781975319434", "2021-03-02"), ("2", "9781975319458", None), ("3", "9781975336516", None)):
+        db.execute("INSERT INTO volume(id,release_line_id,number,isbn13,release_date,release_date_precision,"
+                   "release_date_type,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'x','x')",
+                   ("v_sl%s" % n, "rl_sl_en", n, i, d, "day" if d else None, "on_sale" if d else "unknown"))
+    db.commit()
+    return path
+
+
+try:
+    E2.enumerate_krcn = lambda verbose=False: ({k: r for k, r in dk.items() if k != "1400000003"}, {}, {"degraded": None})
+    LS2.enumerate_loc = lambda verbose=False: ({r["cf"]["001"]: r for r in (SL, SL1, MS, MS4)}, {"degraded": None})
+    BS2.enumerate_bnf = lambda verbose=False: ({U.ark(r): r for r in (gam, g2)}, {"degraded": None})
+    fresh_catalogue(cat)
+    BK.run(cat, None)
+    db = sqlite3.connect(cat)
+    roles = dict(db.execute("SELECT key, role FROM krcn_line"))
+    eq("roles: LoC Solo Leveling merged into the EN line; Mystery a new work; Raeliana review; The Gamer held",
+       (roles["loc:2020950228"], roles["loc:2025007302"], roles["dnb:1390000000"], roles["bnf:ark:/12148/cb09999999z"]),
+       ("merged", "new_work", "review", "held"))
+    w_m, r_m = _id("w_", "krcn", "loc:2025007302"), _id("rl_", "loc:2025007302")
+    eq("the new work and its line", (db.execute("SELECT primary_title FROM work WHERE id=?", (w_m,)).fetchone(),
+                                     db.execute("SELECT work_id, medium, market FROM release_line WHERE id=?", (r_m,)).fetchone()),
+       (("Mystery Science Detectives",), (w_m, "manhwa", "EN")))
+    eq("§9: the new work's titles -- the English line name official in en, status NULL",
+       (db.execute("SELECT language, kind FROM work_title WHERE work_id=? AND title='Mystery Science Detectives'",
+                   (w_m,)).fetchall(), db.execute("SELECT status FROM work WHERE id=?", (w_m,)).fetchone()[0]),
+       ([("en", "official")], None))
+    eq("R6: a held line has no id anywhere",
+       (db.execute("SELECT rl_id FROM krcn_line WHERE role='held'").fetchall(),
+        db.execute("SELECT COUNT(*) FROM release_line WHERE id=?", (_id("rl_", "bnf:ark:/12148/cb09999999z"),)).fetchone()[0]),
+       ([(None,)], 0))
+    eq("R6: review / held rows hold no work either",
+       db.execute("SELECT COUNT(*) FROM krcn_line WHERE exported=0 AND (rl_id IS NOT NULL OR work IS NOT NULL)").fetchone()[0], 0)
+    eq("ruling: a merged row's rl_id is the line it merged into (3e dnb_line convention), carried 0",
+       db.execute("SELECT rl_id, target, carried, exported FROM krcn_line WHERE key='loc:2020950228'").fetchone(),
+       ("rl_sl_en", "rl_sl_en", 0, 1))
+    eq("merged: v.1-3 attach to the Wikipedia volumes, v.14-15 are created under the Wikipedia line id",
+       sorted(db.execute("SELECT number, fate, volume_id FROM krcn_member WHERE line_key='loc:2020950228' AND member LIKE '%#%'")),
+       [("1", "attached", "v_sl1"), ("14", "created", _id("v_", "rl_sl_en", "14")), ("15", "created", _id("v_", "rl_sl_en", "15")),
+        ("2", "attached", "v_sl2"), ("3", "attached", "v_sl3")])
+    eq("the Wikipedia day date is never replaced by a library year", db.execute(
+        "SELECT release_date FROM volume WHERE id='v_sl1'").fetchone()[0], "2021-03-02")
+    eq("§8: an attached volume fills only its EMPTY columns (v.1 pages from the single record), recorded in filled",
+       (db.execute("SELECT isbn13, page_count FROM volume WHERE id='v_sl1'").fetchone(),
+        db.execute("SELECT filled FROM krcn_member WHERE member='loc:2021011111'").fetchone()[0]),
+       (("9781975319434", 320), '["page_count"]'))
+    eq("every loc claim: us_gov_pd, an lccn.loc.gov url", db.execute(
+        "SELECT COUNT(*) FROM claim WHERE source='loc' AND (licence<>'us_gov_pd' OR source_url NOT LIKE 'https://lccn.loc.gov/%')"
+    ).fetchone()[0], 0)
+    eq("the v.1 date claim points at the single-volume record, not the set record", db.execute(
+        "SELECT source_url FROM claim WHERE source='loc' AND entity_id='v_sl1' AND field='release_date'").fetchone()[0],
+       "https://lccn.loc.gov/2021011111")
+    eq("loc_member: only DLC records", db.execute("SELECT DISTINCT f040a FROM loc_member").fetchall(), [("DLC",)])
+    eq("loc_member: every row of an exported line carries its volume id and fate", db.execute(
+        """SELECT COUNT(*) FROM loc_member m JOIN krcn_line l ON l.key=m.line_key
+           WHERE l.exported=1 AND (m.volume_id IS NULL OR m.fate IS NULL)""").fetchone()[0], 0)
+    ids = json.loads(db.execute("SELECT value FROM meta WHERE key='krcn:ids'").fetchone()[0])
+    eq("meta krcn:ids: the created work and the library-born line", (ids["created"], ids["lines"]), ([w_m], {r_m: "loc"}))
+    eq("record_meta: loc:degraded / bnf:degraded absent on a clean run",
+       db.execute("SELECT COUNT(*) FROM meta WHERE key IN ('loc:degraded','bnf:degraded','dnb:degraded')").fetchone()[0], 0)
+    eq("files written", sorted(f for f in os.listdir(_btmp) if f.startswith("krcn-")),
+       ["krcn-held.tsv", "krcn-new-works.tsv", "krcn-report.json", "krcn-review.tsv"])
+    held_rows = open(os.path.join(_btmp, "krcn-held.tsv"), encoding="utf8").read().splitlines()[1:]
+    eq("the hold file: one row per held cluster (no double entries), with its member keys",
+       [(r.split("\t")[1], r.split("\t")[3], sorted(r.split("\t")[4].split())) for r in held_rows],
+       [("no-english-line", "bnf:ark:/12148/cb09999999z",
+         ["bnf:ark:/12148/cb09999999z", "bnf:ark:/12148/cb47253773p"])])
+    rep = json.load(open(os.path.join(_btmp, "krcn-report.json"), encoding="utf8"))
+    eq("krcn-report.json carries the Task 15 gate lists", set(rep["gate"]) >= {"adopt_conflicts", "left", "taken_weak", "deferred_to_jp_round"}, True)
+    # §12: enrich_bnf must not spend one SRU call per volume the BnF line source already covered -- its
+    # existing "NOT EXISTS ... source='bnf'" clause skips every volume 3f gave a bnf claim (stage 3f runs first)
+    fr = schema_db()
+    fr.execute("INSERT INTO work VALUES('w_fr','X',NULL,NULL,NULL,NULL,'x','x')")
+    line_row(fr, "rl_fr", "w_fr", "manhwa", "FR", "fr")
+    fr.execute("INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at) VALUES('v_fr1','rl_fr','1','9782382880371','x','x')")
+    fr.execute("INSERT INTO claim VALUES('volume','v_fr1','isbn13','9782382880371','bnf','https://catalogue.bnf.fr/ark:/12148/cb47253773p','open','x')")
+    eq("enrich_bnf skips a volume with a BnF line-source claim (0 requests)", EM.enrich_bnf(fr), (0, 0, 0))
+    before = sorted(db.execute("SELECT id FROM release_line"))
+    before_c = sorted(db.execute("SELECT entity, entity_id, field, source, source_url FROM claim"))
+    # another stage's claim on an attached volume (3e / enrich_bnf) must survive the rerun's unload
+    db.execute("INSERT INTO claim VALUES('volume','v_sl2','page_count','200','bnf',"
+               "'https://catalogue.bnf.fr/api/SRU?query=bib.isbn+all+%229781975319458%22','open','x')")
+    db.commit()
+    BK.run(cat, None)                                             # a rerun on the same catalogue: unload + reload
+    eq("rerun: the same lines", sorted(db.execute("SELECT id FROM release_line")), before)
+    eq("rerun: the same claims, plus the other stage's claim on an attached volume (unload takes only its own)",
+       sorted(db.execute("SELECT entity, entity_id, field, source, source_url FROM claim")),
+       sorted(before_c + [("volume", "v_sl2", "page_count", "bnf",
+                           "https://catalogue.bnf.fr/api/SRU?query=bib.isbn+all+%229781975319458%22")]))
+    eq("rerun: the filled column is put back and filled again (not left stale)",
+       db.execute("SELECT page_count FROM volume WHERE id='v_sl1'").fetchone()[0], 320)
+    fresh_catalogue(cat)                                          # P25: the JP round already holds that DNB set key
+    db = sqlite3.connect(cat)
+    db.executescript(B.STAGING_DDL)
+    db.execute("INSERT INTO dnb_line(key,rl_id,role,exported) VALUES('dnb:1390000000','rl_jp','unlinked',0)")
+    db.commit()
+    st = BK.run(cat, None)
+    eq("a DNB set key the JP round holds is deferred: not staged, reported (P25)",
+       (db.execute("SELECT COUNT(*) FROM krcn_line WHERE key='dnb:1390000000'").fetchone()[0], st["deferred_to_jp_round"]),
+       (0, ["dnb:1390000000"]))
+    eq("... and its members are not staged either",
+       db.execute("SELECT COUNT(*) FROM krcn_member WHERE line_key='dnb:1390000000'").fetchone()[0], 0)
+    # a degraded source reaches the catalogue meta through record_meta (the export and publish.sh refuse on it)
+    LS2.enumerate_loc = lambda verbose=False: ({r["cf"]["001"]: r for r in (SL, SL1, MS, MS4)},
+                                               {"degraded": "offline-incomplete", "degraded_queries": ["bath.isbn=97988554*"]})
+    fresh_catalogue(cat)
+    BK.run(cat, None)
+    db = sqlite3.connect(cat)
+    eq("a degraded LoC enumeration -> meta loc:degraded (record_meta)",
+       json.loads(db.execute("SELECT value FROM meta WHERE key='loc:degraded'").fetchone()[0]),
+       {"reason": "offline-incomplete", "kept_previous": ["bath.isbn=97988554*"]})
+    LS2.enumerate_loc = lambda verbose=False: ({r["cf"]["001"]: r for r in (SL, SL1, MS, MS4)}, {"degraded": None})
+
+    # the next build: the carry names the line; an OLDER record joins the series, so the lowest LCCN -- the
+    # natural key -- changes; the carry lookup keeps the published line id and the frozen work id
+    carry = carry_file("c3f", [(r_m, w_m, "Mystery Science Detectives", "manhwa", "en",
+                                [("3", "9798765627549"), ("4", "9798765627556")])], works=[w_m], krcn_lines={r_m: "loc"})
+    MS2 = dict(MS, cf={"001": "older", "008": MS["cf"]["008"]},
+               df=[f for f in MS["df"] if f[0] not in ("010", "020", "490")] +
+                  [("010", " ", " ", [("a", "  2024999999")]), ("020", " ", " ", [("a", "9798765600009"), ("q", "paperback")]),
+                   ("490", " ", " ", [("a", "Mystery Science Detectives ;"), ("v", "book 2")])])
+    LS2.enumerate_loc = lambda verbose=False: ({r["cf"]["001"]: r for r in (SL, SL1, MS, MS4, MS2)}, {"degraded": None})
+    fresh_catalogue(cat)
+    st = BK.run(cat, carry)
+    db = sqlite3.connect(cat)
+    row = db.execute("SELECT key, rl_id, carried, work FROM krcn_line WHERE name LIKE 'Mystery%'").fetchone()
+    eq("re-key: natural key loc:2024999999, published line id and work id kept", row, ("loc:2024999999", r_m, 1, w_m))
+    eq("... its volumes are minted under the carried id (v_(tome_id, number)), the new one included",
+       sorted(db.execute("SELECT number, id FROM volume WHERE release_line_id=?", (r_m,))),
+       sorted((n, _id("v_", r_m, n)) for n in ("2", "3", "4")))
+    eq("... the frozen work is not created again (works_created 0)", (st["works_created"], st["works_frozen"]), (0, 1))
+finally:
+    E2.enumerate_krcn, LS2.enumerate_loc, BS2.enumerate_bnf, BK.BUILD = _saved_enum
+
+
+# the hold file is plan['held'] exactly: a no-english-comic-line cluster is one row, never one per line again
+_htmp = tempfile.mkdtemp(prefix="krcn-held-")
+_saved_build, BK.BUILD = BK.BUILD, _htmp
+try:
+    hs = [mkline(k, m, "Semantic error", medium=med, comic=med != "novel", members=[k], reason=None, candidates=[])
+          for k, m, med in (("loc:2025033006", "EN", "novel"), ("dnb:1362777552", "DE", "novel"), ("dnb:1369956126", "DE", "manhwa"))]
+    hplan = BK.decide(hs, L.Index(schema_db()), None)
+    BK.write_files(hs, hplan, L.Index(schema_db()), {})
+    rows = open(os.path.join(_htmp, "krcn-held.tsv"), encoding="utf8").read().splitlines()[1:]
+    eq("the hold file: one row for a no-english-comic-line cluster of 3 lines (no per-line duplicates)",
+       [(r.split("\t")[1], r.split("\t")[3]) for r in rows],
+       [("no-english-comic-line", "dnb:1362777552 dnb:1369956126 loc:2025033006")])
+finally:
+    BK.BUILD = _saved_build
+
+
+# ---- Task 14 ruling: adoption moves the staging rows too (krcn_member / loc_member volume ids, krcn_line target) ----
+def lib_line(key, tome_id, role, target, vols, carried=False, work="w_ad"):
+    lc = key[4:]
+    return {"key": key, "source": "loc", "market": "EN", "language": "en", "name": "Adopt me", "publisher": "Ize Press",
+            "edition": None, "medium": "manhwa", "medium_why": None, "medium_guess": None, "origin": "kor",
+            "explicit": True, "comic": True, "titles": [], "orig": [], "native": [], "authors": [],
+            "tome_id": tome_id, "carried": carried, "role": role, "target": target, "work": work, "exported": True,
+            "tier": None, "via": "isbn", "link_work": None, "candidates": [], "reason": None, "cluster": None,
+            "vols": [{"number": n, "isbn": i, "cands": [(i, "")], "isbns": [i], "pages": None,
+                      "date": ("2024", "year", "published"), "date_member": m, "members": [m], "announced": False,
+                      "set_record": False} for n, i, m in vols],
+            "members": [m for _, _, m in vols],
+            "loc": [(m[4:], n, "DLC", " ", "s", 0, None, m) for n, _, m in vols]}
+
+
+dba = schema_db()
+dba.executescript(BK.STAGING_DDL)
+dba.execute("INSERT INTO work VALUES('w_ad','Adopt me',NULL,NULL,NULL,NULL,'x','x')")
+line_row(dba, "rl_wad", "w_ad", "manhwa", "EN", "en")
+for n, i in (("1", "9798400950001"), ("2", "9798400950002"), ("4", "9798400950004")):
+    dba.execute("INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at) VALUES(?,?,?,?,'x','x')",
+                ("v_wad" + n, "rl_wad", n, i))
+adl = lib_line("loc:3000000011", "rl_pubA", "adopting", "rl_wad", carried=True,
+               vols=[("1", "9798400950001", "loc:3000000011"), ("2", "9798400950002", "loc:3000000012"),
+                     ("3", "9798400950003", "loc:3000000013")])
+sib = lib_line("loc:3000000025", _id("rl_", "loc:3000000025"), "sibling", "rl_wad",
+               vols=[("5", "9798400950004", "loc:3000000025"), ("7", "9798400950002", "loc:3000000027")])
+fates = BK.load(dba, [adl, sib], [], {"works": {}, "adopt_works": [], "held": []}, BK.NO_K)
+v2, v4 = _id("v_", "rl_pubA", "2"), _id("v_", "rl_pubA", "4")
+eq("adoption: the adopting line's volumes are created under the public id (never attached by ISBN)",
+   sorted(r for r in dba.execute("SELECT member, fate, volume_id FROM krcn_member WHERE line_key='loc:3000000011'")),
+   [("loc:3000000011", "created", _id("v_", "rl_pubA", "1")), ("loc:3000000012", "created", v2),
+    ("loc:3000000013", "created", _id("v_", "rl_pubA", "3"))])
+eq("adoption: the internal line is gone; its volumes moved (4) or merged (1, 2) into the public line",
+   (dba.execute("SELECT COUNT(*) FROM release_line WHERE id='rl_wad'").fetchone()[0],
+    sorted(dba.execute("SELECT number, id FROM volume WHERE release_line_id='rl_pubA'"))),
+   (0, sorted((n, _id("v_", "rl_pubA", n)) for n in ("1", "2", "3", "4"))))
+eq("adoption moves krcn_member volume ids: a moved volume -> v_(public, n), a merged one -> the public volume",
+   sorted(dba.execute("SELECT member, fate, volume_id FROM krcn_member WHERE line_key='loc:3000000025'")),
+   [("loc:3000000025", "attached", v4), ("loc:3000000027", "attached", v2)])
+eq("... and loc_member volume ids", sorted(dba.execute("SELECT member, volume_id FROM loc_member WHERE line_key='loc:3000000025'")),
+   [("loc:3000000025", v4), ("loc:3000000027", v2)])
+eq("... and krcn_line target (both rows) and rl_id to the public id; the absorbed sibling holds no id",
+   sorted(dba.execute("SELECT key, role, rl_id, target FROM krcn_line")),
+   [("loc:3000000011", "adopting", "rl_pubA", "rl_pubA"), ("loc:3000000025", "absorbed", None, "rl_pubA")])
+eq("no staging row points at a volume that does not exist",
+   dba.execute("""SELECT COUNT(*) FROM (SELECT volume_id FROM krcn_member UNION SELECT volume_id FROM loc_member) s
+                  WHERE s.volume_id IS NOT NULL AND s.volume_id NOT IN (SELECT id FROM volume)""").fetchone()[0], 0)
+eq("krcn:adopted records the line adoption", json.loads(dba.execute("SELECT value FROM meta WHERE key='krcn:adopted'").fetchone()[0]),
+   [["release_line", "rl_wad", "rl_pubA"]])
+try:
+    BK.unload(dba.cursor())
+    eq("unload refuses a catalogue whose ids 3f adopted", "no error", "SystemExit")
+except SystemExit:
+    eq("unload refuses a catalogue whose ids 3f adopted", True, True)
+
+
 # ==== summary ====
 print()
 if FAILS:
