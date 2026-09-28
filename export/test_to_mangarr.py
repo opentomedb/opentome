@@ -2,7 +2,7 @@
 """Unit tests for export/to_mangarr.py's pure functions -- no database, no network.
 Run: python3 export/test_to_mangarr.py
 """
-import contextlib, io, json, os, sqlite3, sys, tempfile
+import contextlib, io, json, os, shutil, sqlite3, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
@@ -130,6 +130,51 @@ def run():
     eq("the artifact passes the KR/CN licence and R6 rules", k["licence_fails"], [])
     eq("... and a non-exported line's id listed in meta.krcn_ids fails R6", k["r6_fails"],
        ["held / review / unlinked KR/CN line ids in release_line, series, id_map or meta.krcn_ids"])
+    eq("the carry lookup reads each carried line's market (build_krcn's fragment rule)",
+       k["K"].get("line_market", {}).get("rl_lib"), "EN")
+
+    # ---- export fixes (2026-09-28, krcn-consumer-findings §3 / §7 / §8 "Solo Leveling") ---------
+    x = fixture_export_fixes()
+    s = x["after"]
+    # E1: a new library line named after the work used to win main_of over a carried sub-named line
+    # ("Solo Leveling (Médias)"), become its parent (named_line) and take the work aliases + FR local_name
+    eq("E1: the carried FR line keeps is_main", s["rl_med"]["is_main"], 1)
+    eq("E1: ... keeps no parent (never a child of the new library line)", s["rl_med"]["parent"], None)
+    eq("E1: ... keeps its local_name", s["rl_med"]["local_name"], "Solo Leveling")
+    eq("E1: ... keeps every alias it had in the carry", sorted(x["carry"]["rl_med"]["aliases"] - s["rl_med"]["aliases"]), [])
+    eq("E1: the new library line is not main in that group", s["rl_lib"]["is_main"], 0)
+    eq("E1: ... and takes no counterpart slot the carried FR line does not share (its KR origin differs)",
+       (s["rl_lib"]["orig"], s["rl_med"]["orig"], x["cold"]["rl_lib"]["orig"]),
+       (None, s["rl_krmed"]["sid"], s["rl_kr"]["sid"]))
+    eq("E1: the carried-line gate finds nothing", x["gate_after"], [])
+    eq("E1: cold export (no carry): the named library line wins main as before -- the rule is carry-scoped",
+       (x["cold"]["rl_lib"]["is_main"], x["cold"]["rl_med"]["is_main"]), (1, 0))
+    eq("E1 gate: a carried line losing is_main / local_name / aliases and parented under a new line is caught",
+       sorted({w for _, w, _ in x["gate_regressed"]}), ["alias rows lost", "is_main lost", "local_name lost",
+                                                         "parent is a line absent from the carry"])
+    eq("E1 gate: a listed alias loss (ALIAS_LOSS_OK) and a redirect-explained parent are not failures",
+       x["gate_exempt"], [])
+    # E2 gate: a bare language name as an alias or a title (normalize(): the Hangul title '... English' -> 'english')
+    eq("E2 gate: a language-name alias / name / local_name is caught", sorted(x["lang_rows"]),
+       [("local_name", "rl_hde8", "Deutsch"), ("series_alias", "rl_med", "english"),
+        ("series_alias", "rl_med", "살인마 르웰린 씨의 낭만적인 정찬. English")])
+    eq("E2 gate: the clean artifact has none", x["lang_rows_clean"], [])
+    # E3: a manhwa line whose origin market's line is tagged manga (King of Hell DE) finds it
+    eq("E3: King of Hell DE manhwa -> the ko 'manga' line", s["rl_hde"]["orig"], s["rl_hkr"]["sid"])
+    eq("E3: ... the carried DE manga line keeps its origin", s["rl_hde8"]["orig"], s["rl_hkr"]["sid"])
+    eq("E3: a manhua line with only a zh 'manga' line (Biao Ren DE) gains its origin", s["rl_bde"]["orig"],
+       s["rl_bzh"]["sid"])
+    eq("E3: a same-medium origin still wins over the family (Solo Leveling DE manga -> ko manga)",
+       s["rl_sde"]["orig"], s["rl_krm"]["sid"])
+    eq("E3: carried lines' orig_series_id unchanged (gate)", x["orig_changes"], [])
+    eq("E3 gate: an unlisted carried orig change is caught", x["orig_regressed"], [("rl_sde", "rl_krm", "rl_kr")])
+    eq("E3 gate: ... a listed one is not", x["orig_listed"], [])
+    # E4: a library-born FR line whose work has no official fr title takes its BnF line name
+    eq("E4: library-born FR line, no fr work title -> the bnf line name", s["rl_dfr"]["local_name"],
+       "Dites-moi, princesse !")
+    eq("E4: library-born FR line, the work has a fr title -> the official title, unchanged",
+       s["rl_nfr"]["local_name"], "Noblesse")
+    eq("E4: a Wikipedia FR line (not library-born) with no fr work title stays NULL", s["rl_wfr"]["local_name"], None)
 
     # ---- local_title / local_name_for (2026-09-24, Preferred Edition v0) -------------
     # Measured on build/opentome.db: FR official work titles are raw Wikipedia article
@@ -326,6 +371,139 @@ def fixture_krcn():
     r["r6_fails"] = TA.FAILS[n:]
     del TA.FAILS[:]
     return r
+
+
+def fixture_export_fixes():
+    """E1 / E3 / E4 (2026-09-28). One catalogue, exported twice: first WITHOUT the library-born lines (that
+    artifact is the carry), then with them against that carry. Works:
+      Solo Leveling -- KR manhwa + KR manga (the duplicate ko line) + KR 'Solo Leveling (Médias)', EN manhwa,
+        FR 'Solo Leveling (Médias)' (a Wikipedia sub-line name), DE manga; library-born: FR 'Solo leveling'
+        (bnf, vols 4/15/17);
+      King of Hell -- KR manga, EN manga, DE manga vol 8 (carried); library-born: DE manhwa vols 1-3;
+      Biao Ren -- CN manga; library-born: DE manhua;
+      Who Made Me a Princess -- EN manhwa; library-born FR (bnf 'Dites-moi, princesse !'), no fr work title;
+      Noblesse -- EN manhwa, fr official 'Noblesse (manhwa)'; library-born FR (bnf 'Noblesse');
+      Wiki FR -- a Wikipedia FR line (not library-born) with a bnf line_name claim, no fr work title."""
+    import test_artifact as TA
+    tmp = tempfile.mkdtemp(prefix="opentome-exportfix-", dir=os.path.join(ROOT, "build"))
+    src_path = os.path.join(tmp, "pipeline.db")
+    db = sqlite3.connect(src_path)
+    db.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+    works = {"w_s": "Solo Leveling", "w_h": "King of Hell", "w_b": "Biao Ren", "w_d": "Who Made Me a Princess",
+             "w_n": "Noblesse", "w_w": "Wiki FR Work"}
+    for wid, t in works.items():
+        db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES(?,?,'x','x')", (wid, t))
+    for wid, lang, t in (("w_s", "fr", "Solo Leveling"), ("w_s", "en", "Solo Leveling: ARISE"),
+                         ("w_n", "fr", "Noblesse (manhwa)")):
+        db.execute("INSERT INTO work_title(work_id,language,title,kind) VALUES(?,?,?,'official')", (wid, lang, t))
+    LINES = [  # rid, work, medium, market, lang, vols, line_name (source, value) or None, library-born
+        ("rl_kr", "w_s", "manhwa", "KR", "ko", (1, 2, 3), None, False),
+        ("rl_krm", "w_s", "manga", "KR", "ko", (1, 2, 3), None, False),
+        ("rl_krmed", "w_s", "manhwa", "KR", "ko", (1, 2), ("wikipedia", "Solo Leveling (Médias)"), False),
+        ("rl_sen", "w_s", "manhwa", "EN", "en", (1, 2), None, False),
+        ("rl_med", "w_s", "manhwa", "FR", "fr", (1, 2, 3, 4, 5), ("wikipedia", "Solo Leveling (Médias)"), False),
+        ("rl_sde", "w_s", "manga", "DE", "de", (1, 2), None, False),
+        ("rl_lib", "w_s", "manhwa", "FR", "fr", (4, 15, 17), ("bnf", "Solo leveling"), True),
+        ("rl_hkr", "w_h", "manga", "KR", "ko", (1, 2, 3, 4), None, False),
+        ("rl_hen", "w_h", "manga", "EN", "en", (1, 2), None, False),
+        ("rl_hde8", "w_h", "manga", "DE", "de", (8,), ("dnb", "King of hell"), False),
+        ("rl_hde", "w_h", "manhwa", "DE", "de", (1, 2, 3), ("dnb", "King of hell"), True),
+        ("rl_bzh", "w_b", "manga", "CN", "zh", (1, 2), None, False),
+        ("rl_bde", "w_b", "manhua", "DE", "de", (1,), ("dnb", "Die Klingen der Wächter"), True),
+        ("rl_den", "w_d", "manhwa", "EN", "en", (1,), None, False),
+        ("rl_dfr", "w_d", "manhwa", "FR", "fr", (1, 2), ("bnf", "Dites-moi, princesse !"), True),
+        ("rl_nen", "w_n", "manhwa", "EN", "en", (1,), None, False),
+        ("rl_nfr", "w_n", "manhwa", "FR", "fr", (1,), ("bnf", "Noblesse"), True),
+        ("rl_wfr", "w_w", "manga", "FR", "fr", (1,), ("bnf", "Wiki FR Titre"), False)]
+    born = {r[0]: "bnf" if r[3] == "FR" else "dnb" for r in LINES if r[7]}
+
+    def add(rows):
+        for rid, wid, medium, market, lang, vols, lname, _ in rows:
+            db.execute("""INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at)
+                          VALUES(?,?,?,?,?,'x','x')""", (rid, wid, medium, market, lang))
+            for n in vols:
+                db.execute("""INSERT INTO volume(id,release_line_id,number,release_date,release_date_precision,
+                              release_date_type,created_at,updated_at) VALUES(?,?,?,?,'day','published','x','x')""",
+                           ("v_%s_%d" % (rid, n), rid, str(n), "20%02d-01-02" % (10 + n) if market in ("KR", "CN") else
+                            "20%02d-01-02" % (15 + n)))
+            if lname:
+                db.execute("""INSERT INTO claim(entity,entity_id,field,value,source,licence,retrieved_at)
+                              VALUES('release_line',?,'line_name',?,?,'facts_only','x')""", (rid, lname[1], lname[0]))
+
+    def exp(out_path, carry=None):
+        real_dir, corr.DIR = corr.DIR, tempfile.mkdtemp(prefix="opentome-nocorr-", dir=tmp)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                export(src_path, out_path, carry)
+        finally:
+            corr.DIR = real_dir
+
+    def rows(path):
+        o = sqlite3.connect(path)
+        sid = dict(o.execute("SELECT gcd_series_id, tome_id FROM series"))
+        r = {t: {"sid": s, "is_main": m, "parent": sid.get(p), "local_name": ln, "orig": o_, "aliases": set()}
+             for s, t, m, p, ln, o_ in o.execute("""SELECT gcd_series_id, tome_id, is_main, parent_series_id,
+                                                    local_name, orig_series_id FROM series""")}
+        for t, a in o.execute("SELECT s.tome_id, a.alias FROM series_alias a JOIN series s USING(gcd_series_id)"):
+            r[t]["aliases"].add(a)
+        o.close()
+        return r
+    add([r for r in LINES if not r[7]])
+    db.commit()
+    carry = os.path.join(tmp, "carry.sqlite")
+    exp(carry)
+    add([r for r in LINES if r[7]])
+    db.execute("INSERT INTO meta VALUES('krcn:ids',?)", (json.dumps({"works": [], "created": [], "lines": born}),))
+    db.commit()
+    db.close()
+    out, cold = os.path.join(tmp, "artifact.sqlite"), os.path.join(tmp, "cold.sqlite")
+    exp(out, carry)
+    exp(cold)
+    x = {"carry": rows(carry), "after": rows(out), "cold": rows(cold)}
+    A, C = sqlite3.connect(out), sqlite3.connect("file:%s?mode=ro" % carry, uri=True)
+    x["gate_after"] = TA.carried_regressions(A, C)
+    x["orig_changes"] = TA.carried_orig_changes(A, C)
+    x["lang_rows_clean"] = TA.language_name_rows(A)
+    # a regressed copy: the 67451c2 shape for the Medias line, junk language rows, a moved carried origin
+    reg = os.path.join(tmp, "regressed.sqlite")
+    A.close()
+    shutil.copy(out, reg)
+    R_ = sqlite3.connect(reg)
+    s = x["after"]
+    R_.execute("UPDATE series SET is_main=0, local_name=NULL, parent_series_id=? WHERE tome_id='rl_med'",
+               (s["rl_lib"]["sid"],))
+    R_.execute("DELETE FROM series_alias WHERE gcd_series_id=? AND alias='Solo Leveling: ARISE'", (s["rl_med"]["sid"],))
+    R_.execute("UPDATE series SET local_name='Deutsch' WHERE tome_id='rl_hde8'")
+    for a in ("english", "살인마 르웰린 씨의 낭만적인 정찬. English"):
+        R_.execute("INSERT INTO series_alias VALUES(?,?,'ko','official')", (s["rl_med"]["sid"], a))
+    R_.execute("UPDATE series SET orig_series_id=? WHERE tome_id='rl_sde'", (s["rl_kr"]["sid"],))
+    R_.commit()
+    x["gate_regressed"] = TA.carried_regressions(R_, C)
+    x["lang_rows"] = TA.language_name_rows(R_)
+    x["orig_regressed"] = [(t, a, b) for t, a, b, _ in TA.carried_orig_changes(R_, C, listed={})]
+    x["orig_listed"] = TA.carried_orig_changes(R_, C, listed={"rl_sde": "fixture"})
+    # exemptions: the alias loss listed (ALIAS_LOSS_OK); the parent change explained by a redirect of the carried
+    # parent; an is_main loss explained by a carried line of the same work and market retired by a redirect
+    saved = dict(TA.ALIAS_LOSS_OK)
+    TA.ALIAS_LOSS_OK[("rl_med", "Solo Leveling: ARISE")] = "fixture"
+    R_.execute("UPDATE series SET is_main=1, local_name='Solo Leveling' WHERE tome_id='rl_med'")
+    R_.execute("INSERT INTO id_redirect VALUES('rl_krm2','rl_lib','release_line','fixture',NULL,NULL)")
+    R_.execute("UPDATE series SET is_main=0 WHERE tome_id='rl_hde8'")
+    R_.execute("INSERT INTO id_redirect VALUES('rl_hghost','rl_hde','release_line','fixture',NULL,NULL)")
+    R_.commit()
+    Cx = os.path.join(tmp, "carry-x.sqlite")
+    shutil.copy(carry, Cx)
+    cx = sqlite3.connect(Cx)
+    cx.execute("INSERT INTO series(gcd_series_id,name,tome_id,tome_work_id,country) VALUES(9001,'x','rl_krm2','w_s','KR')")
+    cx.execute("UPDATE series SET parent_series_id=9001 WHERE tome_id='rl_med'")
+    cx.execute("INSERT INTO series(gcd_series_id,name,tome_id,tome_work_id,country) VALUES(9002,'x','rl_hghost','w_h','DE')")
+    cx.commit()
+    x["gate_exempt"] = TA.carried_regressions(R_, cx)
+    TA.ALIAS_LOSS_OK.clear()
+    TA.ALIAS_LOSS_OK.update(saved)
+    R_.close(), cx.close(), C.close()
+    shutil.rmtree(tmp, ignore_errors=True)
+    return x
 
 
 def fixture_local_names():

@@ -142,6 +142,11 @@ ORIGIN = ("JP", "KR", "CN", "TW")
 # inherited a licensed-line status backwards (Warlord read 'stalled'). See
 # pick_origin() below.
 MEDIUM_ORIGIN_HINT = {"manhwa": ("KR",), "webtoon": ("KR",), "manhua": ("CN", "TW")}
+# One comic family for the ORIGIN lookup only (export fixes E3, 2026-09-28): a line whose own medium has no
+# origin line looks for one among these mediums -- a German manhwa line finds its Korean line tagged 'manga'
+# upstream (King of Hell, Unbalance X2, Biao Ren). A same-medium origin always wins; is_main, parents and
+# aliases stay per medium.
+COMIC_FAMILY = ("manga", "manhwa", "manhua")
 
 
 def pick_origin(medium, markets, first_dated_by_market):
@@ -370,7 +375,7 @@ def local_title(raw):
     return t
 
 
-def local_name_for(market, is_main, dnb_line_name, official_titles):
+def local_name_for(market, is_main, dnb_line_name, official_titles, bnf_line_name=None):
     """The line's title in its own language (Mangarr names a new non-English series by it).
     Measured rules (2026-09-24, build/opentome.db): EN lines need none (the name is English);
     a DE line takes its DNB line_name -- the German publisher's series title (1,424 of 1,459 DE
@@ -378,12 +383,17 @@ def local_name_for(market, is_main, dnb_line_name, official_titles):
     title; FR/JP/other main lines take the work's official title in the line's language (1,491
     of 1,493 FR lines have one; JP titles are native script); arcs and side lines take none,
     because the FR line_name claims are English cross-parses ("Dream Eater Merry"), not French
-    titles."""
+    titles. bnf_line_name (export fixes E4, 2026-09-28): passed for a LIBRARY-BORN FR line only -- its BnF
+    record's title IS the French title; used when the work has no official fr title."""
     lang = MARKET_LANG.get(market, market.lower())
     if lang == "en":
         return None
     if market == "DE" and dnb_line_name:
         t = local_title(dnb_line_name)
+        if t:
+            return t
+    if market == "FR" and bnf_line_name and not any(local_title(r) for r in official_titles or []):
+        t = local_title(bnf_line_name)
         if t:
             return t
     if not is_main:
@@ -506,6 +516,8 @@ def export(src_path, out_path, carry_ids_from=None):
         official_titles.setdefault((wid, lang), []).append(title)
     dnb_line_name = dict(src.execute("""SELECT entity_id, value FROM claim WHERE entity='release_line'
                                         AND field='line_name' AND source='dnb' ORDER BY rowid"""))
+    bnf_line_name = dict(src.execute("""SELECT entity_id, value FROM claim WHERE entity='release_line'
+                                        AND field='line_name' AND source='bnf' ORDER BY rowid"""))
 
     lines = src.execute("""
         SELECT rl.id, rl.work_id, rl.market, rl.medium, rl.publisher, rl.status, rl.parent_id,
@@ -546,12 +558,19 @@ def export(src_path, out_path, carry_ids_from=None):
 
     # main line per (work, market, medium): the line named after the work, else
     # the biggest. Only main lines carry the work-level aliases.
+    # Carried lines keep precedence (export fixes E1, 2026-09-28): a NEW library-born line -- in this build's
+    # krcn:ids, absent from the carry -- is main, or the named line an unnamed line hangs under, only in a group
+    # where no carried line competes. Named after the work, a Kbooks 4/15/17 line took is_main, the parent slot,
+    # the work aliases and the FR local_name from the carried 19-volume "Solo Leveling (Médias)".
+    carried = set(prev_status)
+    new_lib = lambda r: r in born and r not in carried
     by_group = {}
     for rid, wid, market, medium, *_rest, wtitle, lname in lines:
         n = src.execute("SELECT COUNT(*) FROM volume WHERE release_line_id=?", (rid,)).fetchone()[0]
         named = (not lname) or normalize(lname) == normalize(wtitle)
         by_group.setdefault((wid, market, medium), []).append((not named, -n, rid))
-    main_of = {k: sorted(v)[0][2] for k, v in by_group.items()}
+    held_back = {k for k, v in by_group.items() if any(r in carried for *_, r in v)}
+    main_of = {k: sorted(v, key=lambda e: (k in held_back and new_lib(e[2]),) + e)[0][2] for k, v in by_group.items()}
 
     # For the status rule: a licensed line's counterpart in the work's original
     # market -- the same-named line there, else that market's main line -- and
@@ -585,10 +604,19 @@ def export(src_path, out_path, carry_ids_from=None):
                                            AND release_date_precision IN ('day','month')
                                          GROUP BY 1"""))
 
-    origin_of = {}
+    origin_of, family_origin = {}, set()
     for (wid, medium), ms in markets_of.items():
         first_by_market = {m: first_dated_of.get(main_of.get((wid, m, medium))) for m in ms}
         origin_of[(wid, medium)] = pick_origin(medium, ms, first_by_market)
+        if origin_of[(wid, medium)] is None and medium in COMIC_FAMILY:
+            # no origin line in its own medium: the comic family's markets (E3). The family's main line per
+            # market dates it: the same medium first, then COMIC_FAMILY order.
+            fam = {m: next(main_of[(wid, m, g)] for g in (medium,) + COMIC_FAMILY if (wid, m, g) in main_of)
+                   for f in COMIC_FAMILY for m in markets_of.get((wid, f), ())}
+            om = pick_origin(medium, set(fam), {m: first_dated_of.get(r) for m, r in fam.items()})
+            if om is not None:
+                origin_of[(wid, medium)] = om
+                family_origin.add((wid, medium))
     int_max = dict(src.execute("""SELECT release_line_id, MAX(CAST(number AS INTEGER)) FROM volume
                                   WHERE number GLOB '[0-9]*' AND number NOT GLOB '*[^0-9]*'
                                   GROUP BY 1"""))
@@ -618,9 +646,29 @@ def export(src_path, out_path, carry_ids_from=None):
             # not a hand-checked fact: warn and fall back to the name / main-line rule
             print("  WARN derived origin_line on %s points at %s (market %s), not the origin market %s "
                   "-- ignored" % (rid, pinned, pinned_market, om))
-        return (line_key.get((wid, medium, om, (lname or wtitle).strip().lower()))
-                or main_of.get((wid, om, medium)))
+        key = (lname or wtitle).strip().lower()
+        if (wid, medium) in family_origin:     # E3: the origin market has no line of this medium
+            fam = (medium,) + tuple(f for f in COMIC_FAMILY if f != medium)
+            return (next((line_key[(wid, f, om, key)] for f in fam if (wid, f, om, key) in line_key), None)
+                    or next((main_of[(wid, om, f)] for f in fam if (wid, om, f) in main_of), None))
+        return line_key.get((wid, medium, om, key)) or main_of.get((wid, om, medium))
 
+    # each line's origin counterpart, once (origin_line may warn). A NEW library line does not take the
+    # counterpart slot from the carried lines of its work and market (export fixes E1): Mangarr ranks a sibling
+    # that shares the anchor's orig_series_id first, so a new line whose origin no carried line there shares
+    # (the same novel / comic class, as Mangarr's PickSibling compares) exports without one. Sharing it (King of
+    # Hell DE: the 12-volume line beside the carried vol-8 line) is fine.
+    orid_of = {rid: origin_line(rid, wid, medium, market, lname, wtitle)
+               for rid, wid, market, medium, *_rest, wtitle, lname in lines}
+    _novel = lambda m: bool(m) and ("novel" in m.lower() or m.lower() == "artbook")
+    carried_origs = {}
+    for rid, wid, market, medium, *_rest in lines:
+        if rid in carried:
+            carried_origs.setdefault((wid, market, _novel(medium)), set()).add(orid_of[rid])
+    for rid, wid, market, medium, *_rest in lines:
+        slot = carried_origs.get((wid, market, _novel(medium)))
+        if new_lib(rid) and slot is not None and orid_of[rid] not in slot:
+            orid_of[rid] = None
     n_series = n_vol = n_special = n_alias = n_omni = 0
     # ids first, so a child line can point at its parent whichever comes first
     for rid, *_ in lines:
@@ -632,6 +680,8 @@ def export(src_path, out_path, carry_ids_from=None):
     named_line = {}
     for rid, wid, market, medium, *_rest, wtitle, lname in lines:
         if (not lname) or normalize(lname) == normalize(wtitle):
+            if (wid, market, medium) in held_back and new_lib(rid):
+                continue        # E1: never the parent of a carried line's group
             named_line.setdefault((wid, market, medium), rid)
 
     transitions, newly_stalled = collections.Counter(), []
@@ -715,7 +765,7 @@ def export(src_path, out_path, carry_ids_from=None):
         reach = set(ints_written)
         for cj in comp_vol.values():
             reach.update(n for n in json.loads(cj) if isinstance(n, int))
-        orid = origin_line(rid, wid, medium, market, lname, wtitle)
+        orid = orid_of[rid]
         orig_sid = mapping.get(orid) if orid else None
         if orid and not is_omni:
             # A licensed line with a counterpart: its own dates against the origin's
@@ -747,7 +797,8 @@ def export(src_path, out_path, carry_ids_from=None):
              lang, is_omni, len(ints_written), mangarr_status,
              orig_sid, medium, dated, is_main, rid, wid, parent_sid, work_authors.get(wid),
              market, local_name_for(market, is_main, dnb_line_name.get(rid),
-                                    official_titles.get((wid, lang)))))
+                                    official_titles.get((wid, lang)),
+                                    bnf_line_name.get(rid) if rid in born else None)))
         out.execute("INSERT OR REPLACE INTO id_map VALUES(?,?, 'release_line')", (rid, sid))
         n_series += 1
 

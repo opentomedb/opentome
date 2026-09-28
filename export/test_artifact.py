@@ -238,10 +238,14 @@ def run(path):
               WHERE l.status='stalled'
               AND (SELECT COALESCE(MAX(volume_number),0) FROM volumes WHERE gcd_series_id=o.gcd_series_id)
                 - (SELECT COALESCE(MAX(volume_number),0) FROM volumes WHERE gcd_series_id=l.gcd_series_id) < 2"""))
+    # the medium: equal, or both of the comic family (to_mangarr.COMIC_FAMILY, export fixes E3: a manhwa line's
+    # Korean origin may be tagged 'manga'); a novel never points at a comic line or back
     rule("orig_series_id pointing at a missing series, another work, or an origin-market mismatch",
          g("""SELECT COUNT(*) FROM series l LEFT JOIN series o ON o.gcd_series_id=l.orig_series_id
               WHERE l.orig_series_id IS NOT NULL
-              AND (o.gcd_series_id IS NULL OR o.tome_work_id<>l.tome_work_id OR o.medium<>l.medium
+              AND (o.gcd_series_id IS NULL OR o.tome_work_id<>l.tome_work_id
+                   OR (o.medium<>l.medium AND NOT (o.medium IN ('manga','manhwa','manhua')
+                                                   AND l.medium IN ('manga','manhwa','manhua')))
                    OR o.language NOT IN ('ja','ko','zh','zh-TW','zh-HK') OR o.language=l.language)"""))
     rule("cover_url without cover_source (or vice versa)",
          g("""SELECT COUNT(*) FROM volumes WHERE (cover_url IS NULL) <> (cover_source IS NULL)"""))
@@ -856,6 +860,14 @@ def run_krcn(path, catalogue, carry=None):
     if C is not None:
         bad = carried_isbn_moved(db, cat, C, ids, carried_ids)
         rule("carried KR/CN-scope volumes whose carried ISBN now sits on another present volume", len(bad), str(bad[:3]))
+        # export fixes E1 / E3 (2026-09-28): every carried line, not only KR/CN ones
+        bad = carried_regressions(db, C)
+        rule("carried lines that lost is_main / local_name / alias rows or are parented under a line absent from "
+             "the carry (E1; allowances: a carried id redirect, ALIAS_LOSS_OK)", len(bad), str(bad[:4]))
+        bad = carried_orig_changes(db, C)
+        rule("carried lines whose orig_series_id changed outside ORIG_CHANGE_OK (E3)", len(bad), str(bad[:4]))
+    bad = language_name_rows(db, cat)
+    rule("aliases / names / work titles that are only a language name (E2)", len(bad), str(bad[:5]))
     # fixtures
     pre = [l["tome_id"] for l in fx("krcn_lines_pre.json")["lines"]]
     rule("pre-round KR/CN line ids (and the library-fixture lines) missing", sum(1 for t in pre if t not in art_ids),
@@ -919,6 +931,131 @@ def carried_isbn_moved(db, cat, C, ids, carried_ids):
             others -= held_then.get(isbn, set())
         if vid in present and others:
             out.append((vid, isbn, sorted(others)))
+    return sorted(out)
+
+
+# ---- export fixes (2026-09-28; krcn-consumer-findings §3, §7, §8 "Solo Leveling") --------------------------
+# E1: a carried line keeps is_main, its parent, its local_name and its aliases. The only allowances: a change a
+# carried id redirect explains (the line's parent was retired into its new parent; a carried line of the same
+# work and market was retired), and the alias losses listed here, one row per (line, alias) with its reason.
+ALIAS_LOSS_OK = {
+    # base drift, not KR/CN: the FR list-article article fix (tier0/build_corpus FR_LIST_ARTICLE, alias-fix
+    # round) reads "Liste des tomes des Enquêtes de Kindaichi" as "Les Enquêtes de Kindaichi"; the carry
+    # (opentome-2026-09-25) still has the broken "s Enquêtes..." form it replaces
+    (t, a): "FR list-article fix (base drift): the broken 's Enquêtes' alias is replaced by 'Les Enquêtes'"
+    for t in ("rl_5a9a8a726f29", "rl_f0e22cf59265", "rl_8c5a57d499cc")
+    for a in ("s Enquêtes de Kindaichi", "s enqu tes de kindaichi")}
+# E3: carried lines whose orig_series_id may change, with the reason. Measured 2026-09-28 on the pipeline-order
+# dry run (build/krcn-replay/exportfix): the comic-family origin rule only fills a line whose own medium has no
+# origin line; one carried line gains one, 0 in a work with a Japanese line, 0 sibling-pick changes.
+ORIG_CHANGE_OK = {
+    "rl_273f63e59345": "Omniscient Reader's Viewpoint (Physical publication), EN: tagged 'manga' upstream, its "
+                       "Korean line 'manhwa' -- NULL -> the ko main line rl_f120819d48a3 (the EN manhwa line's "
+                       "origin too); status NULL -> ongoing (line_status now has an origin)",
+}
+# E2: a bare language name is never an alias or a title (a LoC 880 kept its 240 $l: "멸망 이후의 세계. English",
+# whose normalize() is 'english'). English, French and German forms.
+LANG_NAMES = ("english", "korean", "chinese", "japanese", "french", "german",
+              "anglais", "coréen", "chinois", "japonais", "français", "allemand",
+              "englisch", "koreanisch", "chinesisch", "japanisch", "französisch", "deutsch")
+
+
+def _norm(v):
+    """to_mangarr.normalize (the C# Normalize mirror): lowercase, runs of non-[a-z0-9] -> one space."""
+    return re.sub(r"[^a-z0-9]+", " ", (v or "").lower()).strip()
+
+
+LANG_KEYS = set(LANG_NAMES) | {_norm(n) for n in LANG_NAMES}
+
+
+def _cols(d, table):
+    return {r[1] for r in d.execute("PRAGMA table_info(%s)" % table)}
+
+
+def _lines(d):
+    """{tome_id: row} of an artifact's series (a column the file lacks reads NULL) + {alias rows by tome_id}."""
+    have = _cols(d, "series")
+    pick = ["gcd_series_id", "tome_id"] + [c if c in have else "NULL" for c in
+                                           ("tome_work_id", "country", "is_main", "parent_series_id", "local_name",
+                                            "orig_series_id")]
+    rows = d.execute("SELECT %s FROM series" % ", ".join(pick)).fetchall()
+    tome = {r[0]: r[1] for r in rows}
+    out = {r[1]: {"work": r[2], "market": r[3], "is_main": r[4], "parent": tome.get(r[5]), "local_name": r[6],
+                  "orig": tome.get(r[7])} for r in rows if r[1]}
+    aliases = {}
+    if _cols(d, "series_alias"):
+        for t, a in d.execute("SELECT s.tome_id, a.alias FROM series_alias a JOIN series s USING(gcd_series_id)"):
+            aliases.setdefault(t, set()).add(a)
+    return out, aliases
+
+
+def _redirect(d):
+    try:
+        red = dict(d.execute("SELECT old_tome_id, new_tome_id FROM id_redirect"))
+    except sqlite3.OperationalError:
+        return {}, lambda t: t
+
+    def final(t):
+        seen = set()
+        while t in red and t not in seen:
+            seen.add(t)
+            t = red[t]
+        return t
+    return red, final
+
+
+def carried_regressions(db, C):
+    """E1: carried lines (present in the carry C and in this artifact) that lost is_main, lost local_name or
+    alias rows, or whose parent is now a line absent from the carry. -> [(tome_id, what, detail)]."""
+    A, a_al = _lines(db)
+    K, c_al = _lines(C)
+    red, final = _redirect(db)
+    retired = {(K[o]["work"], K[o]["market"]) for o in red if o in K}
+    out = []
+    for t, c in sorted(K.items()):
+        a = A.get(t)
+        if a is None:
+            continue                # retired / redirected: run_ids' rules own it
+        explained = (c["work"], c["market"]) in retired
+        if c["is_main"] == 1 and a["is_main"] != 1 and not explained:
+            out.append((t, "is_main lost", ""))
+        if a["parent"] and a["parent"] != c["parent"] and a["parent"] not in K and \
+                not (c["parent"] and final(c["parent"]) == a["parent"]):
+            out.append((t, "parent is a line absent from the carry", "%s -> %s" % (c["parent"], a["parent"])))
+        if c["local_name"] and not a["local_name"] and not explained:
+            out.append((t, "local_name lost", c["local_name"]))
+        lost = sorted(x for x in c_al.get(t, set()) - a_al.get(t, set()) if (t, x) not in ALIAS_LOSS_OK)
+        if lost and not explained:
+            out.append((t, "alias rows lost", "%d %s" % (len(lost), lost[:4])))
+    return out
+
+
+def carried_orig_changes(db, C, listed=None):
+    """E3: carried lines whose orig_series_id (compared by tome_id) changed, outside `listed` (default
+    ORIG_CHANGE_OK) and not explained by a redirect of the old origin. -> [(tome_id, old, new, work)]."""
+    listed = ORIG_CHANGE_OK if listed is None else listed
+    A, _ = _lines(db)
+    K, _ = _lines(C)
+    _, final = _redirect(db)
+    return [(t, c["orig"], A[t]["orig"], c["work"]) for t, c in sorted(K.items())
+            if t in A and A[t]["orig"] != c["orig"] and t not in listed
+            and not (c["orig"] and final(c["orig"]) == A[t]["orig"])]
+
+
+def language_name_rows(db, cat=None):
+    """E2: aliases, series names, local names (and the catalogue's work titles) that are only a language
+    name, raw or normalized. -> [(where, tome_id | work id, value)]."""
+    bad = lambda v: (v or "").strip().lower() in LANG_KEYS or _norm(v) in LANG_KEYS
+    out = []
+    if _cols(db, "series_alias"):
+        out += [("series_alias", t, a) for t, a in db.execute(
+            "SELECT s.tome_id, a.alias FROM series_alias a JOIN series s USING(gcd_series_id)") if bad(a)]
+    have = _cols(db, "series")
+    for col in ("name", "local_name"):
+        if col in have:
+            out += [(col, t, v) for t, v in db.execute("SELECT tome_id, %s FROM series" % col) if bad(v)]
+    if cat is not None:
+        out += [("work_title", w, v) for w, v in cat.execute("SELECT work_id, title FROM work_title") if bad(v)]
     return sorted(out)
 
 
