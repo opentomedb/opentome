@@ -2532,16 +2532,24 @@ eq("record_meta: KR/CN DNB degradation merges into 3e's dnb:degraded (3e's value
    {"reason": "HTTP 502", "kept_previous": ["jp q"],
     "krcn": {"reason": "URLError: t", "kept_previous": ["spo=kor and jhr=2021"]}})
 with contextlib.redirect_stdout(io.StringIO()):
-    BK.record_meta(db, m_lines, m_plan, {"bnf": {"degraded": None, "degraded_queries": ["q1"]}})
+    BK.record_meta(db, m_lines, m_plan, {"loc": {"degraded": None, "degraded_queries": []}, "dnb": {},
+                                         "bnf": {"degraded": None, "degraded_queries": ["q1"]}})
 eq("record_meta: a clean LoC run clears loc:degraded; an incomplete BnF set (queries, no reason) is degraded",
    (mv("loc:degraded"), json.loads(mv("bnf:degraded"))), (None, {"reason": "incomplete", "kept_previous": ["q1"]}))
 eq("record_meta: a clean KR/CN DNB run never clears 3e's dnb:degraded", json.loads(mv("dnb:degraded"))["reason"], "HTTP 502")
 db2 = schema_db()
 with contextlib.redirect_stdout(io.StringIO()):
-    BK.record_meta(db2, [], {}, {"dnb": {"degraded": "HTTPError: 503", "degraded_queries": ["spo=chi"]}})
+    BK.record_meta(db2, [], {}, {"dnb": {"degraded": "HTTPError: 503", "degraded_queries": ["spo=chi"]},
+                                 "loc": {}, "bnf": {}})
 eq("record_meta: KR/CN DNB degraded with 3e clean -> dnb:degraded of its own", json.loads(
    db2.execute("SELECT value FROM meta WHERE key='dnb:degraded'").fetchone()[0]),
    {"reason": "HTTPError: 503", "kept_previous": ["spo=chi"], "round": "krcn"})
+
+try:
+    BK.record_meta(db2, [], {}, {"LoC": {"degraded": "x"}, "bnf": {}, "dnb": {}})
+    eq("record_meta: a missing source report raises (never a silent clean run)", "no exception", "ValueError")
+except ValueError:
+    eq("record_meta: a missing source report raises (never a silent clean run)", True, True)
 
 # publish.sh refuses loc_degraded / bnf_degraded. publish.sh cd's to its repo root and writes
 # build/version.json: run a copy (tier0/test_dnb.py's pattern). The artifact here is cold-start with

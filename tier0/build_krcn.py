@@ -497,11 +497,15 @@ def record_meta(db, lines, plan, reports):
                                  process, so dnb_sru's DEGRADED does not carry over): merged in under
                                  "krcn", never cleared -- 3e's own value stays.
     reports: {"loc": loc_sru.enumerate_loc report, "bnf": bnf_sru.enumerate_bnf tally,
-              "dnb": dnb_enumerate.enumerate_krcn tally}; a missing source counts as clean."""
+              "dnb": dnb_enumerate.enumerate_krcn tally}, all three -- a missing one raises (a typo must
+    never pass as a clean run and let a degraded build publish)."""
+    missing = sorted({"dnb", "loc", "bnf"} - set(reports))
+    if missing:
+        raise ValueError("build_krcn.record_meta: no report for %s" % missing)
     db.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('krcn:ids',?)",
                (json.dumps(krcn_ids(lines, plan), sort_keys=True),))
     for src in ("dnb", "loc", "bnf"):
-        rep = reports.get(src) or {}
+        rep = reports[src] or {}
         bad = bool(rep.get("degraded") or rep.get("degraded_queries"))
         val = {"reason": rep.get("degraded") or "incomplete", "kept_previous": list(rep.get("degraded_queries") or [])}
         if bad:
