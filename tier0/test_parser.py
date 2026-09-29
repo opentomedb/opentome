@@ -298,9 +298,11 @@ eq("split: ... and its pre-round medium (no heading hint: 'Roman' was manga befo
    [r.get("medium_held") for r in hout], [None, "manga", "manga", None, "manga"])
 eq("detect_medium(headings=False) is the pre-round rule", RL.detect_medium(["Roman"], "Hyouka", headings=False), "manga")
 
-# ---- the collision guard (heading cleanup, 2026-09-29; review C1) --------------------------------
-# A round-A group falls through only if none of its volumes lands on a key another row holds with a
-# different ISBN; otherwise it keeps its pre-round heading name.
+# ---- the collision guard (heading cleanup, 2026-09-29; review C1; fix F1 ruling) ------------------
+# A round-A group falls through ONLY as a pure duplicate: every one of its volumes lands on a line of
+# the same work that already exists (another row, any article, or the catalogue) under the same number
+# with the SAME ISBN (a volume without an ISBN: under a number that line already has). Otherwise it
+# keeps its pre-round heading name, medium and heading alias.
 def grec(n, isbn, pos, market="JP"):
     return {"volume": str(n), "_offset": pos, "markets": {"original": {"market": market, "isbn13": isbn}}}
 gmain = "== Manga ==\n{{a}}\n"
@@ -312,7 +314,8 @@ ngnl_b = RL.split(gpub, "No Game No Life: Publications", "No Game No Life",
 held = RL.hold_clashes([("w_ngnl", ngnl_a), ("w_ngnl", ngnl_b)])
 eq("guard: the No Game No Life shape (another article's list, same numbers, other ISBNs) is held",
    sorted(held), [(1, "No Game No Life (Publication and conception)")])
-eq("guard: ... on the two numbers both lines have", len(held[(1, "No Game No Life (Publication and conception)")]), 2)
+eq("guard: ... listing its three volumes (none a duplicate; two clash, the third is not on the line)",
+   len(held[(1, "No Game No Life (Publication and conception)")]), 3)
 eq("guard: hold() gives the held group its heading name back (and its pre-round medium, manga here too)",
    [(r["medium"], r["line"]) for r in RL.hold(ngnl_b, {"No Game No Life (Publication and conception)"})],
    [("manga", "No Game No Life (Publication and conception)")] * 3)
@@ -331,11 +334,21 @@ gcont = "== Tomes 1 à 20 ==\n{{a}}\n== Tomes 21 à aujourd'hui ==\n{{b}}\n"
 cont = RL.split(gcont, "Liste des tomes de Dandadan", "Dandadan",
                 [grec(1, "9784088825001", gcont.index("{{a}}")), grec(21, "9784088825021", gcont.index("{{b}}"))])
 main_dd = RL.split(gmain, "Dandadan", "Dandadan", [grec(21, "9784088825021", gmain.index("{{a}}"))])
-eq("guard: an open-ended continuation onto the same books (same ISBNs) still falls through",
+eq("guard: an open-ended section whose books another article already lists under the same numbers "
+   "(same ISBNs) falls through: a pure duplicate",
    RL.hold_clashes([("w_dd", main_dd), ("w_dd", cont)]), {})
 eq("guard: ... into the work's own line", [r["line"] for r in cont], ["Dandadan", "Dandadan"])
+eq("guard: a real continuation (numbers the work's line does not have) is held -- round C, not a merge",
+   RL.hold_clashes([("w_dd", cont)]), {(0, "Dandadan (Tomes 21 à aujourd'hui)"): [RL._nk("w_dd", "manga", "JP", "Dandadan", "21")]})
 noisbn = RL.split(gmain, "Dandadan", "Dandadan", [grec(21, None, gmain.index("{{a}}"))])
-eq("guard: a row without an ISBN never clashes", RL.hold_clashes([("w_dd", noisbn), ("w_dd", cont)]), {})
+eq("guard: a volume WITH an ISBN onto a number the line has without one is held (not provably the same book)",
+   sorted(RL.hold_clashes([("w_dd", noisbn), ("w_dd", cont)])), [(1, "Dandadan (Tomes 21 à aujourd'hui)")])
+cont_noisbn = RL.split(gcont, "Liste des tomes de Dandadan", "Dandadan",
+                       [grec(1, "9784088825001", gcont.index("{{a}}")), grec(21, None, gcont.index("{{b}}"))])
+eq("guard: a volume without an ISBN falls through onto a number the line already has",
+   RL.hold_clashes([("w_dd", main_dd), ("w_dd", cont_noisbn)]), {})
+eq("guard: ... and is held on a number the line lacks",
+   sorted(RL.hold_clashes([("w_dd", cont_noisbn)])), [(0, "Dandadan (Tomes 21 à aujourd'hui)")])
 gsame = "== Liste des volumes ==\n{{a}}\n== Médias ==\n{{b}}\n"
 same_ok = RL.split(gsame, "Gosick", "Gosick", [grec(5, "9784047126930", gsame.index("{{a}}")),
                                               grec(5, "9784047126930", gsame.index("{{b}}"))])
@@ -346,11 +359,105 @@ eq("guard: one listing another book under the same number is held (same article 
    sorted(RL.hold_clashes([("w_g", same_bad)])), [(0, "Gosick (Médias)")])
 
 gww = "== Liste des volumes du light novel ==\n{{a}}\n== Médias ==\n{{b}}\n"
-ww_main = RL.split(gmain, "Wandering Witch", "Wandering Witch", [grec(1, "9784797384352", gmain.index("{{a}}"))])
+# the English article's JP light-novel line (the real shape: the French LN list repeats its ISBNs)
+gln = "== Light novels ==\n{{a}}\n"
+ww_main = RL.split(gln, "Wandering Witch", "Wandering Witch", [grec(1, "9784797384352", gln.index("{{a}}"))])
 ww_fr = RL.split(gww, "Wandering Witch (fr)", "Wandering Witch", [grec(1, "9784797384352", gww.index("{{a}}")),
                                                                   grec(1, "9784757560932", gww.index("{{b}}"))])
 eq("guard: a group repeating the main line's books falls through; its sibling listing another book is held",
    sorted(RL.hold_clashes([("w_ww", ww_main), ("w_ww", ww_fr)])), [(1, "Wandering Witch (Médias)")])
+
+eq("guard: ... the light-novel list would have made a NEW line without the English one -> held too",
+   sorted(RL.hold_clashes([("w_ww", ww_fr)])),
+   [(0, "Wandering Witch (Liste des volumes du light novel)"), (0, "Wandering Witch (Médias)")])
+
+# Seraph of the End / Gamaran (C3 finding A): "Volumes 31 à aujourd'hui" fell through onto the base line,
+# whose volumes stop at 30; its ISBNs sit on a SIBLING line (another article's "Vampire Reign"). Two lines
+# then held every ISBN and stage 7b could not pick a successor. The base line lacks #31 -> held.
+gser = "== Tomes 1 à 30 ==\n{{a}}\n== Volumes 31 à aujourd'hui ==\n{{b}}\n"
+ser = RL.split(gser, "Seraph of the End", "Seraph of the End",
+               [grec(30, "9784088835730", gser.index("{{a}}")), grec(31, "9784088836942", gser.index("{{b}}"))])
+gvr = "== Seraph of the End: Vampire Reign ==\n{{a}}\n"
+vr = RL.split(gvr, "Seraph of the End (en)", "Seraph of the End", [grec(31, "9784088836942", gvr.index("{{a}}"))])
+eq("guard: Seraph of the End -- the ISBNs are on a sibling line, not the fall-through target -> held",
+   sorted(RL.hold_clashes([("w_ser", vr), ("w_ser", ser)])), [(1, "Seraph of the End (Volumes 31 à aujourd'hui)")])
+
+# Naruto (C3 finding B iii): the class-2 heading "Novelizations" made a NEW novel line under the ancestor
+# heading's name ("Naruto (Fiction books)") that took the novel group's main slot and aliases from
+# "Naruto (Original novels)". No novel line of the work holds its volumes -> held: old name, old medium,
+# and its heading word back as line_raw (the heading alias).
+gnar = "== Fiction books ==\n=== Original novels ===\n{{a}}\n=== Novelizations ===\n{{b}}\n"
+nar = RL.split(gnar, "List of Naruto media", "Naruto",
+               [grec(1, "9784087032208", gnar.index("{{a}}")), grec(1, "9784087032017", gnar.index("{{b}}")),
+                grec(2, "9784087032024", gnar.index("{{b}}"))])
+eq("guard: Naruto -- after the round the novelizations are a novel line named after the ancestor heading",
+   [(r["medium"], r["line"]) for r in nar][1:], [("novel", "Naruto (Fiction books)")] * 2)
+eq("guard: ... no existing line holds them -> held", sorted(RL.hold_clashes([("w_nar", nar)])), [(0, "Naruto (Novelizations)")])
+eq("guard: ... hold() restores the old name, the old medium and the heading word (line_raw)",
+   [(r["medium"], r["line"], r["line_raw"]) for r in RL.hold(nar, {"Naruto (Novelizations)"})][1:],
+   [("manga", "Naruto (Novelizations)", "Novelizations")] * 2)
+
+# a group that would become a NEW line (Angel Beats! "Related media": the article's only list) is held,
+# even with no other row to clash with: a fall-through never creates a line
+grel = "== Related media ==\n{{b}}\n"
+ab = RL.split(grel, "Angel Beats!", "Angel Beats!", [grec(n, "97840486617%02d" % n, grel.index("{{b}}")) for n in (1, 2)])
+eq("guard: a group whose fall-through would be a NEW line is held", sorted(RL.hold_clashes([("w_ab", ab)])),
+   [(0, "Angel Beats! (Related media)")])
+eq("guard: ... so is one whose licensed market has no line yet (the JP books are duplicates, the FR line would be new)",
+   sorted(RL.hold_clashes([("w_g", RL.split(gsame, "Gosick", "Gosick", [
+       grec(5, "9784047126930", gsame.index("{{a}}")),
+       dict(grec(5, "9784047126930", gsame.index("{{b}}")),
+            markets={"original": {"market": "JP", "isbn13": "9784047126930"},
+                     "licensed": {"market": "FR", "isbn13": "9782811612345"}})]))])),
+   [(0, "Gosick (Médias)")])
+eq("guard: ... and with the FR line in the catalogue already (same ISBN) it falls through",
+   RL.hold_clashes([("w_g", RL.split(gsame, "Gosick", "Gosick", [
+       grec(5, "9784047126930", gsame.index("{{a}}")),
+       dict(grec(5, "9784047126930", gsame.index("{{b}}")),
+            markets={"original": {"market": "JP", "isbn13": "9784047126930"},
+                     "licensed": {"market": "FR", "isbn13": "9782811612345"}})]))],
+       existing=[("w_g", "manga", "FR", "Gosick", "5", "9782811612345")]), {})
+
+# a fall-through never changes which line is main: the export makes the line named after the work main,
+# else the biggest -- a duplicate may only fall onto the work's OWN line, never onto a sibling it could
+# overtake or tie ("Gamaran - Le Tournoi ultime", an ancestor heading's line)
+ganc = "== Le Tournoi ultime ==\n{{a}}\n=== Médias ===\n{{b}}\n"
+anc = RL.split(ganc, "Gamaran", "Gamaran", [grec(1, "9784063842951", ganc.index("{{a}}")),
+                                            grec(1, "9784063842951", ganc.index("{{b}}"))])
+eq("guard: a duplicate onto a line not named after the work (an ancestor heading's) is held",
+   sorted(RL.hold_clashes([("w_gam", anc)])), [(0, "Gamaran (Médias)")])
+
+# ... nor in the medium it leaves: a class-2 group ("Roman", manga before the round) that duplicates the
+# work's novel line takes its old manga line away. Fine when the work's manga line named after the work
+# stays main (No. 6) or when it was the only manga line (Babylon); held when it could have been main of
+# the manga lines left (no line named after the work among them)
+grom = "== Roman ==\n{{b}}\n"
+no6 = RL.split(grom, "No. 6 (roman)", "No. 6", [grec(1, "9784062125901", grom.index("{{b}}"))])
+no6_novel = [("w_no6", "novel", "JP", "No. 6", "1", "9784062125901")]
+eq("guard: a class-2 duplicate falls through when the work's own manga line stays (No. 6)",
+   RL.hold_clashes([("w_no6", no6)], existing=no6_novel + [("w_no6", "manga", "JP", "No. 6", "1", "9784063144000")]), {})
+eq("guard: ... or when its old manga line was the work's only one (Babylon)",
+   RL.hold_clashes([("w_no6", no6)], existing=no6_novel), {})
+eq("guard: ... and is held when the manga lines left have none named after the work",
+   sorted(RL.hold_clashes([("w_no6", no6)], existing=no6_novel + [("w_no6", "manga", "JP", "No. 6 (Collections)", "1", "9784063144000")])),
+   [(0, "No. 6 (Roman)")])
+
+# a fall-through never re-parents: an arc split out of a group's rows points at the group's line
+# (arc_of); if the group fell through, the arc would hang under the work's line instead -> held, and
+# hold() points the arc back at the heading line (its pre-round parent)
+garc2 = "== Books ==\n" + "".join("{{r%d}}\n" % n for n in range(1, 5))
+def arow2(n, title, isbn):
+    r = grec(n, isbn, garc2.index("{{r%d}}" % n))
+    r["title"] = title
+    return r
+gmain2 = RL.split(gmain, "Foo (en)", "Foo", [grec(1, "9784000000011", gmain.index("{{a}}")),
+                                             grec(2, "9784000000028", gmain.index("{{a}}"))])
+arcs2 = RL.split(garc2, "Foo", "Foo", [arow2(1, "Foo 1", "9784000000011"), arow2(2, "Foo 2", "9784000000028"),
+                                       arow2(3, "Foo: Bar 1", "9784000000035"), arow2(4, "Foo: Bar 2", "9784000000042")])
+eq("guard: a group hosting an arc is held, even when its plain rows are duplicates",
+   sorted(RL.hold_clashes([("w_foo", gmain2), ("w_foo", arcs2)])), [(1, "Foo (Books)")])
+eq("guard: ... and hold() gives the arc rows their pre-round parent (the heading line)",
+   [r.get("arc_of") for r in RL.hold(arcs2, {"Foo (Books)"})], [None, None, "Foo (Books)", "Foo (Books)"])
 
 # a held class-2 group keeps its OLD medium as well as its old name: Hyouka's "Roman" list (tagged manga
 # before the round) would land on the English article's JP novel line under other ISBNs -> held, it reloads
@@ -416,7 +523,7 @@ finally:
 gdb = sqlite3.connect(gdb_path)
 eq("build_corpus: the held list is kept in meta corpus:held",
    __import__("json").loads(gdb.execute("SELECT value FROM meta WHERE key='corpus:held'").fetchone()[0]),
-   [["en", "No Game No Life: Publications", "No Game No Life (Publication and conception)", 2]])
+   [["en", "No Game No Life: Publications", "No Game No Life (Publication and conception)", 3]])
 eq("build_corpus: the held group loads as its own line, the continuation into the work's line",
    sorted(gdb.execute("""SELECT c.value, COUNT(v.id) FROM release_line rl JOIN claim c ON c.entity='release_line'
                          AND c.entity_id=rl.id AND c.field='line_name' JOIN volume v ON v.release_line_id=rl.id
@@ -426,6 +533,16 @@ eq("build_corpus: no ISBN of either No Game No Life line was replaced",
    sorted(i for (i,) in gdb.execute("SELECT isbn13 FROM volume WHERE isbn13 LIKE '97840406%'")),
    ["9784040661101", "9784040661102", "9784040664301", "9784040664302", "9784040664303"])
 gdb.close()
+# a resumed build (KEEP_DB=1) compares against the catalogue's rows -- numbers without an ISBN too, so a
+# volume without an ISBN can fall onto a number the catalogue's line already has
+edb = sqlite3.connect(os.path.join(tempfile.mkdtemp(prefix="opentome-existing-"), "e.db"))
+edb.executescript(open(os.path.join(GROOT, "schema", "schema.sql"), encoding="utf8").read())
+gload(edb, "Dandadan", RL.split(gmain, "Dandadan", "Dandadan", [grec(20, "9784088825020", gmain.index("{{a}}")),
+                                                                 grec(21, None, gmain.index("{{a}}"))]), work_key="k:dd")
+eq("build_corpus: existing_rows lists the catalogue's numbers, with or without an ISBN",
+   sorted(BC.existing_rows(edb), key=lambda r: r[4]),
+   [(gid("w_", "k:dd"), "manga", "JP", "Dandadan", "20", "9784088825020"), (gid("w_", "k:dd"), "manga", "JP", "Dandadan", "21", None)])
+edb.close()
 
 # ---- work_title: French list articles (2026-09-25, alias-fix) -----------
 # 'de' ate the start of 'des' ("s Enquêtes de Kindaichi" shipped as an alias); des/du now restore

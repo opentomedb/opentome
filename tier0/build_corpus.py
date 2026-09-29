@@ -85,13 +85,13 @@ def done_set(db):
 
 
 def existing_rows(db):
-    """(work, medium, market, line name, number, isbn13) of the volumes already in the catalogue -- a
-    resumed KEEP_DB=1 build: the collision guard compares the new articles against them too."""
+    """(work, medium, market, line name, number, isbn13 or None) of the volumes already in the catalogue --
+    a resumed KEEP_DB=1 build: the collision guard compares the new articles against them too (a number
+    without an ISBN counts: a volume without one may fall onto it)."""
     return db.execute("""SELECT rl.work_id, rl.medium, rl.market, c.value, v.number, v.isbn13
                          FROM volume v JOIN release_line rl ON rl.id=v.release_line_id
                          JOIN claim c ON c.entity='release_line' AND c.entity_id=rl.id
-                          AND c.field='line_name' AND c.source='wikipedia'
-                         WHERE v.isbn13 IS NOT NULL""").fetchall()
+                          AND c.field='line_name' AND c.source='wikipedia'""").fetchall()
 
 
 def load_identity(path=None):
@@ -152,7 +152,7 @@ def main(dbpath, limit=None, langs=("en", "fr")):
     for (b, name), keys in held.items():
         names_of[b].add(name)
         print(f"  collision guard: {parsed[b][0]}:{parsed[b][1]} keeps {name!r} "
-              f"({len(keys)} volume(s) would land on another edition)", flush=True)
+              f"({len(keys)} volume(s) not already on the work's line under the same ISBN)", flush=True)
     print(f"collision guard: {len(held)} heading group(s) keep their heading name", flush=True)
     db.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('corpus:held',?)", (json.dumps(
         sorted([parsed[b][0], parsed[b][1], name, len(keys)] for (b, name), keys in held.items())),))
