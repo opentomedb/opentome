@@ -25,11 +25,10 @@ compares an absorbed work's re-keyed lines, never two lines the carry both has. 
 reported: a line a library owns (a dnb_line or krcn_line row points at it: the 8d reload gates compare
 those ids) or a corrections/lines.json entry names (`kept`), and a pair whose volumes disagree -- a
 number both lines have under different ISBNs, which merge_line would drop from the folded line
-(`differ`: Solo Leveling's two ko lines, 13 of 15 ISBNs different, are two editions). After the retag
-both lines of a `differ` pair carry one name and one medium, so the export's name match (to_mangarr
-line_key, last write wins) would send every licensed line to the same one: each other-market line that
-paired by name with one of the two BEFORE the retag gets a derived origin_line pin to it (source 'opentome',
-the pin carried_ids.merge_line writes), unless it already has one.
+(`differ`: Solo Leveling's two ko lines, 13 of 15 ISBNs different, are two editions). A work with a
+`differ` pair is left exactly as before the round (controller ruling, fix F1): none of its lines is
+retagged and no origin_line pin is written -- retagged, both lines would carry one name and one medium,
+the retagged line took main and the work aliases, and every licensed line's origin moved. Round C.
 
 After 3f (a library line merged into a Wikipedia line flips with it) and the enrichment (4c's
 reason: a line dropped earlier shifts openBD's batch cache); before 4c and 5b, so a
@@ -41,7 +40,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "export"))
 from to_mangarr import origin_markets, normalize          # noqa: E402
-from carried_ids import merge_line, _table, LICENCE, NOW    # noqa: E402
+from carried_ids import merge_line, _table                  # noqa: E402
 import corrections as CORR                                  # noqa: E402  (tier2, on carried_ids' path)
 
 TARGET = {"KR": "manhwa", "CN": "manhua", "TW": "manhua"}
@@ -106,68 +105,51 @@ def plan(db):
         owned |= {r for (r,) in db.execute("SELECT rl_id FROM dnb_line WHERE rl_id IS NOT NULL")}
     if _table(db, "krcn_line"):
         owned |= {r for row in db.execute("SELECT rl_id, target FROM krcn_line") for r in row if r}
-    same = collections.defaultdict(list)
-    for rid, wid, market, medium in lines:
-        same[(wid, market, flips.get(rid, medium), name_of(rid, wid).strip().lower())].append(rid)
-    merges, kept, differ = [], [], []
-    for key in sorted(same):
-        rids = same[key]
-        if len(rids) < 2 or not any(r in flips for r in rids):
-            continue                    # only a duplicate THIS flip made; older twins are not ours
-        keep = sorted(rids, key=lambda r: (r in flips, -size.get(r, 0), r))[0]
-        for r in rids:
-            if r == keep:
-                continue
-            clash = sorted(n for n, i in isbn_of[r].items() if i and n in isbn_of[keep] and isbn_of[keep][n] != i)
-            if r in owned:
-                kept.append((r, keep))
-            elif clash:
-                differ.append((r, keep, len(clash)))
-            else:
-                merges.append((r, keep))
+    work_of = {rid: wid for rid, wid, _, _ in lines}
+
+    def pair(flips):
+        same = collections.defaultdict(list)
+        for rid, wid, market, medium in lines:
+            same[(wid, market, flips.get(rid, medium), name_of(rid, wid).strip().lower())].append(rid)
+        merges, kept, differ = [], [], []
+        for key in sorted(same):
+            rids = same[key]
+            if len(rids) < 2 or not any(r in flips for r in rids):
+                continue                    # only a duplicate THIS flip made; older twins are not ours
+            keep = sorted(rids, key=lambda r: (r in flips, -size.get(r, 0), r))[0]
+            for r in rids:
+                if r == keep:
+                    continue
+                clash = sorted(n for n, i in isbn_of[r].items() if i and n in isbn_of[keep] and isbn_of[keep][n] != i)
+                if r in owned:
+                    kept.append((r, keep))
+                elif clash:
+                    differ.append((r, keep, len(clash)))
+                else:
+                    merges.append((r, keep))
+        return merges, kept, differ
+    merges, kept, differ = pair(flips)
+    if differ:      # a work with a pair of editions is left exactly as before the round: none of its lines flips
+        ws = {work_of[r] for r, _, _ in differ}
+        flips = {r: m for r, m in flips.items() if work_of[r] not in ws}
+        merges, kept, _ = pair(flips)
     return flips, merges, kept, differ, sorted(guarded)
-
-
-def differ_pins(db, differ):
-    """[(other-market line, the differ-pair line it paired with by name BEFORE the retag)]: same work, another
-    market, the same pre-retag medium and name.strip().lower(), no origin_line claim yet. Read before apply()
-    changes any medium."""
-    if not differ:
-        return []
-    works = dict(db.execute("SELECT id, primary_title FROM work"))
-    names = _names(db)
-    info = {rid: (wid, market, medium) for rid, wid, market, medium in
-            db.execute("SELECT id, work_id, market, medium FROM release_line ORDER BY id")}
-    pinned = {e for (e,) in db.execute("SELECT entity_id FROM claim WHERE entity='release_line' AND field='origin_line'")}
-    key = lambda rid: (names.get(rid) or works[info[rid][0]]).strip().lower()
-    out = []
-    for dup, keep, _ in differ:
-        for line in (keep, dup):
-            wid, market, medium = info[line]
-            out += [(o, line) for o, (ow, om, od) in info.items()
-                    if ow == wid and om != market and od == medium and o not in pinned and key(o) == key(line)]
-    return sorted(set(out))
 
 
 def apply(db):
     """Stage 4b2. -> {"flips": [(line, medium)], "merges": [(folded, survivor, moved, dropped)],
-    "kept": [(owned line, survivor)], "differ": [(line, survivor, n)], "guarded": [(line, medium)],
-    "pins": [(licensed line, origin line)]}, also written to meta 'comic_medium' (merged into a stored report: each
-    list a de-duplicated union, so a re-run keeps what the first run did)."""
+    "kept": [(owned line, survivor)], "differ": [(line, survivor, n)], "guarded": [(line, medium)]}, also
+    written to meta 'comic_medium' (merged into a stored report: each list a de-duplicated union, so a re-run
+    keeps what the first run did)."""
     flips, merges, kept, differ, guarded = plan(db)
-    pins = differ_pins(db, differ)
     c = db.cursor()
-    for lid, origin in pins:
-        c.execute("""INSERT OR IGNORE INTO claim(entity,entity_id,field,value,source,source_url,licence,retrieved_at)
-                     VALUES('release_line',?,'origin_line',?,'opentome',NULL,?,?)""", (lid, origin, LICENCE["opentome"], NOW))
     for rid, medium in sorted(flips.items()):
         c.execute("UPDATE release_line SET medium=? WHERE id=?", (medium, rid))
     done = []
     for dup, keep in merges:
         moved, dropped = merge_line(c, dup, keep)
         done.append((dup, keep, moved, dropped))
-    rep = {"flips": sorted(flips.items()), "merges": done, "kept": kept, "differ": differ, "guarded": guarded,
-           "pins": pins}
+    rep = {"flips": sorted(flips.items()), "merges": done, "kept": kept, "differ": differ, "guarded": guarded}
     stored = {}                         # a re-run past 4b2 (KEEP_DB=1) finds nothing left to do: keep the earlier report
     row = c.execute("SELECT value FROM meta WHERE key='comic_medium'").fetchone()
     if row:
@@ -200,9 +182,8 @@ def main(argv):
     for dup, keep in rep["kept"]:
         print("    NOT folded: %s is a library or corrected line -- the same line as %s; review" % (dup, keep))
     for dup, keep, n in rep["differ"]:
-        print("    NOT folded: %s and %s disagree on %d volume(s) -- two editions; review" % (dup, keep, n))
-    for lid, origin in rep["pins"]:
-        print("    origin_line pin (a differ pair shares one name now): %s -> %s" % (lid, origin))
+        print("    NOT retagged: %s and %s disagree on %d volume(s) -- two editions; the work is left as it was; review"
+              % (dup, keep, n))
     for rid, medium in rep["guarded"]:
         print("    guarded (JP line, family-derived origin): %s stays manga (would be %s); review" % (rid, medium))
 
