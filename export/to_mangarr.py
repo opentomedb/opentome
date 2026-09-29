@@ -42,7 +42,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tier0"))
 sys.path.insert(0, os.path.join(ROOT, "tier2"))
 from build_corpus import work_title, FR_LIST_ARTICLE, CONTRACTED_ARTICLE
-from release_lines import GENERIC
+from release_lines import GENERIC, HELD
 from corrections import load_aliases, load_alias_removals, load_exclusions
 from line_status import line_status
 
@@ -832,7 +832,9 @@ def export(src_path, out_path, carry_ids_from=None):
         # of Greed" resolved to nothing at all.
         cands = [(lname or wtitle, False, None, "line")]
         raw = _line_raw(lname, wtitle)
-        if raw and raw != lname and len(normalize(raw).split()) >= 3 and not GENERIC.match(raw):
+        # GENERIC as before the heading cleanup (HELD = what the round added): a heading group the
+        # collision guard holds keeps its heading-word alias, as it shipped before the round (fix F1)
+        if raw and raw != lname and len(normalize(raw).split()) >= 3 and not (GENERIC.match(raw) and not HELD.match(raw)):
             cands.append((raw, False, None, "line"))
         if is_main:
             # Same query, same order as before (the PK index orders it); only the columns grew.
