@@ -242,6 +242,62 @@ for r in w:
 eq("arc: stem containing (not starting with) the work is qualified",
    RL.split_arcs(w, "W.I.T.C.H.")[2]["line"], "W.I.T.C.H. (Part IX. 100% W.I.T.C.H.)")
 
+# ---- heading classes (heading cleanup A+B, 2026-09-29; spec §3.1) ---------------------------------
+# Class 1 names no line (falls through to the work title); class 2 names a medium (sets it, falls
+# through); class 3 and anything not listed in the spec keep naming their line (round C).
+HW = "A Sign of Affection"
+for h in ("Médias", "Média", "MÉDIAS", "Parution", "Production", "Publications", "Publication history",
+          "Publication and conception", "Books and publications", "Related media", "Works", "Personnages",
+          "Synopsis", "Plot", "Plot summary", "Books", "Book", "Liste de volumes", "Listes des volumes",
+          "Liste des tomes", "Détail des volumes", "List of chapters", "Chapter and volume list",
+          "Manga volumes", "Tomes 21 à aujourd'hui", "Tome 31 à aujourd’hui", "Volumes 21 à aujourd'hui",
+          "Volumes 11 to present"):
+    eq("class 1: %r names no line" % h, RL.line_name([h], HW), (HW, HW))
+for h, med in (("Roman", "novel"), ("Romans", "novel"), ("Roman illustré", "light_novel"), ("Roman web", "novel"),
+               ("Liste des romans", "novel"), ("Novelizations", "novel"), ("Novel series", "novel"),
+               ("Web novel", "novel"), ("Liste des light novel", "light_novel"),
+               ("Liste des light novels", "light_novel"), ("Liste des volumes du light novel", "light_novel"),
+               ("Bande dessinée", "manga"), ("Mangas", "manga"), ("Webtoon", "manhwa")):
+    eq("class 2: %r sets the medium" % h, RL.detect_medium([h], HW, default=None), med)
+    eq("class 2: %r names no line" % h, RL.line_name([h], HW), (HW, HW))
+for h in ("Édition Deluxe", "Première édition", "New edition", "Part 1", "1re partie", "Second series",
+          "Truth of Zero", "Jump Comics", "Shueisha Bunko", "English release", "Japanese volume list",
+          "Tankōbon editions", "Spin-off manga", "Short stories", "TV series", "Listes des tomes",
+          "Informations", "Novel list", "Liste des volumes de la série principale"):
+    eq("class 3 / unlisted: %r still names its line" % h, RL.line_name([h], HW), ("%s (%s)" % (HW, h), h))
+eq("a closed pagination range is still pagination", RL.line_name(["Tomes 1 à 20"], HW), (HW, HW))
+eq("the article title never reads a heading hint (Cestvs: The Roman Fighter)",
+   RL.detect_medium(["Volumes"], "Cestvs: The Roman Fighter", default=None), None)
+eq("a heading hint needs the whole heading: an arc 'Le Roman de Chiyo' is no novel section",
+   RL.detect_medium(["Le Roman de Chiyo"], HW, default=None), None)
+eq("a MEDIUM_HINTS word anywhere in the path still wins over a heading hint",
+   RL.detect_medium(["Manga", "Roman"], HW, default=None), "manga")
+eq("a heading hint wins over the article title", RL.detect_medium(["Roman"], "Hyouka (manga)", default=None), "novel")
+eq("no hint anywhere: the default", RL.detect_medium(["Volumes"], HW), "manga")
+# hold=True: the name the collision guard restores -- only for what the round changed
+eq("hold: a round-A heading names its line as before the round", RL.line_name(["Médias"], HW, hold=True),
+   (HW + " (Médias)", "Médias"))
+eq("hold: an open-ended pagination heading too", RL.line_name(["Tomes 21 à aujourd'hui"], HW, hold=True),
+   (HW + " (Tomes 21 à aujourd'hui)", "Tomes 21 à aujourd'hui"))
+for h in ("Media", "Publications", "Liste des tomes", "Novel series", "Volumes", "Tomes 1 à 20", "Manga"):
+    eq("hold: %r was generic before the round and stays generic" % h, RL.line_name([h], HW, hold=True), (HW, HW))
+hsrc = ("== Liste des volumes ==\n{{a}}\n== Médias ==\n=== Manga ===\n{{b}}\n"
+        "== Tomes 21 à aujourd'hui ==\n{{c}}\n== Édition Deluxe ==\n{{d}}\n== Roman ==\n{{e}}\n")
+hrecs = [{"volume": n, "_offset": hsrc.index(tag)} for n, tag in
+         (("1", "{{a}}"), ("2", "{{b}}"), ("21", "{{c}}"), ("1", "{{d}}"), ("1", "{{e}}"))]
+hout = RL.split(hsrc, "Liste des volumes de Hyouka", "Hyouka", hrecs)
+eq("split: 'Médias > Manga' and the open-ended pagination load into the work's own line; "
+   "'Roman' is its novel line; 'Édition Deluxe' stays a line",
+   [(r["medium"], r["line"]) for r in hout],
+   [("manga", "Hyouka"), ("manga", "Hyouka"), ("manga", "Hyouka"), ("manga", "Hyouka (Édition Deluxe)"),
+    ("novel", "Hyouka")])
+eq("split: a record that fell through a round-A heading carries its held name; the others none",
+   [r.get("line_held") for r in hout],
+   [None, "Hyouka (Médias)", "Hyouka (Tomes 21 à aujourd'hui)", None, "Hyouka (Roman)"])
+eq("split: ... and its pre-round medium (no heading hint: 'Roman' was manga before the round)",
+   [r.get("medium_held") for r in hout], [None, "manga", "manga", None, "manga"])
+eq("detect_medium(headings=False) is the pre-round rule", RL.detect_medium(["Roman"], "Hyouka", headings=False), "manga")
+
 # ---- work_title: French list articles (2026-09-25, alias-fix) -----------
 # 'de' ate the start of 'des' ("s Enquêtes de Kindaichi" shipped as an alias); des/du now restore
 # the title's own article, as to_mangarr.local_title does (the fragment is shared).
