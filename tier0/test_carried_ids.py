@@ -643,6 +643,15 @@ eq("gate: a carried integer that is neither a series nor an old_series_id fails"
        tiny("g6", [(7, "rl_fr", "w_a", "fr"), (2, "rl_ja", "w_a", "ja")],
             [(7, "v_fr%03d" % i) for i in range(150)] + [(2, "v_ja1")], excluded=["w_x"]), gate_carry), True)
 
+# ---- heading cleanup (2026-09-29): a fixture line id may resolve through a merge / correction redirect ----
+# Five krcn_lines_pre.json ids were heading lines ("Wind Breaker (Médias)", "Solo Leveling (Roman web)", ...)
+# that this round folds into the real line; a retirement, or no redirect at all, still counts as missing.
+pre_art = tiny("pre", [(1, "rl_a", "w_p", "fr"), (2, "rl_b", "w_p", "fr")], [],
+               redirects=[("rl_old", "rl_a", "duplicate_merge"), ("rl_c1", "rl_c2", "correction"),
+                          ("rl_c2", "rl_b", "correction"), ("rl_ret", "rl_a", "retired")])
+eq("fixture lines: present, merged or corrected (a chain too) count as there; retired or gone do not",
+   TA.missing_pre_lines(sqlite3.connect(pre_art), ["rl_a", "rl_old", "rl_c1", "rl_ret", "rl_gone"]), ["rl_ret", "rl_gone"])
+
 # ---- C1: a missing carry fails CI unless the cold start is deliberate -----------------------------
 import subprocess
 nocarry = catalogue("nocarry", [(WN, "Undated", [("JP", "manga", "Undated", vols(11, 2))])])

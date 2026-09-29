@@ -874,7 +874,7 @@ def run_krcn(path, catalogue, carry=None):
         bad = carried_isbn_moved(db, cat, C, ids, carried_ids)
         rule("carried KR/CN-scope volumes whose carried ISBN now sits on another present volume", len(bad), str(bad[:3]))
         # export fixes E1 / E3 (2026-09-28): every carried line, not only KR/CN ones
-        bad = carried_regressions(db, C)
+        bad = carried_regressions(db, C, retagged=retagged_lines(cat))
         rule("carried lines that lost is_main / local_name / alias rows or are parented under a line absent from "
              "the carry (E1; allowances: a carried id redirect, ALIAS_LOSS_OK)", len(bad), str(bad[:4]))
         bad = carried_orig_changes(db, C)
@@ -883,8 +883,8 @@ def run_krcn(path, catalogue, carry=None):
     rule("aliases / names / work titles that are only a language name (E2)", len(bad), str(bad[:5]))
     # fixtures
     pre = [l["tome_id"] for l in fx("krcn_lines_pre.json")["lines"]]
-    rule("pre-round KR/CN line ids (and the library-fixture lines) missing", sum(1 for t in pre if t not in art_ids),
-         str([t for t in pre if t not in art_ids][:5]))
+    gone = missing_pre_lines(db, pre)
+    rule("pre-round KR/CN line ids (and the library-fixture lines) missing", len(gone), str(gone[:5]))
     verdict = {k: (r, w) for k, r, w in cat.execute("SELECT key, role, work FROM krcn_line")}
     wrong = [m["key"] for m in labels.get("must_link", []) if m["key"] in verdict and
              (verdict[m["key"]][0] not in SHIPS or verdict[m["key"]][1] != m["expected_work"])]
@@ -1018,9 +1018,39 @@ def _redirect(d):
     return red, final
 
 
-def carried_regressions(db, C):
+def missing_pre_lines(db, pre):
+    """Fixture line ids neither a series of this artifact nor resolving, through its id_redirect, by a merge or
+    a correction (never a retirement) to one. Heading cleanup (2026-09-29): five krcn_lines_pre.json ids were
+    heading lines ("Wind Breaker (Médias)", "Solo Leveling (Roman web)", ...) folded into the real line."""
+    have = {r[0] for r in db.execute("SELECT tome_id FROM series")}
+    try:
+        red = {o: (n, r) for o, n, r in db.execute("SELECT old_tome_id, new_tome_id, reason FROM id_redirect")}
+    except sqlite3.OperationalError:
+        red = {}
+    out = []
+    for t in pre:
+        cur, seen = t, set()
+        while cur not in have and cur in red and red[cur][1] in ("duplicate_merge", "correction") and cur not in seen:
+            seen.add(cur)
+            cur = red[cur][0]
+        if cur not in have:
+            out.append(t)
+    return out
+
+
+def retagged_lines(cat):
+    """Lines stage 4b2 (tier0/comic_medium.py) retagged in place: the catalogue's meta.comic_medium flips."""
+    try:
+        return {r for r, _ in json.loads(cat.execute("SELECT value FROM meta WHERE key='comic_medium'").fetchone()[0])["flips"]}
+    except (sqlite3.OperationalError, TypeError, ValueError, KeyError):
+        return set()
+
+
+def carried_regressions(db, C, retagged=()):
     """E1: carried lines (present in the carry C and in this artifact) that lost is_main, lost local_name or
-    alias rows, or whose parent is now a line absent from the carry. -> [(tome_id, what, detail)]."""
+    alias rows, or whose parent is now a line absent from the carry. -> [(tome_id, what, detail)].
+    `retagged`: lines stage 4b2 moved into another medium's group (retagged_lines), where a larger line can be
+    main -- their lost is_main and work aliases are explained (King of Hell DE, ORV's physical EN line)."""
     A, a_al = _lines(db)
     K, c_al = _lines(C)
     red, final = _redirect(db)
@@ -1042,7 +1072,8 @@ def carried_regressions(db, C):
         if a is None:
             continue                # retired / redirected: run_ids' rules own it
         explained = bool(successors[group(c)] & main_now[group(c)])
-        if c["is_main"] == 1 and a["is_main"] != 1 and not explained:
+        regrouped = t in retagged
+        if c["is_main"] == 1 and a["is_main"] != 1 and not (explained or regrouped):
             out.append((t, "is_main lost", ""))
         if a["parent"] and a["parent"] != c["parent"] and a["parent"] not in K and \
                 not (c["parent"] and final(c["parent"]) == a["parent"]):
@@ -1050,7 +1081,7 @@ def carried_regressions(db, C):
         if c["local_name"] and not a["local_name"] and not explained:
             out.append((t, "local_name lost", c["local_name"]))
         lost = sorted(x for x in c_al.get(t, set()) - a_al.get(t, set()) if (t, x) not in ALIAS_LOSS_OK)
-        if lost and not explained:
+        if lost and not (explained or regrouped):
             out.append((t, "alias rows lost", "%d %s" % (len(lost), lost[:4])))
     return out
 
