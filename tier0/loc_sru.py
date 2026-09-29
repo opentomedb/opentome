@@ -155,10 +155,9 @@ def _page(query, start, size, last):
 # set or slice is COMPLETE when (a) every position 1..n was delivered (full pages, no failed page;
 # a failed page goes down the ladder, and only a failed page -- or, since the C0 ruling of 2026-09-29, a
 # stem announcing more than WINDOW positions -- ever leads to ISBN-prefix slices) and
-# (b) when distinct < n, a second full read at the next page size (50) finds no record the first
-# read lacked -- duplicates did not mask a missing record. If it does, the reads are unioned and a
-# third full read (25) must add nothing; if it still grows, the set is incomplete (LocIncomplete ->
-# the degraded rule). Verified sets are accepted through lib_sru's per-source hook (LOC.accept);
+# (b) when distinct < n, the gap is accepted and reported as unconfirmed (option 1, one read -- Nick
+# 2026-09-29; this replaced the 09-27 rule of confirming reads at 50 and 25, which never agree on LoC's
+# Yen stems). Verified sets are accepted through lib_sru's per-source hook (LOC.accept);
 # the generic distinct == n rule stays for BnF / DNB.
 VERIFIED = {}                      # query -> distinct records of a verified set with duplicates
 PENDING = {}                       # query -> duplicate info (or None) of this read, not yet stored
@@ -239,27 +238,16 @@ def _verified(query, n):
         return n, staged
     if len(seen) > n:
         raise LocIncomplete("%r: %d distinct records, more than the %d announced" % (query, len(seen), n))
+    # Option 1, one read (Nick 2026-09-29): LoC hands out a set's records differently on each read (live
+    # C0: 979885540* 223, re-reads found [0, 5, 1] new), so agreeing reads cannot be had, and the 7x cost
+    # of re-reading at 50 and 25 does not fit the 400-request budget. The one read is accepted; the gap
+    # (announced - distinct: duplicate positions and/or records this read did not deliver) is reported.
     reads = [(SIZES[0], len(seen), 0)]
-    for size in SIZES[1:]:
-        more = _read(query, n, size)
-        ids = _ids(more)
-        new = set(ids) - seen
-        twice |= _twice(ids)
-        staged += more
-        reads.append((size, len(set(ids)), len(new)))
-        print("    loc duplicates: %r announced %d; read at %d holds %d distinct, %d new" % (
-            query, n, size, len(set(ids)), len(new)), flush=True)
-        if not new:
-            break
-        if size == SIZES[-1]:
-            raise LocIncomplete("%r: announced %d; reads at %s kept finding new records %s" % (
-                query, n, "/".join(str(r[0]) for r in reads), [r[2] for r in reads]))
-        seen |= new
-        if len(seen) > n:
-            raise LocIncomplete("%r: %d distinct records, more than the %d announced" % (query, len(seen), n))
+    print("    loc unconfirmed: %r announced %d; one read holds %d distinct (%d positions not confirmed)" % (
+        query, n, len(seen), n - len(seen)), flush=True)
     VERIFIED[query] = len(seen)
     _note_dups(query, {"n": n, "distinct": len(seen), "positions": n - len(seen),
-                       "dup_ids": sorted(twice), "reads": reads})
+                       "dup_ids": sorted(twice), "reads": reads, "unconfirmed": True})
     return n, staged
 
 

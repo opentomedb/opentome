@@ -1118,35 +1118,36 @@ LRULE["seq"] = lambda q, ids, sz: ids[:50] + [ids[10]] + ids[50:] if q == "bath.
 LOCDB.update({str(3100 + k): ([isbn13("9798855491", k)], True) for k in range(80)})
 n, pages = LS.search_set("bath.isbn=9798855491*")
 man = json.load(open(LS.LOC.sets_path))["bath.isbn=9798855491*"]
-eq("duplicate position confirmed by a second read at 50: complete, cached with distinct < n",
+eq("duplicate position: one read, cached with distinct < n (option 1, one read)",
    (n, LS.LOC.distinct(pages), man["distinct"], sorted({re.search(r"maximumRecords=(\d+)", u).group(1) for u in man["urls"]})),
-   (81, 80, 80, ["100", "50"]))
+   (81, 80, 80, ["100"]))
 eq("... duplicate positions reported (count + 001s)",
    {k: ldups()["bath.isbn=9798855491*"][k] for k in ("positions", "dup_ids")}, {"positions": 1, "dup_ids": ["3110"]})
 k = len(LCALLS)
 eq("... served whole from the cache afterwards", (LS.search_set("bath.isbn=9798855491*")[0], len(LCALLS) - k), (81, 0))
-# B. at 100 a duplicate masks record 3160; the read at 50 reveals it -> union, third read at 25 adds nothing
+# B. at 100 a duplicate masks record 3160: one read only (option 1), so the gap stays and is reported
 LRULE["seq"] = (lambda q, ids, sz: (lambda base: lmask(base, 61) if sz == 100 else base)(ids[:50] + [ids[10]] + ids[50:])
                 if q == "bath.isbn=9798855491*" else ids)
 n, pages = LS.search_set("bath.isbn=9798855491*", force=True)
-eq("masked record: revealed at 50, unioned, the third read at 25 confirms",
+eq("masked record: one read, no re-read -- the gap (2) is reported unconfirmed",
    (n, LS.LOC.distinct(pages), [r[0] for r in ldups()["bath.isbn=9798855491*"]["reads"]], LS.LOC.degraded),
-   (81, 80, [100, 50, 25], None))
-# C. every read finds a record the earlier ones lacked: incomplete (no slices -- not a failed page)
+   (81, 79, [100], None))
+# C. every read finds a record the earlier ones lacked (live C0 2026-09-29: LoC hands out a Yen stem's
+#    records differently on each read). Option 1, one read (Nick 2026-09-29): the read is accepted and the
+#    gap (announced - distinct) is recorded per set as unconfirmed; not degraded, never re-read or sliced for it.
 LOCDB.update({str(3200 + k): ([isbn13("9798855492", k)], True) for k in range(80)})
-LRULE["seq"] = lambda q, ids, sz: lmask(ids, 60, 70) if sz == 100 else lmask(ids, 70) if sz == 50 else ids
+LRULE["seq"] = lambda q, ids, sz: lmask(ids, 60, 70) if sz == 100 else lmask(ids, 70) if sz == 50 else lmask(ids, 30)
 k = len(LCALLS)
-try:
-    LS.search_set("bath.isbn=9798855492*")
-    eq("still growing at 25: incomplete, the stage fails with no cached set", "no exception", "SourceIncomplete")
-except SRU.SourceIncomplete as e:
-    eq("still growing at 25: incomplete, the stage fails with no cached set",
-       ("LocIncomplete" in str(e), any("9798855492" in u and re.search(r"isbn%3D9798855492\d", u) for u in LCALLS[k:])),
-       (True, False))
-n0 = json.load(open(LS.LOC.sets_path))['dc.subject="webcomics"']["n"]
-n, pages = LS.LOC.search('dc.subject="webcomics"', force=True, pager=LS.pager)
-eq("still growing on a cached subject set: degraded, the cached set kept",
-   (n, bool(LS.LOC.degraded), 'dc.subject="webcomics"' in LS.LOC.degraded_queries), (n0, True, True))
+n, pages = LS.search_set("bath.isbn=9798855492*")
+dd = ldups()["bath.isbn=9798855492*"]
+eq("records missing from the read: accepted with the gap (2) recorded as unconfirmed, no re-read",
+   (n, LS.LOC.distinct(pages), dd["positions"], dd["unconfirmed"], [r[2] for r in dd["reads"]], LS.LOC.degraded,
+    any(re.search(r"isbn%3D9798855492\d", u) for u in LCALLS[k:])),
+   (80, 78, 2, True, [0], None, False))
+eq("... and stored: a later offline read serves the set", json.load(open(LS.LOC.sets_path))["bath.isbn=9798855492*"]["n"], 80)
+n, pages = LS.search_set('dc.subject="webcomics"', force=True)
+eq("still growing on a subject set: accepted the same way, not degraded",
+   (LS.LOC.degraded, ldups()['dc.subject="webcomics"']["unconfirmed"]), (None, True))
 LRULE.pop("seq")
 LS.LOC.degraded, LS.LOC.degraded_queries = None, []
 # enumerate_loc: build/loc-report.json per channel -- announced, distinct, DLC share, duplicates
@@ -1157,7 +1158,7 @@ recs, rep = LS.enumerate_loc(verbose=False)
 c = json.load(open(LS.REPORT))["channels"]["isbn 9798855491"]
 eq("loc-report.json: announced, distinct, dlc, share, duplicate positions + 001s",
    (c["records"], c["distinct"], c["dlc"], c["dlc_share"], c["duplicates"]["bath.isbn=9798855491*"]["positions"],
-    c["duplicates"]["bath.isbn=9798855491*"]["dup_ids"], len(recs)), (81, 80, 80, 1.0, 1, ["3110", "3159"], 80))
+    c["duplicates"]["bath.isbn=9798855491*"]["dup_ids"], len(recs)), (81, 79, 79, 1.0, 2, ["3110", "3159"], 79))
 # (served from case B's cached set: 3110 is the genuine duplicate, 3159 the one that masked 3160 at 100)
 LS.CHANNELS, LS.REPORT = _ch, _rp
 del LOCDB["21800815"]
