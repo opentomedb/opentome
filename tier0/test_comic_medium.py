@@ -96,8 +96,7 @@ eq("origins: nothing folded here", (rep["merges"], rep["kept"], rep["differ"]), 
 eq("origins: the JP-origin work's line is listed as guarded, for review",
    rep["guarded"], [(rl("en:Isekai", "DE", "Isekai"), "manhwa")])
 eq("a second run changes nothing (idempotent)", CM.apply(db),
-   {"flips": [], "merges": [], "kept": [], "differ": [], "guarded": [(rl("en:Isekai", "DE", "Isekai"), "manhwa")],
-    "pins": []})
+   {"flips": [], "merges": [], "kept": [], "differ": [], "guarded": [(rl("en:Isekai", "DE", "Isekai"), "manhwa")]})
 db.close()
 
 # ---- the Recast shape: the flip makes two ko lines one; the duplicate folds and 7b redirects it ----
@@ -161,9 +160,10 @@ eq("a line a KR/CN library row targets is reported, not folded",
    (rep["merges"], rep["kept"]), ([], [(rl(LM, "KR", "La Mosca"), rl(LM, "KR", "La Mosca", "manhwa"))]))
 db.close()
 
-# ---- two editions under one name are not folded: Solo Leveling's ko lines (13 of 15 ISBNs differ) ------
-# Both are manhwa "Solo Leveling" after the retag, so the licensed lines that paired with each by name before
-# it (DE 'manga' -> the ko 'manga' line, EN 'manhwa' -> the ko 'manhwa' line) get derived origin_line pins.
+# ---- two editions under one name are left exactly as before the round: Solo Leveling's ko lines ------------
+# (13 of 15 ISBNs differ). Controller ruling (fix F1): a `differ` pair is only reported -- its 'manga' line is
+# NOT retagged (the retag made both "manhwa Solo Leveling": the manga line took main and the work aliases, and
+# its ISBNs moved) and no origin_line pin is written; every licensed line keeps its pre-round origin.
 SL = "en:Solo Leveling"
 sl_works = [(SL, "Solo Leveling", [("KR", "manhwa", "Solo Leveling", vols(50, 3)), ("KR", "manga", "Solo Leveling", vols(51, 3)),
                                    ("DE", "manga", "Solo Leveling", vols(52, 3)), ("EN", "manhwa", "Solo Leveling", vols(53, 3))])]
@@ -173,21 +173,24 @@ db = sqlite3.connect(cat)
 rep = CM.apply(db)
 eq("a pair that disagrees on its numbers' ISBNs is reported (differ), not folded",
    (rep["merges"], rep["differ"]), ([], [(rl(SL, "KR", "Solo Leveling"), rl(SL, "KR", "Solo Leveling", "manhwa"), 3)]))
-eq("... both ko lines stay, the 'manga' one retagged",
-   sorted(db.execute("SELECT market, medium FROM release_line WHERE market='KR'")), [("KR", "manhwa"), ("KR", "manhwa")])
-eq("... each licensed line is pinned to the ko line it paired with before the retag",
-   rep["pins"], sorted([(rl(SL, "DE", "Solo Leveling"), rl(SL, "KR", "Solo Leveling")),
-                        (rl(SL, "EN", "Solo Leveling", "manhwa"), rl(SL, "KR", "Solo Leveling", "manhwa"))]))
+eq("... its 'manga' line is not retagged: the ko lines stay manga + manhwa",
+   sorted(db.execute("SELECT market, medium FROM release_line WHERE market='KR'")), [("KR", "manga"), ("KR", "manhwa")])
+eq("... nor is the DE 'manga' line (the work's other 'manga' lines keep pairing with the unretagged ko line)",
+   medium_of(db, rl(SL, "DE", "Solo Leveling")), "manga")
+eq("... no flip and no origin_line pin written",
+   (rep["flips"], db.execute("SELECT COUNT(*) FROM claim WHERE field='origin_line'").fetchone()[0]), ([], 0))
 db.close()
 sl_art = sqlite3.connect(artifact(cat, sl_carry))
-orig = lambda t: sl_art.execute("""SELECT o.tome_id FROM series s JOIN series o ON o.gcd_series_id=s.orig_series_id
-                                   WHERE s.tome_id=?""", (t,)).fetchone()
-eq("... after export the DE line keeps the ko 'manga' line as its origin", orig(rl(SL, "DE", "Solo Leveling")),
-   (rl(SL, "KR", "Solo Leveling"),))
-eq("... and the EN line keeps the ko 'manhwa' line", orig(rl(SL, "EN", "Solo Leveling", "manhwa")),
-   (rl(SL, "KR", "Solo Leveling", "manhwa"),))
-eq("... E3 sees no origin change", TA.carried_orig_changes(sl_art, sqlite3.connect(sl_carry)), [])
+sl_c = sqlite3.connect(sl_carry)
+orig = lambda A, t: A.execute("""SELECT o.tome_id FROM series s JOIN series o ON o.gcd_series_id=s.orig_series_id
+                                 WHERE s.tome_id=?""", (t,)).fetchone()
+eq("... after export each licensed line keeps its pre-round origin",
+   [orig(sl_art, t) for t in (rl(SL, "DE", "Solo Leveling"), rl(SL, "EN", "Solo Leveling", "manhwa"))],
+   [orig(sl_c, t) for t in (rl(SL, "DE", "Solo Leveling"), rl(SL, "EN", "Solo Leveling", "manhwa"))])
+eq("... E3 sees no origin change", TA.carried_orig_changes(sl_art, sl_c), [])
+eq("... E1: no ko line loses is_main or its aliases", TA.carried_regressions(sl_art, sl_c), [])
 sl_art.close()
+sl_c.close()
 
 # ---- a line a corrections/lines.json entry names is never folded away ----------------------------------
 CR = "en:Corrected"
