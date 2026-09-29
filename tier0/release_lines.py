@@ -192,7 +192,10 @@ def split_arcs(records, work_title):
     """
     groups = {}
     for i, r in enumerate(records):
-        groups.setdefault((r.get("medium"), r.get("line")), []).append(i)
+        # the PRE-round identity: a record that fell through a heading is grouped under the heading it
+        # fell through, not the work's own line it was renamed to, so it never shares an arc-stem group
+        # with the work's own records
+        groups.setdefault((r.get("medium_held", r.get("medium")), r.get("line_held", r.get("line"))), []).append(i)
     out = [dict(r) for r in records]
     for (_, line), idxs in groups.items():
         idxs.sort(key=lambda i: records[i].get("_offset", i))

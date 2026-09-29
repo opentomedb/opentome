@@ -853,6 +853,26 @@ try:
 except SystemExit:
     eq("exclusion: stale work rejected", True, True)
 
+# split_arcs groups on the PRE-round identity (heading cleanup final review, I1): records that fell
+# through a heading share no arc-stem group with the work's own records in the same article.
+def _arc_shape(order):
+    secs = {"M": "== Manga ==\n" + "x" * 50 + "\n", "P": "== Publication history ==\n" + "y" * 50 + "\n"}
+    w = "".join(secs[k] for k in order)
+    px, py = w.index("x") + 5, w.index("y") + 5
+    mk = lambda o, t, n, i: {"_offset": o, "volume": n, "title": t,
+                             "markets": {"ja": {"market": "JP", "number": n, "isbn13": i}}}
+    recs = ([mk(px + k, f"Foo {k+1}", str(k + 1), f"A{k}") for k in range(3)]
+            + [mk(py + k, f"Bar {k+1}", str(k + 1), f"B{k}") for k in range(2)])
+    recs.sort(key=lambda r: r["_offset"])
+    sp = RL.split(w, "Foo", "Foo", recs)
+    held = RL.hold_clashes([("w_foo", sp)])
+    sp = RL.hold(sp, {n for _, n in held})
+    return [(r["line"], r.get("arc_of"), r["volume"]) for r in sp]
+_main3 = [("Foo", None, "1"), ("Foo", None, "2"), ("Foo", None, "3")]
+_pub2 = [("Foo (Publication history)", None, "1"), ("Foo (Publication history)", None, "2")]
+eq("arc groups: held group after the main list keeps its heading name, no arc", _arc_shape("MP"), _main3 + _pub2)
+eq("arc groups: held group first leaves the main list unparented and numbered", _arc_shape("PM"), _pub2 + _main3)
+
 print()
 if FAILS:
     print(f"{len(FAILS)} FAILED: {FAILS}")
