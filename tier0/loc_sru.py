@@ -48,6 +48,8 @@ RETRIES = 3
 RETRY_WAIT = 10
 LADDERED = ("61", "short")         # diagnostic 61 and a short page go down the ladder; others raise
 MAX_DEPTH = 2
+WINDOW = 500                       # reachable positions per result set (R7, diag 61 past ~500); a larger
+                                   # ISBN stem is sliced before any page (C0 ruling 2026-09-29)
 CANARY = "bath.isbn=9781975319434"
 # Set by the Task 8 probe (Step 5); None = subject channels cannot be sliced (rung 3 unavailable).
 YEAR_INDEX = None
@@ -151,7 +153,8 @@ def _page(query, start, size, last):
 # can return one record at two positions of a result set (live: a single 36-record response of
 # bath.isbn=9798855419* held one 001 twice), so "distinct == numberOfRecords" cannot hold. A LoC
 # set or slice is COMPLETE when (a) every position 1..n was delivered (full pages, no failed page;
-# a failed page goes down the ladder, and only a failed page ever leads to ISBN-prefix slices) and
+# a failed page goes down the ladder, and only a failed page -- or, since the C0 ruling of 2026-09-29, a
+# stem announcing more than WINDOW positions -- ever leads to ISBN-prefix slices) and
 # (b) when distinct < n, a second full read at the next page size (50) finds no record the first
 # read lacked -- duplicates did not mask a missing record. If it does, the reads are unioned and a
 # third full read (25) must add nothing; if it still grows, the set is incomplete (LocIncomplete ->
@@ -215,6 +218,8 @@ def _ladder(query, n=None):
     if n is None:
         n = _count(query)
     try:
+        if n > WINDOW and slices(query):
+            raise LadderExhausted("%r announces %d, past the %d-position window" % (query, n, WINDOW))
         return _verified(query, n)
     except LadderExhausted as e:
         e.n = n
