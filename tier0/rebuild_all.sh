@@ -26,6 +26,11 @@
 #   4b. covers         ISBN-keyed cover URLs from the cached openBD /
 #                      Open Library responses -- zero requests
 #   4. enrichment      openBD (JP) / Open Library (EN, FR) / BnF (FR)
+#   4b2. comic medium  a 'manga' line of a Korean / Chinese work (origin market KR -> manhwa, CN / TW ->
+#                      manhua: the export's pick_origin, to_mangarr.origin_markets) is retagged in place; a
+#                      line that becomes the same line as another (work, market, medium, name) folds into it
+#                      and 7b redirects it; a library / corrected line or a pair of editions is reported,
+#                      never folded (tier0/comic_medium.py). After 3f and the enrichment, before 4c / 5b
 #   4c. merged works   a published work this build folded into another (a title fix can
 #                      union two articles) must not leave the survivor two lines for one
 #                      edition: its re-keyed lines that repeat one of the survivor's published
@@ -125,6 +130,7 @@ suite line_status export/test_line_status.py
 suite to_mangarr  export/test_to_mangarr.py
 suite dnb         tier0/test_dnb.py
 suite "carried ids" tier0/test_carried_ids.py
+suite "comic medium" tier0/test_comic_medium.py
 suite krcn        tier0/test_krcn.py
 echo "== 1. work identity ==";     python3 tier0/work_identity.py
 echo "== 2. corpus en+fr ==";      python3 tier0/build_corpus.py "$DB"
@@ -144,6 +150,7 @@ echo "== 4. enrichment ==";        python3 tier1/enrich.py "$DB"
                                    # for 4 records and 0 claims (rebuild2.log).
                                    python3 tier1/enrich_more.py "$DB" both
 echo "== 4b. covers ==";           python3 tier1/covers.py "$DB"
+echo "== 4b2. comic medium (KR/CN) =="; python3 tier0/comic_medium.py "$DB"
 echo "== 4c. merged works ==";     python3 tier0/carried_ids.py merge "$DB" "$ID_CARRY"
 echo "== 5. clean ==";             python3 tier2/clean.py "$DB"
 echo "== 5b. corrections ==";      python3 tier2/corrections.py "$DB"
