@@ -1,4 +1,323 @@
 {
  "source": "labelled by eye from build/krcn-new-works.tsv of the first KR/CN build (plan C5)",
- "works": {}
+ "works": {
+  "w_0f6dcdcc8f6b": {
+   "anchor": "loc:2024939092",
+   "title": "Beware the Villainess!",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_12a192b66ab0": {
+   "anchor": "loc:2025943119",
+   "title": "Revenge of the Baskerville Bloodhound",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_194e1029dd0a": {
+   "anchor": "loc:2024951923",
+   "title": "Murderous Lewellyn's candlelit dinner",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_1c71c3dfcce4": {
+   "anchor": "loc:2022943437",
+   "title": "The remarried empress",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_1ea34f220a72": {
+   "anchor": "loc:2009290670",
+   "title": "Rure",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_1ed434515a4a": {
+   "anchor": "loc:2011534301",
+   "title": "Raiders",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_1f9bfc5fb70d": {
+   "anchor": "loc:2022943359",
+   "title": "My gently raised beast",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_2b73610dce16": {
+   "anchor": "loc:2023933822",
+   "title": "Not-Sew-Wicked Stepmom",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_2f98994c1fe0": {
+   "anchor": "loc:2024949785",
+   "title": "Lover boy",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_33c42c860411": {
+   "anchor": "loc:2004303633",
+   "title": "Snow Drop",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_362c0dcce652": {
+   "anchor": "loc:2006281587",
+   "title": "Bird kiss",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_39afffdefe2f": {
+   "anchor": "loc:2022950723",
+   "title": "A business proposal",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN,FR); no existing catalogue work under this title"
+  },
+  "w_4333f072a90f": {
+   "anchor": "loc:2008270303",
+   "title": "Black god",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_4da3bff60abf": {
+   "anchor": "loc:2023941077",
+   "title": "The villainess turns the hourglass",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN,FR); no existing catalogue work under this title"
+  },
+  "w_51b3af39db8d": {
+   "anchor": "loc:2024939095",
+   "title": "The three-body problem : the comic edition",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_6202476292ea": {
+   "anchor": "loc:2015298412",
+   "title": "Heavenly executioner Chiwoo",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_622c8b710122": {
+   "anchor": "loc:2008274178",
+   "title": "Fever",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_66a1f2baf857": {
+   "anchor": "loc:2009292637",
+   "title": "Very! very! sweet",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_6cbf1c59e6f2": {
+   "anchor": "loc:2026945570",
+   "title": "Love so Pure",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_6e2487bbad3a": {
+   "anchor": "loc:2023936585",
+   "title": "Imitation",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_6e5e38b2af89": {
+   "anchor": "loc:2006271387",
+   "title": "Chrono code",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_7646f58ed8d0": {
+   "anchor": "loc:2025013096",
+   "title": "Purgatory funeral cakes",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_76652aa46c96": {
+   "anchor": "loc:2025398065",
+   "title": "Science battles!",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_82e3d492164d": {
+   "anchor": "loc:2023941163",
+   "title": "Jungle Juice",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_82ea6993041c": {
+   "anchor": "loc:2008554824",
+   "title": "Utopia's avenger",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_8589a6ae100c": {
+   "anchor": "loc:2023951864",
+   "title": "Tied to You",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_86de1164c896": {
+   "anchor": "loc:2024949784",
+   "title": "Lady Devil",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_89f8b58f085f": {
+   "anchor": "loc:72076226",
+   "title": "The people's comic book : Red women's detachment, Hot on the trail and other Chinese comics",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_8a301a5ef946": {
+   "anchor": "loc:2023938177",
+   "title": "7fates. Chakho",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_9097761dd9de": {
+   "anchor": "loc:2025930692",
+   "title": "Radio storm",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN,FR); no existing catalogue work under this title"
+  },
+  "w_9cf48f94aeb4": {
+   "anchor": "loc:2024941990",
+   "title": "Men of the harem",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_9d5f8ef99642": {
+   "anchor": "loc:91941387",
+   "title": "Records of the historian : the four lords of the warring states",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_9f4fe451913a": {
+   "anchor": "loc:2024951922",
+   "title": "The villainess is a marionette",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_aa115385f43b": {
+   "anchor": "loc:2023938321",
+   "title": "Overgeared",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_babbd8b00cc6": {
+   "anchor": "loc:2008274994",
+   "title": "Stand by youth",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_bc83fcccf3a4": {
+   "anchor": "loc:2023933625",
+   "title": "Bloody sweet",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_bc89c246562d": {
+   "anchor": "loc:2012952993",
+   "title": "The great successor, Kim Jong-Un",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_bd882b7137aa": {
+   "anchor": "loc:2024017050",
+   "title": "Mystery science detectives",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_c14a822869b8": {
+   "anchor": "loc:2023949820",
+   "title": "Itaewon Class",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN,FR); no existing catalogue work under this title"
+  },
+  "w_c2dee002a082": {
+   "anchor": "loc:2023941078",
+   "title": "Dark Moon : the blood altar",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_cbcabb614db0": {
+   "anchor": "loc:2022942912",
+   "title": "The world after the fall",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_cca24b9ff894": {
+   "anchor": "loc:2024270548",
+   "title": "Think I've still got it! : hai bao",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_cf2901132018": {
+   "anchor": "loc:2007299046",
+   "title": "Hanami : international love story",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_d4741456ec0a": {
+   "anchor": "loc:91940110",
+   "title": "Origins of Zen : flowering of Zen in China",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_d4d077aeaa62": {
+   "anchor": "loc:2025045144",
+   "title": "I shall master this family",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_d9bd3b7eb0fa": {
+   "anchor": "loc:2026949873",
+   "title": "Philomel the Fake",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_dec558ba1fd0": {
+   "anchor": "loc:2022950724",
+   "title": "The horizon",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_dffde493ce57": {
+   "anchor": "loc:2022931225",
+   "title": "Daughter of the emperor",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_e25f4cee5819": {
+   "anchor": "loc:2026021309",
+   "title": "Swimming lessons for a mermaid",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  },
+  "w_e9a25869cacc": {
+   "anchor": "loc:2023946146",
+   "title": "Unholy blood",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_f31b929ad410": {
+   "anchor": "loc:2021943164",
+   "title": "The abandoned empress",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN,FR); no existing catalogue work under this title"
+  },
+  "w_fd1824443683": {
+   "anchor": "loc:2023941160",
+   "title": "The Star Seekers",
+   "verdict": "must_create",
+   "why": "KR/CN comic (DE,EN); no existing catalogue work under this title"
+  },
+  "w_fd2814056e68": {
+   "anchor": "loc:2007270995",
+   "title": "Queens",
+   "verdict": "must_create",
+   "why": "KR/CN comic (EN); no existing catalogue work under this title"
+  }
+ }
 }
