@@ -794,7 +794,9 @@ db.close()
 
 # ---- spec §5: a "Médias" section and the main list -> one line; the heading line's id redirects -----
 # Built with release_lines.split (the corpus stage's own splitter) and schema/load.py, so the fold is
-# the loader's natural key, not a hand-written line name.
+# the loader's natural key, not a hand-written line name. The build's main list carries the FR column too
+# (the carry had it only under "Médias"): the collision guard releases a group only as a pure duplicate of
+# lines that already exist (fix F1), so a Médias section that would be the work's only FR line is held.
 import release_lines as RL
 WS = "fr:A Sign"
 sv, fv = vols(23, 3), vols(24, 3)
@@ -803,7 +805,9 @@ med_before = catalogue("medias1", [(WS, "A Sign", [("JP", "manga", "A Sign", sv)
 med_carry = artifact(med_before)
 src = "== Liste des volumes ==\n{{a}}\n== Médias ==\n=== Manga ===\n{{b}}\n"
 recs = [{"volume": n, "_offset": src.index("{{a}}"),
-         "markets": {"original": {"market": "JP", "isbn13": i, "date": d, "date_precision": "day"}}} for n, i, d in sv]
+         "markets": {"original": {"market": "JP", "isbn13": i, "date": d, "date_precision": "day"},
+                     "licensed": {"market": "FR", "isbn13": fv[k][1], "date": fv[k][2], "date_precision": "day"}}}
+        for k, (n, i, d) in enumerate(sv)]
 recs += [{"volume": n, "_offset": src.index("{{b}}"),
           "markets": {"original": {"market": "JP", "isbn13": i, "date": d, "date_precision": "day"},
                       "licensed": {"market": "FR", "isbn13": fv[k][1], "date": fv[k][2], "date_precision": "day"}}}
@@ -811,7 +815,10 @@ recs += [{"volume": n, "_offset": src.index("{{b}}"),
 med_after = os.path.join(TMP, "medias2.db")
 db = sqlite3.connect(med_after)
 db.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
-load(db, "A Sign", RL.split(src, "Liste des volumes de A Sign", "A Sign", recs), work_key=WS)
+med_split = RL.split(src, "Liste des volumes de A Sign", "A Sign", recs)
+eq("Médias: the collision guard releases the section (a pure duplicate of both main lines)",
+   RL.hold_clashes([(_id("w_", WS), med_split)]), {})
+load(db, "A Sign", med_split, work_key=WS)
 db.commit()
 eq("Médias: the heading section loads into the work's own lines (one JP, one FR)",
    sorted(db.execute("SELECT market, medium FROM release_line")), [("FR", "manga"), ("JP", "manga")])

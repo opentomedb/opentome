@@ -297,6 +297,15 @@ eq("split: a record that fell through a round-A heading carries its held name; t
 eq("split: ... and its pre-round medium (no heading hint: 'Roman' was manga before the round)",
    [r.get("medium_held") for r in hout], [None, "manga", "manga", None, "manga"])
 eq("detect_medium(headings=False) is the pre-round rule", RL.detect_medium(["Roman"], "Hyouka", headings=False), "manga")
+# Maburaho / Re:Creators (fix F1 ruling 2): a class-2 heading ABOVE a named heading ("Roman illustré >
+# Nouvelle") sets no medium -- the line names itself, so no group falls through; it keeps its pre-round
+# medium and line id. HEADING_MEDIUM_HINTS take effect only for a group that falls through.
+msrc = "== Roman illustré ==\n=== Nouvelle ===\n{{a}}\n=== Histoire secondaire ===\n{{b}}\n"
+mout = RL.split(msrc, "Maburaho", "Maburaho", [{"volume": "1", "_offset": msrc.index("{{a}}")},
+                                               {"volume": "1", "_offset": msrc.index("{{b}}")}])
+eq("split: Maburaho -- a medium heading above a named heading keeps the pre-round medium (and so its line id)",
+   [(r["medium"], r["line"], r.get("line_held")) for r in mout],
+   [("manga", "Maburaho (Nouvelle)", None), ("manga", "Maburaho (Histoire secondaire)", None)])
 
 # ---- the collision guard (heading cleanup, 2026-09-29; review C1; fix F1 ruling) ------------------
 # A round-A group falls through ONLY as a pure duplicate: every one of its volumes lands on a line of
