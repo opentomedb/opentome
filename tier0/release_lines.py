@@ -16,7 +16,7 @@ Independently corroborated: Google Books returned "Unital Ring, Vol. 2
 ISBNs -- matching these headings. Google Books is disqualified as a stored
 source (ToS forbids database-building); headings give the same answer free.
 """
-import re
+import collections, re
 
 HEADING_RE = re.compile(r"^(={2,5})\s*(.+?)\s*\1\s*$", re.M)
 
@@ -252,6 +252,73 @@ def split(wikitext_src, article_title, work_title, records):
         rec["line_path"] = path
         out.append(rec)
     return split_arcs(out, work_title)
+
+
+# ---- the collision guard (heading cleanup, 2026-09-29; review C1) ----------------------------------
+# A record that falls through a round-A heading takes the work's own line name, so it shares the
+# loader's natural key (schema/load.py: line id = work + medium + market + name, volume id = line + number)
+# with that line. The loader keeps the FIRST volume row per key (INSERT OR IGNORE) and lets a later
+# isbn13 claim replace the earlier one, so a fall-through onto a line that holds another edition under the
+# same numbers mixes the two silently -- measured on the pre-round corpus: No Game No Life's light-novel
+# list (tagged manga) onto the JP manga line, Red River's bunko ISBNs lost, Goblin Slayer's and Arifureta's
+# spin-offs piled onto the main line; 86 of 90 such clashes were across two articles.
+
+def _vol_keys(wid, rec):
+    """(loader volume key, isbn13) for each market of one record: (work, medium, market, line, number)."""
+    for m in (rec.get("markets") or {}).values():
+        if m.get("market"):
+            yield ((wid, rec.get("medium", "manga"), m["market"], rec.get("line"),
+                    str(m.get("number", rec.get("volume")))), m.get("isbn13"))
+
+
+def hold_clashes(batches, existing=()):
+    """batches: [(work id, records)], one per article, records from split() then collapse_licensed().
+    existing: (work id, medium, market, line name, number, isbn13) rows already in the catalogue.
+
+    A round-A group -- one article's records that fell through the same heading (their `line_held`; an
+    arc line is never one) -- may fall through only if none of its volume keys is held by another row
+    (any other record of any article, `existing`, or another group in its current state) with a DIFFERENT
+    ISBN. Rows without an ISBN never clash. Every group starts under its held (pre-round) name and is
+    released one at a time in a fixed order (batch, name), so a group that only duplicated a sibling
+    group's books is released once that sibling is settled (Wandering Witch: the light-novel list falls
+    through, the "Médias" list holding the manga's ISBNs under the same numbers is held).
+    -> {(batch index, held line name): [clashing volume keys]}"""
+    idx = collections.defaultdict(set)                  # volume key -> {(owner, isbn13)}
+    for wid, medium, market, line, number, isbn in existing:
+        if isbn:
+            idx[(wid, medium, market, line, str(number))].add(("catalogue", isbn))
+    groups = collections.defaultdict(list)              # (batch, held name) -> [(key, held key, isbn13)]
+    for b, (wid, recs) in enumerate(batches):
+        for r in recs:
+            if r.get("line_held") and not r.get("arc_of"):
+                g = (b, r["line_held"])
+                held_r = dict(r, line=r["line_held"], medium=r.get("medium_held", r.get("medium", "manga")))
+                for (key, isbn), (hkey, _) in zip(_vol_keys(wid, r), _vol_keys(wid, held_r)):
+                    groups[g].append((key, hkey, isbn))
+                    if isbn:
+                        idx[hkey].add((g, isbn))
+            else:
+                for key, isbn in _vol_keys(wid, r):
+                    if isbn:
+                        idx[key].add((("record", b), isbn))
+    out = {}
+    for g in sorted(groups):
+        bad = sorted({k for k, _, isbn in groups[g] if isbn and any(o != g and i != isbn for o, i in idx[k])})
+        if bad:
+            out[g] = bad
+            continue
+        for k, hk, isbn in groups[g]:
+            if isbn:
+                idx[hk].discard((g, isbn))
+                idx[k].add((g, isbn))
+    return out
+
+
+def hold(records, names):
+    """Copies of `records` where every non-arc record whose line_held is in `names` is named after its
+    heading again (the pre-round name) AND its pre-round medium (medium_held; controller ruling N1)."""
+    return [dict(r, line=r["line_held"], line_raw=r["line_held_raw"], medium=r.get("medium_held", r["medium"]))
+            if r.get("line_held") in names and not r.get("arc_of") else r for r in records]
 
 
 def summarise(records):
