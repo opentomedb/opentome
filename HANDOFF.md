@@ -21,13 +21,13 @@ build-only 36578803076 green). Merged to main at aceb1a8 (Nick merged it). Manga
 - **C5 (aceb1a8):** 53 new works labelled `must_create`. Delusion `dnb:1362776327` ships under
   w_015d8619f82f via `link_work`.
 - **C6:** AniList ran in CI's 8a: 33 pins applied; EN lines without an id are within the allowance.
-- **C7:** new seed uploaded to `opentomedb/opentome-cache` (full local `.cache` minus 564
+- **C7:** new seed uploaded to `opentomedb/opentome-cache` (full local `.cache` minus 458
   cached Google Books responses left over from the tier1-crossverify spike, which nothing reads);
   `seed-cache` run 36578693497.
 - **C8:** published. The M1–M8 Mangarr follow-ups (§14 of the design) are recorded in Mangarr's
   HANDOFF.
 - **Still open:**
-  - The 564 Google Books files remain in this workstation's `.cache`. Deleting them is Nick's call
+  - The 458 Google Books files remain in this workstation's `.cache`. Deleting them is Nick's call
     (clean-room rule).
   - English KR/CN volumes are thinly dated: 107/395 exported. LoC CIP records are
     announced-only, and dates come only on single-volume records.
