@@ -186,7 +186,8 @@ def origin_markets(markets_of, main_of, first_dated_of):
     medium with no origin of its own looks across COMIC_FAMILY (E3) and is recorded in family_origin.
     markets_of {(work, medium): {market}}; main_of {(work, market, medium): line id}; first_dated_of
     {line id: earliest day/month-precision release date}. Module level (heading cleanup, 2026-09-29) so
-    stage 4b2 (tier0/comic_medium.py) decides a work's origin exactly as the export does."""
+    stage 4b2 (tier0/comic_medium.py) uses the same pick_origin over an approximation of the export's
+    main lines (comic_medium's main_of lacks the export's held_back/new_lib rule and uses pre-5b names)."""
     origin_of, family_origin = {}, set()
     for (wid, medium), ms in markets_of.items():
         first_by_market = {m: first_dated_of.get(main_of.get((wid, m, medium))) for m in ms}
