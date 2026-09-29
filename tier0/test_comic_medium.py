@@ -129,6 +129,13 @@ A = sqlite3.connect(art)
 eq("Recast: the FR series exports as manhwa, the ko manhwa line its origin",
    A.execute("""SELECT s.medium, o.tome_id FROM series s JOIN series o ON o.gcd_series_id=s.orig_series_id
                 WHERE s.tome_id=?""", (rl(RC, "FR", "Recast"),)).fetchone(), ("manhwa", rl(RC, "KR", "Recast", "manhwa")))
+C = sqlite3.connect(carry)
+eq("Recast: the FR line's carried origin was the folded ko line",
+   C.execute("""SELECT o.tome_id FROM series s JOIN series o ON o.gcd_series_id=s.orig_series_id
+                WHERE s.tome_id=?""", (rl(RC, "FR", "Recast"),)).fetchone(), (rl(RC, "KR", "Recast"),))
+eq("Recast: E3 explains that origin change by the folded id's duplicate_merge redirect",
+   TA.carried_orig_changes(A, C), [])
+C.close()
 A.close()
 
 # ---- a library line is never folded away (the 8d reload gates compare its id): King of Hell DE ----
@@ -209,6 +216,51 @@ eq("re-run: the second run itself finds nothing to flip", second["flips"], [])
 eq("re-run: the stored report still holds the first run's flips", stored2["flips"], stored1["flips"])
 eq("re-run: ... and every other list of the first run", {k: stored2[k] for k in stored1}, stored1)
 db.close()
+
+# ---- E1 (export/test_artifact.py carried_regressions): a line 4b2 retagged into a group with a larger main
+# line loses is_main and the work aliases there with no redirect to explain it -- King of Hell DE, ORV EN.
+# meta.comic_medium's flips explain it; any other carried line still fails the rule.
+KE = "en:King of Hell E1"
+e1_works = [(KE, "King of Hell", [("KR", "manga", "King of Hell", vols(70, 3)),
+                                  ("DE", "manga", "King of Hell", vols(71, 1, first=8)),
+                                  ("DE", "manhwa", "King of Hell", vols(72, 3))])]
+e1_carry = artifact(catalogue("e1a", e1_works))
+e1_after = catalogue("e1b", e1_works)
+db = sqlite3.connect(e1_after)
+db.execute("CREATE TABLE dnb_line (key TEXT PRIMARY KEY, rl_id TEXT NOT NULL, role TEXT NOT NULL)")
+db.execute("INSERT INTO dnb_line VALUES('dnb:997592818', ?, 'linked')", (rl(KE, "DE", "King of Hell"),))
+rep = CM.apply(db)
+db.close()
+e1_art = artifact(e1_after, e1_carry)
+A, C = sqlite3.connect(e1_art), sqlite3.connect(e1_carry)
+lost = TA.carried_regressions(A, C)
+eq("E1: without the retag list, the retagged DE line's lost is_main is a regression",
+   (rl(KE, "DE", "King of Hell"), "is_main lost", "") in lost, True)
+eq("E1: meta.comic_medium's flips explain it", TA.carried_regressions(A, C, retagged=TA.retagged_lines(sqlite3.connect(e1_after))), [])
+eq("E1: retagged_lines reads exactly the flips", TA.retagged_lines(sqlite3.connect(e1_after)), {r for r, _ in rep["flips"]})
+A.close()
+C.close()
+
+# ORV's physical EN line (rl_273f63e59345): tagged 'manga', the only EN manga line (main there); retagged
+# manhwa, it joins the EN manhwa group whose 13-volume line is main
+OR = "en:Omniscient Reader's Viewpoint E1"
+orv_works = [(OR, "Omniscient Reader's Viewpoint", [
+    ("KR", "manhwa", "Omniscient Reader's Viewpoint", vols(80, 13)),
+    ("EN", "manhwa", "Omniscient Reader's Viewpoint", vols(81, 13)),
+    ("EN", "manga", "Omniscient Reader's Viewpoint (Physical publication)", vols(82, 5))])]
+orv_carry = artifact(catalogue("orv1", orv_works))
+orv_after = catalogue("orv2", orv_works)
+db = sqlite3.connect(orv_after)
+CM.apply(db)
+db.close()
+A, C = sqlite3.connect(artifact(orv_after, orv_carry)), sqlite3.connect(orv_carry)
+orv_line = rl(OR, "EN", "Omniscient Reader's Viewpoint (Physical publication)")
+eq("E1: ORV's physical EN line, retagged, loses is_main -- a regression without the retag list",
+   (orv_line, "is_main lost", "") in TA.carried_regressions(A, C), True)
+eq("E1: ... explained by meta.comic_medium's flips",
+   TA.carried_regressions(A, C, retagged=TA.retagged_lines(sqlite3.connect(orv_after))), [])
+A.close()
+C.close()
 
 print()
 if FAILS:
