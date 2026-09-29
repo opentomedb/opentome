@@ -263,12 +263,17 @@ def split(wikitext_src, article_title, work_title, records):
 # list (tagged manga) onto the JP manga line, Red River's bunko ISBNs lost, Goblin Slayer's and Arifureta's
 # spin-offs piled onto the main line; 86 of 90 such clashes were across two articles.
 
+def _nk(*parts):
+    """A loader key part-wise as schema/load.py:_id folds it (str, strip, lower): keys the loader merges compare equal."""
+    return tuple(str(p).strip().lower() for p in parts)
+
+
 def _vol_keys(wid, rec):
     """(loader volume key, isbn13) for each market of one record: (work, medium, market, line, number)."""
     for m in (rec.get("markets") or {}).values():
         if m.get("market"):
-            yield ((wid, rec.get("medium", "manga"), m["market"], rec.get("line"),
-                    str(m.get("number", rec.get("volume")))), m.get("isbn13"))
+            yield (_nk(wid, rec.get("medium", "manga"), m["market"], rec.get("line"),
+                       m.get("number", rec.get("volume"))), m.get("isbn13"))
 
 
 def hold_clashes(batches, existing=()):
@@ -286,7 +291,7 @@ def hold_clashes(batches, existing=()):
     idx = collections.defaultdict(set)                  # volume key -> {(owner, isbn13)}
     for wid, medium, market, line, number, isbn in existing:
         if isbn:
-            idx[(wid, medium, market, line, str(number))].add(("catalogue", isbn))
+            idx[_nk(wid, medium, market, line, number)].add(("catalogue", isbn))
     groups = collections.defaultdict(list)              # (batch, held name) -> [(key, held key, isbn13)]
     for b, (wid, recs) in enumerate(batches):
         for r in recs:
