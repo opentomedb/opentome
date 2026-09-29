@@ -1,6 +1,40 @@
 # HANDOFF — OpenTome
 
-_Last updated: 2026-09-29_
+_Last updated: 2026-09-29 (heading cleanup)_
+
+## 2026-09-29 — branch `heading-cleanup`: section headings and KR/CN medium (cleanup round A+B, NOT merged)
+
+Spec/plan: docs/superpowers/specs|plans/2026-09-29-heading-cleanup* (local, gitignored). Ledger:
+.superpowers/sdd/2026-09-29-heading-cleanup/progress.md.
+
+Done:
+- Class-1/2 Wikipedia section headings ("Médias", "Parution", "Liste de volumes", "Tomes N à aujourd'hui",
+  "Roman illustré"…) no longer name a line — `release_lines.GENERIC` / `PAGINATION` / `HEADING_MEDIUM_HINTS`.
+- **Pure-duplicate guard** (`release_lines.hold_clashes` / `hold`, `build_corpus` two passes, `meta corpus:held`):
+  a heading group falls through ONLY when every volume already exists on an existing line of the work with the
+  same ISBN. Otherwise it is held exactly as before the round (name, medium, heading alias). A fall-through never
+  creates a line, moves main or re-parents. Heading medium hints apply only to groups that fall through.
+- Stage 7b follows a carried line whose medium changed (ISBN / dated-volume majority, else retire / orphan).
+- New stage **4b2** `tier0/comic_medium.py`: 'manga' lines of a KR/CN/TW-origin work → manhwa / manhua
+  (`to_mangarr.origin_markets`, now module level); folds a same-name duplicate only when the two agree volume by
+  volume; a work with a `differ` pair is left untouched; library (DNB/KR-CN) and corrected lines never fold;
+  `meta.comic_medium` holds flips / merges / kept / differ / guarded (unioned across re-runs).
+- Contract: krcn_lines_pre ids may follow a duplicate_merge / correction redirect; E1 treats 4b2 flips as explained.
+- Local build (eba2076, published carry 53c64146): 27 duplicate heading lines merged, 269 carried heading lines
+  held (164 groups), 29 KR/CN lines retagged (23 manhwa, 6 manhua), Recast folded; 323 moved ids (under 500, no
+  allowance needed — plan Task 7 skipped); 0 lost ids, 0 lost ISBNs, 0 copies; E1/E3 0; library 49/49; German JP
+  round unchanged apart from King of Hell DE (a 4b2 flip).
+
+Next: Nick merges; regenerate + upload the CI seed (plan C7.3, exclude-tar keeps the 458 Google Books files out);
+build-only CI; publish; Mangarr MetadataUpdate; FlightLog.
+
+Gotchas / left for round C:
+- Held class-2 lines keep their pre-round 'manga' medium (Hyouka (Roman), Goblin Slayer / Tsukimichi (Roman
+  illustré), Naruto (Novelizations), Maburaho, Solo Leveling FR (Roman web) and DE). Continuation lists
+  ("Tomes 31 à aujourd'hui") stay separate lines. Round C (spin-off naming) relabels / renames them.
+- Solo Leveling KR keeps its manga + manhwa pair (the two editions disagree on 13 volumes).
+- `novel series` / `webtoon` are work-title disambiguators, not headings — round C.
+- 3e prints "NO SUCCESSOR for 41": KR/CN lines 3f adopts after 3e; all present in the artifact (benign).
 
 ## 2026-09-27 — branch `krcn`: Korean / Chinese editions (DNB, BnF, LoC)
 
