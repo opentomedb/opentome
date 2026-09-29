@@ -79,7 +79,7 @@ PAGINATION = re.compile(
     r"\d+\s*(?:\u00e0|a|to|bis|[-\u2013\u2014])\s*\d+$|" + _OPEN_END, re.I)
 
 # What the round made fall through. line_name(hold=True) names a line after these again -- the name the
-# collision guard (hold_clashes) restores when a fall-through would land on another edition's volumes.
+# collision guard (hold_clashes) restores for every group whose fall-through is not a pure duplicate.
 HELD = re.compile(r"^(?:" + _ROUND_A + r")$|" + _OPEN_END, re.I)
 
 
@@ -249,6 +249,7 @@ def split(wikitext_src, article_title, work_title, records):
         if held[0] != rec["line"]:              # it fell through a round-A heading: hold_clashes may restore it
             rec["line_held"], rec["line_held_raw"] = held
             rec["medium_held"] = detect_medium(path, article_title, headings=False)     # and its pre-round medium
+            rec["line_is_work"] = rec["line"] == work_title     # onto the work's own line (never main-changing)
         rec["line_path"] = path
         out.append(rec)
     return split_arcs(out, work_title)
@@ -280,50 +281,72 @@ def hold_clashes(batches, existing=()):
     """batches: [(work id, records)], one per article, records from split() then collapse_licensed().
     existing: (work id, medium, market, line name, number, isbn13) rows already in the catalogue.
 
-    A round-A group -- one article's records that fell through the same heading (their `line_held`; an
-    arc line is never one) -- may fall through only if none of its volume keys is held by another row
-    (any other record of any article, `existing`, or another group in its current state) with a DIFFERENT
-    ISBN. Rows without an ISBN never clash. Every group starts under its held (pre-round) name and is
-    released one at a time in a fixed order (batch, name), so a group that only duplicated a sibling
-    group's books is released once that sibling is settled (Wandering Witch: the light-novel list falls
-    through, the "Médias" list holding the manga's ISBNs under the same numbers is held).
-    -> {(batch index, held line name): [clashing volume keys]}"""
-    idx = collections.defaultdict(set)                  # volume key -> {(owner, isbn13)}
+    A round-A group -- one article's records that fell through the same heading (their `line_held`) --
+    falls through ONLY as a pure duplicate (controller ruling F1, after the C3 build): every volume key
+    of every market lands on a line that already exists -- another record outside any group (any
+    article) or `existing` -- where that number is already held with the SAME ISBN and no other; a
+    volume without an ISBN must land on a number that line already has. The target must be the work's
+    own line (`line_is_work`: the export makes it main by name, so losing the duplicate never moves
+    main); a class-2 group, whose old line leaves another medium's lines, only when that medium keeps a
+    line named after the work or has no other line; and no arc may have been split out of the group's
+    rows (its parent would move). So a fall-through never creates a line, changes which line is main or
+    re-parents anything; every other group is held (continuations, medium splits and new main lines are
+    round C). Released groups add no volume key, so the order of the groups does not matter.
+    -> {(batch index, held line name): [volume keys that are not duplicates]}"""
+    have = collections.defaultdict(set)                 # volume key -> {isbn13 or None}
     for wid, medium, market, line, number, isbn in existing:
-        if isbn:
-            idx[_nk(wid, medium, market, line, number)].add(("catalogue", isbn))
-    groups = collections.defaultdict(list)              # (batch, held name) -> [(key, held key, isbn13)]
+        have[_nk(wid, medium, market, line, number)].add(isbn or None)
+    lines = collections.defaultdict(set)                # (work, medium, market) -> line names (a group's: held)
+    groups = collections.defaultdict(list)              # (batch, held name) -> [(key, isbn13, duplicable)]
+    left = collections.defaultdict(set)                 # (batch, held name) -> (old line key) a class-2 group leaves
     for b, (wid, recs) in enumerate(batches):
         for r in recs:
             if r.get("line_held") and not r.get("arc_of"):
                 g = (b, r["line_held"])
+                groups[g] += [(k, i, r.get("line_is_work", False)) for k, i in _vol_keys(wid, r)]
                 held_r = dict(r, line=r["line_held"], medium=r.get("medium_held", r.get("medium", "manga")))
-                for (key, isbn), (hkey, _) in zip(_vol_keys(wid, r), _vol_keys(wid, held_r)):
-                    groups[g].append((key, hkey, isbn))
-                    if isbn:
-                        idx[hkey].add((g, isbn))
+                for (k, _), (hk, _) in zip(_vol_keys(wid, r), _vol_keys(wid, held_r)):
+                    lines[hk[:3]].add(hk[3])
+                    if hk[1] != k[1]:
+                        left[g].add((hk, k[3]))
             else:
+                if r.get("line_held") and r.get("arc_of"):      # an arc out of a group: that group stays
+                    groups[(b, r["line_held"])] += [(k, i, False) for k, i in _vol_keys(wid, r)]
                 for key, isbn in _vol_keys(wid, r):
-                    if isbn:
-                        idx[key].add((("record", b), isbn))
+                    have[key].add(isbn or None)
+
+    for k in have:
+        lines[k[:3]].add(k[3])
+
+    def duplicate(key, isbn):
+        there = have.get(key)
+        return bool(there) and ({i for i in there if i} == {isbn} if isbn else True)
+
+    def keeps_main(hk, work_line):          # the old medium's lines, less this one: none, or one named after the work
+        rest = lines[hk[:3]] - {hk[3]}
+        return not rest or work_line in rest
     out = {}
     for g in sorted(groups):
-        bad = sorted({k for k, _, isbn in groups[g] if isbn and any(o != g and i != isbn for o, i in idx[k])})
+        bad = {k for k, isbn, ok in groups[g] if not (ok and duplicate(k, isbn))}
+        bad |= {hk for hk, work_line in left[g] if not keeps_main(hk, work_line)}
+        bad = sorted(bad)
         if bad:
             out[g] = bad
-            continue
-        for k, hk, isbn in groups[g]:
-            if isbn:
-                idx[hk].discard((g, isbn))
-                idx[k].add((g, isbn))
     return out
 
 
 def hold(records, names):
     """Copies of `records` where every non-arc record whose line_held is in `names` is named after its
-    heading again (the pre-round name) AND its pre-round medium (medium_held; controller ruling N1)."""
-    return [dict(r, line=r["line_held"], line_raw=r["line_held_raw"], medium=r.get("medium_held", r["medium"]))
-            if r.get("line_held") in names and not r.get("arc_of") else r for r in records]
+    heading again (the pre-round name and line_raw, the heading alias) AND its pre-round medium
+    (medium_held; controller ruling N1); an arc split out of such a group hangs under the heading line
+    again (arc_of, the pre-round parent)."""
+    out = []
+    for r in records:
+        if r.get("line_held") in names:
+            r = (dict(r, arc_of=r["line_held"], medium=r.get("medium_held", r["medium"])) if r.get("arc_of") else
+                 dict(r, line=r["line_held"], line_raw=r["line_held_raw"], medium=r.get("medium_held", r["medium"])))
+        out.append(r)
+    return out
 
 
 def summarise(records):
