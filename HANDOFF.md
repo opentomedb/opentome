@@ -83,6 +83,12 @@ Gotchas:
   had missed (`LocIncomplete`, 51 requests). `loc_sru.WINDOW` = 500 now sends any stem whose count is
   over it straight to its ten prefixes (`9781975*` 1,551 and `97988554*` 562 today; every subject
   channel is under 500).
+- **Option 1, one read (Nick 2026-09-29): a LoC set is read once and a gap is reported, not failed.**
+  On the runner, even the slice `979885540*` (223, under the window) returned new records on every
+  re-read ([0, 5, 1] at 100/50/25), so the 09-27 rule of confirming reads could never pass on the Yen
+  stems, and re-reading costs ~7x the pages, past the 400-request budget. `_verified` now accepts the one
+  read; `announced - distinct` goes to `loc-dups.json` / `loc-report.json` as `unconfirmed`. It is never
+  `degraded` and never blocks. More distinct than announced is still `LocIncomplete`.
 - **Until C0 is done, run this branch's `rebuild_all.sh` / `build_krcn.py` only with
   `LOC_OFFLINE=1`.** Without it, stage 3f pages LoC live and would re-enter the throttling the
   cool-off exists to avoid. Offline, an uncached LoC channel fails the stage loudly (R7) --
