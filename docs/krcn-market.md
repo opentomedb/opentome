@@ -153,4 +153,62 @@ check on EN comic lines and before the containment guard on new-work clusters]:
 
 ## First build
 
-Filled from the first full build (plan C4).
+Filled from the first full build (plan C4), 2026-09-29, branch `krcn`, on this workstation
+(`build/krcn-first-build.log`, `build/krcn-measure.log`). The carry was the live release,
+`opentome` sha256 `99e35d4d…`. AniList (8a) had not run yet: that is C6, in CI.
+
+**Staged** (`krcn_line`, all roles). Lines, with volumes in brackets:
+
+| Market | Exported | linked | merged | new_work | held | review | unlinked |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| DE | 44 (284) | 19 (127) | 1 (12) | 24 (145) | 291 (1,123) | 31 (112) | 16 (44) |
+| FR | 24 (149) | 8 (43) | 11 (90) | 5 (16) | 152 (837) | 20 (179) | 0 |
+| EN | 69 (396) | — | 14 (105) | 55 (291) | 1 (3) | 38 (108) | 73 (74) |
+
+The build staged 759 lines in total. Another 14 DNB sets were deferred to the German JP round (P25).
+
+**Works.** This build created 53 works, froze 0, and exported 53 library works (`meta.krcn_ids`: 53 works, 111 line ids).
+There are 408 held clusters (R6: 444 lines, 1,963 volumes) and 89 lines in review. The review reasons are:
+no-class-signal 18, ize-medium 18, duplicate_numbers 17, containment 16, writer_only 11, low 3,
+linked-sibling-key 3, fragment 2, and 1 other. **Adopted ids: 0**, as expected on a first build.
+
+**Volumes.** Member records by fate: created 608, attached 204, line_held 1,975, line_review 421,
+line_unlinked 118, dropped_duplicate_number 40, dropped_unnumbered 24, held_future 21, and
+dropped_number_clash 1.
+
+**Coverage of exported volumes after stage 4:**
+
+| Market | Volumes | Dated | Paged |
+|---|---:|---:|---:|
+| DE | 268 | 222 (82.8%) | 266 (99.3%) |
+| FR | 149 | 149 (100%) | 108 (72.5%) |
+| EN | 395 | 107 (27.1%) | 9 (2.3%) |
+
+EN is thin for a structural reason. LoC gives a date and extent only on single-volume records, and 184 of the 396
+EN member records are announced-only (CIP) records. Open Library (stage 4) raised the dated EN volumes from 10 to 107.
+
+**Requests.**
+- LoC: 3,742 distinct records, from run 36561675299 on a GitHub runner (177 live requests,
+  `degraded=None`). One read per set (the C0 ruling, option 1) left 52 positions unconfirmed across 14
+  sets (`.cache/loc-dups.json`). This workstation's IP is blocked by lx2.loc.gov, so the build read LoC
+  from the cache (`LOC_OFFLINE=1`, meta `loc:offline`: unreachable, 0 stale sets). The whole round
+  used 395 of the 400-request LoC budget.
+- DNB, BnF: 0 live requests in the build (cached by Tasks 7 and 9).
+- Stage 4: Open Library needed 6 EN and 2 FR batch requests. The other ISBNs were already cached per ISBN.
+
+**Gates on this build.**
+- German JP round: `dnb_line` equals the pre-round snapshot (4,340 keys; 0 added, removed or changed).
+- Library measure: 49/49.
+- Carried ids: 0 lost, 261 redirected, 0 of 500 moved.
+- KR/CN reload: same ids (111/111).
+- Library-fixture lines are targeted only by `merged` lines.
+
+**Exported floors** (`export/measure_library.py`) are 85% of the counts above, rounded down:
+
+| | Lines | Volumes |
+|---|---:|---:|
+| DE | 37 | 241 |
+| FR | 20 | 126 |
+| EN | 58 | 336 |
+
+`KRCN_MIN_WORKS` = 45.
