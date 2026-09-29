@@ -243,12 +243,15 @@ def split(wikitext_src, article_title, work_title, records):
         pos = rec.get("_offset", 0)
         path = [_clean_heading(t) for t in _stack_at(heads, pos)]
         rec = dict(rec)
-        rec["medium"] = detect_medium(path, article_title)
         rec["line"], rec["line_raw"] = line_name(path, work_title)
+        # the pre-round medium; HEADING_MEDIUM_HINTS only for a record that falls through (fix F1 ruling 2: a
+        # medium heading above a named heading, "Roman illustré > Nouvelle", leaves that line as it was)
+        rec["medium"] = detect_medium(path, article_title, headings=False)
         held = line_name(path, work_title, hold=True)
         if held[0] != rec["line"]:              # it fell through a round-A heading: hold_clashes may restore it
             rec["line_held"], rec["line_held_raw"] = held
-            rec["medium_held"] = detect_medium(path, article_title, headings=False)     # and its pre-round medium
+            rec["medium_held"] = rec["medium"]                  # and its pre-round medium
+            rec["medium"] = detect_medium(path, article_title)
             rec["line_is_work"] = rec["line"] == work_title     # onto the work's own line (never main-changing)
         rec["line_path"] = path
         out.append(rec)
