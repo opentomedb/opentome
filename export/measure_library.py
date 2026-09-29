@@ -266,12 +266,12 @@ def same_ids(catalogue):
 
 
 # KR/CN floors (docs/krcn-design.md §13). STAGED: what stage 3f built (krcn_line, held and review lines
-# included), from the spike at ~75-80%. EXPORTED: provisional (the spike under R6, ~85%) -- the controller
-# resets them at ~85% of the first real build's measurement, in the commit that records it (plan C4).
+# included), from the spike at ~75-80%. EXPORTED: ~85% (rounded down) of the first real build's measurement,
+# 2026-09-29 (plan C4; docs/krcn-market.md "First build").
 KRCN_STAGED_FLOORS = {"DE": (300, 1250), "FR": (160, 1000), "EN": (65, 360)}      # (lines, volumes)
 KRCN_STAGED_COVERAGE = {"DE": {"deposited_year": 0.95, "pages": 0.90}, "FR": {"year": 0.95}}
-KRCN_EXPORTED_FLOORS = {"DE": (45, 273), "FR": (25, 162), "EN": (59, 338)}
-KRCN_MIN_WORKS = 48
+KRCN_EXPORTED_FLOORS = {"DE": (37, 241), "FR": (20, 126), "EN": (58, 336)}
+KRCN_MIN_WORKS = 45
 
 
 def measure_krcn(art_path, catalogue, carry=None, check_ids=True):
@@ -312,7 +312,7 @@ def measure_krcn(art_path, catalogue, carry=None, check_ids=True):
             m, 100 * num / max(den, 1), num, den, len(vols) - len(dep)))
     for m, (fl, fv) in sorted(KRCN_EXPORTED_FLOORS.items()):
         n, v = C.execute("SELECT COUNT(*), COALESCE(SUM(n_volumes),0) FROM krcn_line WHERE market=? AND exported=1", (m,)).fetchone()
-        gate("%s exported lines" % m, n >= fl, "%s (floor %s, provisional until the first build)" % (n, fl))
+        gate("%s exported lines" % m, n >= fl, "%s (floor %s)" % (n, fl))
         gate("%s exported volumes" % m, v >= fv, "%s (floor %s)" % (v, fv))
     try:
         ids = json.loads(A.execute("SELECT value FROM meta WHERE key='krcn_ids'").fetchone()[0])
