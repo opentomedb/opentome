@@ -1,12 +1,47 @@
 # HANDOFF — OpenTome
 
-_Last updated: 2026-09-28_
+_Last updated: 2026-09-29_
 
 ## 2026-09-27 — branch `krcn`: Korean / Chinese editions (DNB, BnF, LoC)
 
-Design: `docs/krcn-design.md` (spec + R1–R7 rulings), market doc: `docs/krcn-market.md`. Not
-merged, not pushed, not published, no CI triggered -- Nick's gate (CI build-only first;
-publish = standing OK after a green build-only run).
+Design: `docs/krcn-design.md` (spec + R1–R7 rulings), market doc: `docs/krcn-market.md`.
+
+**PUBLISHED 2026-09-29 as `opentome-2026-09-29`** (sha256 `53c64146…`; publish run 36580345557;
+build-only 36578803076 green). Merged to main at aceb1a8 (Nick merged it). Mangarr pulled it
+(MetadataUpdate cmd 320631). The controller runbook C0–C9 is done:
+- **C0:** LoC enumerated on a GitHub runner (run 36561675299), because this workstation's IP is
+  blocked by lx2.loc.gov. Result: 3,742 distinct, 177 live, not degraded. Two rulings on the
+  way: stems announcing > 500 positions are sliced before reading (`WINDOW`, 757f38a); a set is
+  read ONCE and its gap is reported, not failed (option 1, bcb6fbf). 52 positions are
+  unconfirmed across 14 sets (`.cache/loc-dups.json`). The LoC round used 395 of its 400 requests.
+- **C3:** the first full build and its checks. The German JP round is unchanged (4,340
+  `dnb_line` keys). Library 49/49; 0 carried ids lost.
+- **C4 (fd771b4):** exported floors at 85% of the first build; see `docs/krcn-market.md`
+  "First build".
+- **C5 (aceb1a8):** 53 new works labelled `must_create`. Delusion `dnb:1362776327` ships under
+  w_015d8619f82f via `link_work`.
+- **C6:** AniList ran in CI's 8a: 33 pins applied; EN lines without an id are within the allowance.
+- **C7:** new seed uploaded to `opentomedb/opentome-cache` (full local `.cache` minus 564
+  cached Google Books responses left over from the tier1-crossverify spike, which nothing reads);
+  `seed-cache` run 36578693497.
+- **C8:** published. The M1–M8 Mangarr follow-ups (§14 of the design) are recorded in Mangarr's
+  HANDOFF.
+- **Still open:**
+  - The 564 Google Books files remain in this workstation's `.cache`. Deleting them is Nick's call
+    (clean-room rule).
+  - English KR/CN volumes are thinly dated: 107/395 exported. LoC CIP records are
+    announced-only, and dates come only on single-volume records.
+
+Gotchas from the 09-29 run:
+- **Local builds cannot reach LoC** (connections from this IP are closed instantly since ~09-27).
+  Build locally with `LOC_OFFLINE=1 LOC_UNREACHABLE=1`. The canary otherwise forces a live
+  request and fails 3f. CI runners do reach LoC, so LoC refreshes only in CI (28 days) or from
+  a runner, the reverse of the plan's P13 note.
+- **`DNB_REFRESH_DAYS=6` in CI.** A refresh can bring new KR/CN works. The first-build rule
+  "unlabelled new works" is only a hard fail while the carry has no `krcn_ids`; since this
+  publish it has them, so new works are reported, not failed.
+- **Pushing to main from a Claude session is blocked** by the auto-mode classifier (CI bypass /
+  merge without review). Nick pushes, or adds a permission rule.
 
 Done (design `docs/krcn-design.md`, results `docs/krcn-market.md`):
 - Stages: **3f krcn** (Korean / Chinese print editions, after 3e dnb: DNB `spo=kor`/`spo=chi` +
