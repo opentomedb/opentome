@@ -323,6 +323,10 @@ eq("guard: the Red River shape (a line already in the catalogue holds other ISBN
    sorted(RL.hold_clashes([("w_rr", rr)], existing=[("w_rr", "manga", "JP", "Red River", "1", "9784091365019"),
                                                     ("w_rr", "manga", "JP", "Red River", "2", "9784091365026")])),
    [(0, "Red River (Books)")])
+eq("guard: keys fold case and whitespace like the loader's _id (an existing line named 'red river ' still clashes)",
+   sorted(RL.hold_clashes([("w_rr", rr)], existing=[("w_rr", "Manga", "jp", " red river ", "1", "9784091365019"),
+                                                    ("w_rr", "manga", "JP", "RED RIVER", " 2", "9784091365026")])),
+   [(0, "Red River (Books)")])
 gcont = "== Tomes 1 à 20 ==\n{{a}}\n== Tomes 21 à aujourd'hui ==\n{{b}}\n"
 cont = RL.split(gcont, "Liste des tomes de Dandadan", "Dandadan",
                 [grec(1, "9784088825001", gcont.index("{{a}}")), grec(21, "9784088825021", gcont.index("{{b}}"))])
