@@ -280,6 +280,15 @@ def run():
     eq("an en alias row (romaji arrives this way) is en/alias", tags["Shingeki no Kyojin"], ("en", "alias"))
     eq("a ja official title is ja/official", tags["進撃の巨人"], ("ja", "official"))
 
+    # ---- a held heading group keeps its heading alias (heading cleanup fix F1; C3 finding E1 i) ------
+    # The round added "Bande dessinée" & co. to GENERIC, which the alias rule reads: a group the collision
+    # guard HOLDS (named after its heading again) lost the heading-word alias it shipped before the round.
+    ha = fixture_heading_alias()
+    eq("a held group's line keeps its heading word as an alias (Goblin Slayer (Bande dessinée))",
+       sorted(a for a in ha["rl_bd"] if a.lower().startswith("bande")), ["Bande dessinée", "bande dessin e"])
+    eq("a heading generic before the round still gives no alias (Liste des tomes)",
+       sorted(a for a in ha["rl_lt"] if a.lower().startswith("liste")), [])
+
     if FAILS:
         print("FAILED: " + ", ".join(FAILS))
         sys.exit(1)
@@ -599,6 +608,39 @@ def fixture_alias_tags():
         corr.DIR = real_dir
     out = sqlite3.connect(out_path)
     rows = {a: (l, k) for a, l, k in out.execute("SELECT alias, language, kind FROM series_alias")}
+    out.close()
+    return rows
+
+
+def fixture_heading_alias():
+    """Goblin Slayer's JP manga lines: the main line, a held heading group 'Goblin Slayer (Bande dessinée)'
+    and a line named after a heading that was generic before the round. -> {tome_id: [aliases]}"""
+    tmp = tempfile.mkdtemp(prefix="opentome-headingalias-")
+    src_path, out_path = (os.path.join(tmp, n) for n in ("pipeline.db", "artifact.sqlite"))
+    db = sqlite3.connect(src_path)
+    db.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+    db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_gs','Goblin Slayer','x','x')")
+    for rid, name, n in (("rl_main", "Goblin Slayer", 3), ("rl_bd", "Goblin Slayer (Bande dessinée)", 2),
+                         ("rl_lt", "Goblin Slayer (Liste des tomes)", 1)):
+        db.execute("""INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at)
+                      VALUES(?,'w_gs','manga','JP','ja','x','x')""", (rid,))
+        db.execute("""INSERT INTO claim(entity,entity_id,field,value,source,licence,retrieved_at)
+                      VALUES('release_line',?,'line_name',?,'wikipedia','facts_only','x')""", (rid, name))
+        for k in range(1, n + 1):
+            db.execute("""INSERT INTO volume(id,release_line_id,number,created_at,updated_at)
+                          VALUES(?,?,?,'x','x')""", ("v_%s_%d" % (rid, k), rid, str(k)))
+    db.commit(); db.close()
+    real_dir, corr.DIR = corr.DIR, tempfile.mkdtemp(prefix="opentome-nocorr-")
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            export(src_path, out_path)
+    finally:
+        corr.DIR = real_dir
+    out = sqlite3.connect(out_path)
+    rows = {}
+    for tid, alias in out.execute("""SELECT s.tome_id, a.alias FROM series_alias a
+                                     JOIN series s ON s.gcd_series_id=a.gcd_series_id"""):
+        rows.setdefault(tid, []).append(alias)
     out.close()
     return rows
 
