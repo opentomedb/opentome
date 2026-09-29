@@ -77,6 +77,12 @@ then a build-only CI run), **C8** (publish -- Nick's gate, only after a green bu
 with `CARRY_SHA256` set and no degraded flag).
 
 Gotchas:
+- **C0 ruling 2026-09-29: an ISBN stem over the 500-position window is sliced before any page.**
+  LoC blocks the workstation's IP since the 09-27 burst (a GitHub runner is served), so C0 runs on a
+  runner. There, `97988554*` (564) was re-read at 100/50/25, and each read found records the others
+  had missed (`LocIncomplete`, 51 requests). `loc_sru.WINDOW` = 500 now sends any stem whose count is
+  over it straight to its ten prefixes (`9781975*` 1,551 and `97988554*` 562 today; every subject
+  channel is under 500).
 - **Until C0 is done, run this branch's `rebuild_all.sh` / `build_krcn.py` only with
   `LOC_OFFLINE=1`.** Without it, stage 3f pages LoC live and would re-enter the throttling the
   cool-off exists to avoid. Offline, an uncached LoC channel fails the stage loudly (R7) --

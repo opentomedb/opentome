@@ -1253,6 +1253,22 @@ except LS.LocCanaryFailed as e:
     eq("canary: a malformed body fails the stage (LocCanaryFailed)", "malformed" in str(e), True)
 LRULE.pop("raw")
 
+# ---- C0 ruling 2026-09-29: a stem announcing more than the reachable window is sliced before any page ----
+# (runner C0 run 36523225783: 97988554* announced 564, reads at 100/50/25 kept finding new records [0, 9, 5])
+LOCDB.update({str(6000 + k): ([isbn13("97988559%d" % (k % 10), k)], True) for k in range(520)})
+LRULE["seq"] = lambda q, ids, sz: ((lmask(ids, 100, 200) if sz == 100 else lmask(ids, 300) if sz == 50 else lmask(ids, 400))
+                                   if q == "bath.isbn=97988559*" else ids)
+LS.LOC.degraded, LS.LOC.degraded_queries = None, []
+k = len(LCALLS)
+n, pages = LS.search_set("bath.isbn=97988559*")
+stem_pages = [u for u in LCALLS[k:] if "query=bath.isbn%3D97988559%2A&" in u and "maximumRecords=1&" not in u]
+slice_qs = {urllib.parse.parse_qs(urllib.parse.urlparse(u).query)["query"][0] for u in LCALLS[k:]} - {"bath.isbn=97988559*"}
+eq("a stem over the window: no stem page is read, its ten prefixes are, the union is complete",
+   (len(stem_pages), len(slice_qs), n, LS.LOC.distinct(pages), LS.LOC.degraded), (0, 10, 520, 520, None))
+LRULE.pop("seq")
+for k in range(520):
+    del LOCDB[str(6000 + k)]
+
 # ---- Task 9: DNB KR/CN origin, select(in_scope=) --------------------------------------------------------
 def orec(*fields):
     return drec("1", *fields)
