@@ -419,5 +419,12 @@
     "source_url": "https://en.wikipedia.org/wiki/Monogatari_(series)",
     "reason": "Monogatari (Nisio Isin, Kodansha Box) is a light-novel series; its JA and FR lines are tagged 'light_novel' but the English Vertical lines were tagged 'novel', which puts them in a different (work, medium) group so they get no origin line and never bind. Retag the EN lines 'light_novel' to match the rest of the work.",
     "checked": "2026-09-24"
+  },
+  {
+    "line_key": "dnb:1362776327",
+    "link_work": "w_015d8619f82f",
+    "source_url": "https://d-nb.info/1362776327",
+    "reason": "Delusion by Hongjacga: C Lines (Carlsen manhwa imprint), 041 $h kor, colour drawings -- the Korean manhwa already in the catalogue (writer_only review, plan C5)",
+    "checked": "2026-09-29"
   }
 ]
