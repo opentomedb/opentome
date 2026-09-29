@@ -180,6 +180,29 @@ def pick_origin(medium, markets, first_dated_by_market):
     return next((m for m in ORIGIN if m in markets), None)
 
 
+def origin_markets(markets_of, main_of, first_dated_of):
+    """-> (origin_of {(work, medium): market or None}, family_origin {(work, medium)}): pick_origin per
+    (work, medium) over the markets its lines are in, each dated by that market's main line; a comic
+    medium with no origin of its own looks across COMIC_FAMILY (E3) and is recorded in family_origin.
+    markets_of {(work, medium): {market}}; main_of {(work, market, medium): line id}; first_dated_of
+    {line id: earliest day/month-precision release date}. Module level (heading cleanup, 2026-09-29) so
+    stage 4b2 (tier0/comic_medium.py) decides a work's origin exactly as the export does."""
+    origin_of, family_origin = {}, set()
+    for (wid, medium), ms in markets_of.items():
+        first_by_market = {m: first_dated_of.get(main_of.get((wid, m, medium))) for m in ms}
+        origin_of[(wid, medium)] = pick_origin(medium, ms, first_by_market)
+        if origin_of[(wid, medium)] is None and medium in COMIC_FAMILY:
+            # no origin line in its own medium: the comic family's markets (E3). The family's main line per
+            # market dates it: the same medium first, then COMIC_FAMILY order.
+            fam = {m: next(main_of[(wid, m, g)] for g in (medium,) + COMIC_FAMILY if (wid, m, g) in main_of)
+                   for f in COMIC_FAMILY for m in markets_of.get((wid, f), ())}
+            om = pick_origin(medium, set(fam), {m: first_dated_of.get(r) for m, r in fam.items()})
+            if om is not None:
+                origin_of[(wid, medium)] = om
+                family_origin.add((wid, medium))
+    return origin_of, family_origin
+
+
 def normalize(value):
     """Byte-for-byte mirror of GcdMetadataService.Normalize() in the C#:
     lowercase, collapse every run of non-[a-z0-9] to a single space, trim.
@@ -604,19 +627,7 @@ def export(src_path, out_path, carry_ids_from=None):
                                            AND release_date_precision IN ('day','month')
                                          GROUP BY 1"""))
 
-    origin_of, family_origin = {}, set()
-    for (wid, medium), ms in markets_of.items():
-        first_by_market = {m: first_dated_of.get(main_of.get((wid, m, medium))) for m in ms}
-        origin_of[(wid, medium)] = pick_origin(medium, ms, first_by_market)
-        if origin_of[(wid, medium)] is None and medium in COMIC_FAMILY:
-            # no origin line in its own medium: the comic family's markets (E3). The family's main line per
-            # market dates it: the same medium first, then COMIC_FAMILY order.
-            fam = {m: next(main_of[(wid, m, g)] for g in (medium,) + COMIC_FAMILY if (wid, m, g) in main_of)
-                   for f in COMIC_FAMILY for m in markets_of.get((wid, f), ())}
-            om = pick_origin(medium, set(fam), {m: first_dated_of.get(r) for m, r in fam.items()})
-            if om is not None:
-                origin_of[(wid, medium)] = om
-                family_origin.add((wid, medium))
+    origin_of, family_origin = origin_markets(markets_of, main_of, first_dated_of)
     int_max = dict(src.execute("""SELECT release_line_id, MAX(CAST(number AS INTEGER)) FROM volume
                                   WHERE number GLOB '[0-9]*' AND number NOT GLOB '*[^0-9]*'
                                   GROUP BY 1"""))

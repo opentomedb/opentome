@@ -9,7 +9,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "tier2"))
 sys.path.insert(0, os.path.join(ROOT, "schema"))
 sys.path.insert(0, os.path.join(ROOT, "tier0"))
-from to_mangarr import title_for_export, pick_origin, export, local_title, local_name_for
+from to_mangarr import title_for_export, pick_origin, origin_markets, export, local_title, local_name_for
 import corrections as corr
 
 FAILS = []
@@ -73,6 +73,22 @@ def run():
     eq("no hint, no dates: falls back to the fixed JP>KR>CN>TW order",
        pick_origin("manga", {"TW", "KR"}, {}), "KR")
     eq("no candidate markets at all: None", pick_origin("manga", set(), {}), None)
+
+    # ---- origin_markets (heading cleanup, 2026-09-29): the export's origin loop at module level, so
+    # stage 4b2 (tier0/comic_medium.py) decides a work's origin exactly as the export does. Recast: a
+    # ko 'manga' + ko 'manhwa' + fr 'manga' line; King of Hell DE: only a DE 'manga' line and a ko manhwa.
+    mo = {("w", "manga"): {"KR", "FR"}, ("w", "manhwa"): {"KR"}, ("d", "manga"): {"DE"}, ("d", "manhwa"): {"KR"},
+          ("j", "manga"): {"JP", "KR"}}
+    mn = {("w", "KR", "manga"): "a", ("w", "FR", "manga"): "b", ("w", "KR", "manhwa"): "c",
+          ("d", "DE", "manga"): "e", ("d", "KR", "manhwa"): "f", ("j", "JP", "manga"): "g", ("j", "KR", "manga"): "h"}
+    og, fam = origin_markets(mo, mn, {"a": "2010-01-01", "c": "2010-01-01", "f": "2012-05-01",
+                                      "g": "2009-01-01", "h": "2015-01-01"})
+    eq("origin_markets: a ko 'manga' line makes KR the manga origin", og[("w", "manga")], "KR")
+    eq("origin_markets: the manhwa hint", og[("w", "manhwa")], "KR")
+    eq("origin_markets: a DE-only 'manga' finds KR through the comic family (E3)",
+       (og[("d", "manga")], ("d", "manga") in fam), ("KR", True))
+    eq("origin_markets: an earlier JP 'manga' main line wins the date step (Denma)", og[("j", "manga")], "JP")
+    eq("origin_markets: a same-medium origin is not a family origin", ("w", "manga") in fam, False)
 
     # ---- origin_line pin, end to end (2026-09-24, Roxy Gets Serious): two
     # same-work, same-medium JP lines -- a main line and a spin-off whose
