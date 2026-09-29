@@ -30,6 +30,31 @@ MEDIUM_HINTS = [
     ("artbook",     r"art\s*book|databook|guide\s*book"),
 ]
 
+# Headings that NAME a medium in words MEDIUM_HINTS lacks (heading cleanup A, 2026-09-29, spec §3.1
+# class 2). Each matches ONE WHOLE heading of the path, never a substring and never the article
+# title: r"\broman\b" over the title would make "Cestvs: The Roman Fighter" a novel, and an arc
+# heading "Le Roman de Chiyo" is not a novel section. Read after MEDIUM_HINTS, before the title.
+# "Roman illustré" is French Wikipedia's [[Light novel|Roman illustré]] (_clean_heading keeps the
+# label): light_novel, or its volumes would copy the JP light-novel line as a 'novel' line.
+HEADING_MEDIUM_HINTS = [
+    ("light_novel", re.compile(r"^roman illustr[ée]$", re.I)),
+    ("manga", re.compile(r"^bande dessin[ée]e$", re.I)),
+    ("novel", re.compile(r"^(?:romans?|roman web|liste des romans|novelizations?)$", re.I)),
+]
+
+# Round-A headings (heading cleanup A, 2026-09-29, spec §3.1 classes 1 and 2): words that name no
+# line, or name only a medium. None of them was in GENERIC before the round ("media", "publications",
+# "liste des tomes", "novel series" already were), so HELD below is exactly what the round changed.
+_ROUND_A = (
+    r"médias?|medias|parution|production|publication history|publication and conception|"
+    r"books and publications|related media|works|personnages|synopsis|plot(?: summary)?|books?|"
+    r"liste de volumes|listes des volumes|d[ée]tail des volumes|list of chapters|"
+    r"chapter and volume list|manga volumes|"
+    r"romans?|roman illustr[ée]|roman web|liste des romans|novelizations?|"
+    r"liste des light novels?|liste des volumes du light novel|bande dessin[ée]e|mangas|web novels?")
+# pagination with an open end: "Tomes 21 à aujourd'hui", "Volumes 11 to present"
+_OPEN_END = r"^(?:tomes?|volumes?)\s*\d+\s*(?:à|a|to)\s*(?:aujourd['’]hui|today|present)$"
+
 # leaf headings that name no line -- fall through to the work title
 GENERIC = re.compile(
     r"^(volumes?|volume list|tomes?|chapitres?|chapters?|list|main|"
@@ -43,6 +68,7 @@ GENERIC = re.compile(
     r"story arcs?|tomes? classiques?|arcs? narratifs?|"
     r"light novels?|manga|manhwa|manhua|novels?|webtoons?|"
     r"adaptations?|manga adaptations?|adaptations? en manga|"
+    + _ROUND_A + r"|"
     r"releases?)$", re.I)
 
 # Pagination headings chunk a long list for readability -- "Tomes 1 à 10",
@@ -50,7 +76,11 @@ GENERIC = re.compile(
 # them shatters one line into arbitrary decades.
 PAGINATION = re.compile(
     r"^(tomes?|volumes?|b[\u00e4a]nde?|chapters?|chapitres?|vols?\.?)\s*"
-    r"\d+\s*(?:\u00e0|a|to|bis|[-\u2013\u2014])\s*\d+$", re.I)
+    r"\d+\s*(?:\u00e0|a|to|bis|[-\u2013\u2014])\s*\d+$|" + _OPEN_END, re.I)
+
+# What the round made fall through. line_name(hold=True) names a line after these again -- the name the
+# collision guard (hold_clashes) restores when a fall-through would land on another edition's volumes.
+HELD = re.compile(r"^(?:" + _ROUND_A + r")$|" + _OPEN_END, re.I)
 
 
 def _headings(w):
@@ -83,12 +113,21 @@ def _clean_heading(t):
     return re.sub(r"\s+", " ", t).strip(" ()")
 
 
-def detect_medium(path, article_title, default="manga"):
-    """Medium from the heading path, else the article title, else default."""
-    for scope in (" > ".join(path), article_title or ""):
-        for medium, pat in MEDIUM_HINTS:
-            if re.search(pat, scope, re.I):
+def detect_medium(path, article_title, default="manga", headings=True):
+    """Medium from the heading path, else a whole heading that names one (HEADING_MEDIUM_HINTS,
+    deepest first), else the article title, else default. headings=False skips HEADING_MEDIUM_HINTS:
+    the pre-round rule, the medium a group the collision guard holds keeps."""
+    joined = " > ".join(path)
+    for medium, pat in MEDIUM_HINTS:
+        if re.search(pat, joined, re.I):
+            return medium
+    for txt in (reversed(path) if headings else ()):
+        for medium, pat in HEADING_MEDIUM_HINTS:
+            if pat.match(txt.strip()):
                 return medium
+    for medium, pat in MEDIUM_HINTS:
+        if re.search(pat, article_title or "", re.I):
+            return medium
     return default
 
 
@@ -96,18 +135,19 @@ def _tokens(s):
     return {w for w in re.sub(r"[^\w\s]", " ", s.lower()).split() if len(w) > 3}
 
 
-def line_name(path, work_title):
+def line_name(path, work_title, hold=False):
     """Return (qualified, raw).
 
     `raw` is the deepest non-generic heading as written -- how readers refer
     to it ("Unital Ring"). `qualified` is unambiguous across works, which a
     catalogue needs: a bare "Second edition" or "Truth of Zero" means nothing
-    without its parent work.
+    without its parent work. hold=True names the line after a round-A heading
+    (HELD) as before the round: the name the collision guard restores.
     """
     raw = None
     for txt in reversed(path):
         c = _clean_heading(txt)
-        if c and not GENERIC.match(c) and not PAGINATION.match(c):
+        if c and ((not GENERIC.match(c) and not PAGINATION.match(c)) or (hold and HELD.match(c))):
             raw = c
             break
     if not raw:
@@ -205,6 +245,10 @@ def split(wikitext_src, article_title, work_title, records):
         rec = dict(rec)
         rec["medium"] = detect_medium(path, article_title)
         rec["line"], rec["line_raw"] = line_name(path, work_title)
+        held = line_name(path, work_title, hold=True)
+        if held[0] != rec["line"]:              # it fell through a round-A heading: hold_clashes may restore it
+            rec["line_held"], rec["line_held_raw"] = held
+            rec["medium_held"] = detect_medium(path, article_title, headings=False)     # and its pre-round medium
         rec["line_path"] = path
         out.append(rec)
     return split_arcs(out, work_title)
