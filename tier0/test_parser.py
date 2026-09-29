@@ -298,6 +298,131 @@ eq("split: ... and its pre-round medium (no heading hint: 'Roman' was manga befo
    [r.get("medium_held") for r in hout], [None, "manga", "manga", None, "manga"])
 eq("detect_medium(headings=False) is the pre-round rule", RL.detect_medium(["Roman"], "Hyouka", headings=False), "manga")
 
+# ---- the collision guard (heading cleanup, 2026-09-29; review C1) --------------------------------
+# A round-A group falls through only if none of its volumes lands on a key another row holds with a
+# different ISBN; otherwise it keeps its pre-round heading name.
+def grec(n, isbn, pos, market="JP"):
+    return {"volume": str(n), "_offset": pos, "markets": {"original": {"market": market, "isbn13": isbn}}}
+gmain = "== Manga ==\n{{a}}\n"
+gpub = "== Publication and conception ==\n{{b}}\n"
+ngnl_a = RL.split(gmain, "No Game No Life", "No Game No Life",
+                  [grec(n, "97840406611%02d" % n, gmain.index("{{a}}")) for n in (1, 2)])
+ngnl_b = RL.split(gpub, "No Game No Life: Publications", "No Game No Life",
+                  [grec(n, "97840406643%02d" % n, gpub.index("{{b}}")) for n in (1, 2, 3)])
+held = RL.hold_clashes([("w_ngnl", ngnl_a), ("w_ngnl", ngnl_b)])
+eq("guard: the No Game No Life shape (another article's list, same numbers, other ISBNs) is held",
+   sorted(held), [(1, "No Game No Life (Publication and conception)")])
+eq("guard: ... on the two numbers both lines have", len(held[(1, "No Game No Life (Publication and conception)")]), 2)
+eq("guard: hold() gives the held group its heading name back (and its pre-round medium, manga here too)",
+   [(r["medium"], r["line"]) for r in RL.hold(ngnl_b, {"No Game No Life (Publication and conception)"})],
+   [("manga", "No Game No Life (Publication and conception)")] * 3)
+eq("guard: hold() leaves the other records alone", RL.hold(ngnl_a, {"No Game No Life (Publication and conception)"}), ngnl_a)
+gbooks = "== Books ==\n{{b}}\n"
+rr = RL.split(gbooks, "Red River", "Red River", [grec(n, "97840945200%02d" % n, gbooks.index("{{b}}")) for n in (1, 2)])
+eq("guard: the Red River shape (a line already in the catalogue holds other ISBNs) is held",
+   sorted(RL.hold_clashes([("w_rr", rr)], existing=[("w_rr", "manga", "JP", "Red River", "1", "9784091365019"),
+                                                    ("w_rr", "manga", "JP", "Red River", "2", "9784091365026")])),
+   [(0, "Red River (Books)")])
+gcont = "== Tomes 1 à 20 ==\n{{a}}\n== Tomes 21 à aujourd'hui ==\n{{b}}\n"
+cont = RL.split(gcont, "Liste des tomes de Dandadan", "Dandadan",
+                [grec(1, "9784088825001", gcont.index("{{a}}")), grec(21, "9784088825021", gcont.index("{{b}}"))])
+main_dd = RL.split(gmain, "Dandadan", "Dandadan", [grec(21, "9784088825021", gmain.index("{{a}}"))])
+eq("guard: an open-ended continuation onto the same books (same ISBNs) still falls through",
+   RL.hold_clashes([("w_dd", main_dd), ("w_dd", cont)]), {})
+eq("guard: ... into the work's own line", [r["line"] for r in cont], ["Dandadan", "Dandadan"])
+noisbn = RL.split(gmain, "Dandadan", "Dandadan", [grec(21, None, gmain.index("{{a}}"))])
+eq("guard: a row without an ISBN never clashes", RL.hold_clashes([("w_dd", noisbn), ("w_dd", cont)]), {})
+gsame = "== Liste des volumes ==\n{{a}}\n== Médias ==\n{{b}}\n"
+same_ok = RL.split(gsame, "Gosick", "Gosick", [grec(5, "9784047126930", gsame.index("{{a}}")),
+                                              grec(5, "9784047126930", gsame.index("{{b}}"))])
+same_bad = RL.split(gsame, "Gosick", "Gosick", [grec(5, "9784047126930", gsame.index("{{a}}")),
+                                               grec(5, "9784047125582", gsame.index("{{b}}"))])
+eq("guard: a 'Médias' section repeating the main list's books falls through", RL.hold_clashes([("w_g", same_ok)]), {})
+eq("guard: one listing another book under the same number is held (same article too)",
+   sorted(RL.hold_clashes([("w_g", same_bad)])), [(0, "Gosick (Médias)")])
+
+gww = "== Liste des volumes du light novel ==\n{{a}}\n== Médias ==\n{{b}}\n"
+ww_main = RL.split(gmain, "Wandering Witch", "Wandering Witch", [grec(1, "9784797384352", gmain.index("{{a}}"))])
+ww_fr = RL.split(gww, "Wandering Witch (fr)", "Wandering Witch", [grec(1, "9784797384352", gww.index("{{a}}")),
+                                                                  grec(1, "9784757560932", gww.index("{{b}}"))])
+eq("guard: a group repeating the main line's books falls through; its sibling listing another book is held",
+   sorted(RL.hold_clashes([("w_ww", ww_main), ("w_ww", ww_fr)])), [(1, "Wandering Witch (Médias)")])
+
+# a held class-2 group keeps its OLD medium as well as its old name: Hyouka's "Roman" list (tagged manga
+# before the round) would land on the English article's JP novel line under other ISBNs -> held, it reloads
+# as the manga line "Hyouka (Roman)" under its pre-round line id
+groman = "== Roman ==\n{{b}}\n"
+hy = RL.split(groman, "Hyouka", "Hyouka", [grec(n, "97840487361%02d" % n, groman.index("{{b}}")) for n in (3, 4)])
+hy_held = RL.hold_clashes([("w_hy", hy)], existing=[("w_hy", "novel", "JP", "Hyouka", "3", "9784044271039"),
+                                                    ("w_hy", "novel", "JP", "Hyouka", "4", "9784044271046")])
+eq("guard: the Hyouka 'Roman' group (novel after the round) is held", sorted(hy_held), [(0, "Hyouka (Roman)")])
+GROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(GROOT, "schema"))
+from load import load as gload, _id as gid
+hy_path = os.path.join(__import__("tempfile").mkdtemp(prefix="opentome-hy-"), "h.db")
+hy_db = __import__("sqlite3").connect(hy_path)
+hy_db.executescript(open(os.path.join(GROOT, "schema", "schema.sql"), encoding="utf8").read())
+gload(hy_db, "Hyouka", RL.hold(hy, {"Hyouka (Roman)"}), work_key="k:hyouka")
+eq("guard: the held group reloads as manga 'Hyouka (Roman)' under its pre-round line id",
+   hy_db.execute("SELECT id, medium FROM release_line").fetchall(),
+   [(gid("rl_", gid("w_", "k:hyouka"), "manga", "JP", "Hyouka (Roman)"), "manga")])
+hy_db.close()
+
+# split_arcs runs inside split(), after line_held is computed: an arc record keeps line_held (copied) but
+# carries arc_of, and the guard and hold() skip arc records, so the arc name (from the row titles, never a
+# heading) is the same held or not. Only the non-arc rows of the group take their heading name back.
+garc = "== Books ==\n" + "".join("{{r%d}}\n" % n for n in range(1, 6))
+def arow(n, title, isbn):
+    r = grec(n, isbn, garc.index("{{r%d}}" % n))
+    r["title"] = title
+    return r
+arcs = RL.split(garc, "Foo", "Foo", [arow(1, "Foo 1", "9784000000011"), arow(2, "Foo 2", "9784000000028"),
+                                     arow(3, "Foo: Bar 1", "9784000000035"), arow(4, "Foo: Bar 2", "9784000000042")])
+eq("arc + guard: the arc rows carry arc_of and still carry line_held", [(bool(r.get("arc_of")), bool(r.get("line_held"))) for r in arcs],
+   [(False, True), (False, True), (True, True), (True, True)])
+arc_line = arcs[2]["line"]
+eq("arc + guard: an arc group is never held (only the plain group)",
+   sorted(RL.hold_clashes([("w_foo", arcs)], existing=[("w_foo", "manga", "JP", "Foo", "1", "9784999999991")])), [(0, "Foo (Books)")])
+eq("arc + guard: hold() renames the plain rows and leaves the arc rows exactly as split_arcs named them",
+   [(r["line"], r["medium"]) for r in RL.hold(arcs, {"Foo (Books)"})],
+   [("Foo (Books)", "manga")] * 2 + [(arc_line, "manga")] * 2)
+
+# build_corpus wires it: every article is split first, then loaded with the held groups renamed.
+import sqlite3, tempfile
+import build_corpus as BC
+gpages = {"No Game No Life": (gmain, [grec(n, "97840406611%02d" % n, gmain.index("{{a}}")) for n in (1, 2)]),
+          "No Game No Life: Publications": (gpub, [grec(n, "97840406643%02d" % n, gpub.index("{{b}}")) for n in (1, 2, 3)]),
+          "Dandadan": (gmain, [grec(21, "9784088825021", gmain.index("{{a}}"))]),
+          "Liste des tomes de Dandadan": (gcont, [grec(1, "9784088825001", gcont.index("{{a}}")),
+                                                  grec(21, "9784088825021", gcont.index("{{b}}"))])}
+gident = {"en:No Game No Life": {"canonical": "k:ngnl", "titles": {"en": "No Game No Life"}},
+          "en:No Game No Life: Publications": {"canonical": "k:ngnl", "titles": {"en": "No Game No Life"}},
+          "en:Dandadan": {"canonical": "k:dd", "titles": {"en": "Dandadan"}},
+          "en:Liste des tomes de Dandadan": {"canonical": "k:dd", "titles": {"en": "Dandadan"}}}
+saved_bc = (BC.corpus, BC.wikitext, BC.parse_volumes, BC.load_identity)
+BC.corpus = lambda lang: list(gpages)
+BC.wikitext = lambda article, lang: gpages[article][0]
+BC.parse_volumes = lambda w, article, lang: [dict(r) for r in gpages[article][1]]
+BC.load_identity = lambda path=None: gident
+gdb_path = os.path.join(tempfile.mkdtemp(prefix="opentome-guard-"), "c.db")
+try:
+    BC.main(gdb_path, langs=("en",))
+finally:
+    BC.corpus, BC.wikitext, BC.parse_volumes, BC.load_identity = saved_bc
+gdb = sqlite3.connect(gdb_path)
+eq("build_corpus: the held list is kept in meta corpus:held",
+   __import__("json").loads(gdb.execute("SELECT value FROM meta WHERE key='corpus:held'").fetchone()[0]),
+   [["en", "No Game No Life: Publications", "No Game No Life (Publication and conception)", 2]])
+eq("build_corpus: the held group loads as its own line, the continuation into the work's line",
+   sorted(gdb.execute("""SELECT c.value, COUNT(v.id) FROM release_line rl JOIN claim c ON c.entity='release_line'
+                         AND c.entity_id=rl.id AND c.field='line_name' JOIN volume v ON v.release_line_id=rl.id
+                         GROUP BY rl.id""")),
+   [("Dandadan", 2), ("No Game No Life", 2), ("No Game No Life (Publication and conception)", 3)])
+eq("build_corpus: no ISBN of either No Game No Life line was replaced",
+   sorted(i for (i,) in gdb.execute("SELECT isbn13 FROM volume WHERE isbn13 LIKE '97840406%'")),
+   ["9784040661101", "9784040661102", "9784040664301", "9784040664302", "9784040664303"])
+gdb.close()
+
 # ---- work_title: French list articles (2026-09-25, alias-fix) -----------
 # 'de' ate the start of 'des' ("s Enquêtes de Kindaichi" shipped as an alias); des/du now restore
 # the title's own article, as to_mangarr.local_title does (the fragment is shared).

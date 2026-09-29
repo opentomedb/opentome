@@ -6,7 +6,7 @@ uses the volume-list template, i.e. precisely the parseable set.
 Resumable by construction -- responses are disk-cached and completed articles
 are recorded in `meta`, so re-running skips finished work and costs no network.
 """
-import json, os, re, sqlite3, sys, time, datetime, traceback
+import collections, json, os, re, sqlite3, sys, time, datetime, traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(ROOT, "schema"))
 from wikipedia_volumes import _get, wikitext, parse_volumes, DIALECTS
 import release_lines as RL
 from collapse import collapse_licensed
-from load import load
+from load import load, _id
 
 TPL = {"en": "Template:Graphic novel list", "fr": "Modèle:TomeBD"}
 
@@ -84,6 +84,16 @@ def done_set(db):
         "SELECT key FROM meta WHERE key LIKE 'done:%'")}
 
 
+def existing_rows(db):
+    """(work, medium, market, line name, number, isbn13) of the volumes already in the catalogue -- a
+    resumed KEEP_DB=1 build: the collision guard compares the new articles against them too."""
+    return db.execute("""SELECT rl.work_id, rl.medium, rl.market, c.value, v.number, v.isbn13
+                         FROM volume v JOIN release_line rl ON rl.id=v.release_line_id
+                         JOIN claim c ON c.entity='release_line' AND c.entity_id=rl.id
+                          AND c.field='line_name' AND c.source='wikipedia'
+                         WHERE v.isbn13 IS NOT NULL""").fetchall()
+
+
 def load_identity(path=None):
     path = path or os.path.join(ROOT, "build", "work_identity.json")
     try:
@@ -113,7 +123,11 @@ def main(dbpath, limit=None, langs=("en", "fr")):
 
     ok = err = vols = 0
     t0 = time.time()
-    for i, (lang, article) in enumerate(todo, 1):
+    # Pass 1: split every article before any is loaded, so the collision guard (release_lines.hold_clashes)
+    # sees every article's volumes -- 86 of the 90 measured clashes were across two articles. The same
+    # disk-cached wikitext pass 2 used to read; nothing is fetched twice.
+    parsed = []
+    for lang, article in todo:
         try:
             w = wikitext(article, lang)
             if not w:
@@ -125,8 +139,29 @@ def main(dbpath, limit=None, langs=("en", "fr")):
             # prefer the English title as primary when the class has one
             if titles.get("en"):
                 title = work_title(titles["en"])
-            recs = RL.split(w, article, title, parse_volumes(w, article, lang))
-            recs = collapse_licensed(recs)
+            split = RL.split(w, article, title, parse_volumes(w, article, lang))
+            parsed.append((lang, article, title, key, titles, split, collapse_licensed(split)))
+        except Exception as e:
+            err += 1
+            db.execute("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)",
+                       (f"err:{lang}:{article}", f"{type(e).__name__}: {e}"[:200]))
+    db.commit()
+    held = RL.hold_clashes([(_id("w_", key or title), recs) for _, _, title, key, _, _, recs in parsed],
+                           existing_rows(db))
+    names_of = collections.defaultdict(set)
+    for (b, name), keys in held.items():
+        names_of[b].add(name)
+        print(f"  collision guard: {parsed[b][0]}:{parsed[b][1]} keeps {name!r} "
+              f"({len(keys)} volume(s) would land on another edition)", flush=True)
+    print(f"collision guard: {len(held)} heading group(s) keep their heading name", flush=True)
+    db.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('corpus:held',?)", (json.dumps(
+        sorted([parsed[b][0], parsed[b][1], name, len(keys)] for (b, name), keys in held.items())),))
+    db.commit()
+    # Pass 2: load, the held groups under their heading name again
+    for i, (lang, article, title, key, titles, split, recs) in enumerate(parsed, 1):
+        try:
+            if names_of.get(i - 1):
+                recs = collapse_licensed(RL.hold(split, names_of[i - 1]))
             if recs:
                 _, nl, nv, _ = load(db, title, recs, work_key=key, titles=titles)
                 vols += nv
@@ -142,8 +177,8 @@ def main(dbpath, limit=None, langs=("en", "fr")):
         if i % 100 == 0:
             el = time.time() - t0
             rate = i / el if el else 0
-            eta = (len(todo) - i) / rate / 60 if rate else 0
-            print(f"  {i}/{len(todo)}  ok={ok} err={err} vols={vols} "
+            eta = (len(parsed) - i) / rate / 60 if rate else 0
+            print(f"  {i}/{len(parsed)}  ok={ok} err={err} vols={vols} "
                   f"{rate:.1f}/s eta={eta:.0f}m", flush=True)
     print(f"DONE  ok={ok} err={err} volumes={vols} elapsed={(time.time()-t0)/60:.1f}m",
           flush=True)
