@@ -152,7 +152,8 @@ def differ_pins(db, differ):
 def apply(db):
     """Stage 4b2. -> {"flips": [(line, medium)], "merges": [(folded, survivor, moved, dropped)],
     "kept": [(owned line, survivor)], "differ": [(line, survivor, n)], "guarded": [(line, medium)],
-    "pins": [(licensed line, origin line)]}, also written to meta 'comic_medium'."""
+    "pins": [(licensed line, origin line)]}, also written to meta 'comic_medium' (merged into a stored report: each
+    list a de-duplicated union, so a re-run keeps what the first run did)."""
     flips, merges, kept, differ, guarded = plan(db)
     pins = differ_pins(db, differ)
     c = db.cursor()
@@ -167,7 +168,22 @@ def apply(db):
         done.append((dup, keep, moved, dropped))
     rep = {"flips": sorted(flips.items()), "merges": done, "kept": kept, "differ": differ, "guarded": guarded,
            "pins": pins}
-    c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('comic_medium',?)", (json.dumps(rep),))
+    stored = {}                         # a re-run past 4b2 (KEEP_DB=1) finds nothing left to do: keep the earlier report
+    row = c.execute("SELECT value FROM meta WHERE key='comic_medium'").fetchone()
+    if row:
+        try:
+            stored = json.loads(row[0])
+        except ValueError:
+            stored = {}
+    merged = {}
+    for k, new_rows in rep.items():
+        seen, out = set(), []
+        for r in list(stored.get(k, [])) + [list(x) for x in new_rows]:
+            if json.dumps(r) not in seen:
+                seen.add(json.dumps(r))
+                out.append(r)
+        merged[k] = out
+    c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('comic_medium',?)", (json.dumps(merged),))
     db.commit()
     return rep
 

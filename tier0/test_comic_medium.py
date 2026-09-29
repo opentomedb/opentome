@@ -195,6 +195,21 @@ eq("a corrected line is reported, not folded",
    (rep["merges"], rep["kept"]), ([], [(rl(CR, "KR", "Corrected"), rl(CR, "KR", "Corrected", "manhwa"))]))
 db.close()
 
+# ---- meta.comic_medium survives a re-run (KEEP_DB=1 past 4b2): the report is merged, not replaced ----------
+cat = catalogue("meta", [("en:Baptist2", "Baptist2", [("KR", "manga", "Baptist2", vols(70, 3)), ("FR", "manga", "Baptist2", vols(71, 3))]),
+                         ("en:Isekai2", "Isekai2", [("JP", "light_novel", "Isekai2", vols(72, 2)), ("KR", "manhwa", "Isekai2", vols(73, 2)),
+                                                    ("DE", "manga", "Isekai2", vols(74, 2))])])
+db = sqlite3.connect(cat)
+first = CM.apply(db)
+stored1 = __import__("json").loads(db.execute("SELECT value FROM meta WHERE key='comic_medium'").fetchone()[0])
+second = CM.apply(db)
+stored2 = __import__("json").loads(db.execute("SELECT value FROM meta WHERE key='comic_medium'").fetchone()[0])
+eq("re-run: the first run flipped something", len(first["flips"]) > 0, True)
+eq("re-run: the second run itself finds nothing to flip", second["flips"], [])
+eq("re-run: the stored report still holds the first run's flips", stored2["flips"], stored1["flips"])
+eq("re-run: ... and every other list of the first run", {k: stored2[k] for k in stored1}, stored1)
+db.close()
+
 print()
 if FAILS:
     print("%d FAILED: %s" % (len(FAILS), FAILS))
