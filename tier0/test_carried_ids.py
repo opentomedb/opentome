@@ -726,6 +726,100 @@ eq("N3b: carried from the live release: allowed (reaches the stub gh)", "FAKE-GH
 r = P(carried_art, CARRY_SHA256="0" * 64)
 eq("N3b: the dry run only says so", (r.returncode, "ID CARRY:" in r.stderr), (0, True))
 
+# ---- heading cleanup A+B (2026-09-29): a line whose MEDIUM changed follows its ISBNs --------------
+# A "Roman" heading now sets the medium (release_lines.HEADING_MEDIUM_HINTS): "Hyouka (Roman)", tagged
+# 'manga' by the old default, reloads as the novel line "Hyouka". Without the any-medium step, 7b
+# found no manga line holding its ISBNs and retired it into the MANGA main line.
+WH = "fr:Hyouka"
+med_before = catalogue("med1", [(WH, "Hyouka", [("JP", "manga", "Hyouka", vols(20, 4, date=False)),
+                                                ("JP", "manga", "Hyouka (Roman)", vols(21, 3))])])
+med_carry = artifact(med_before)
+med_after = catalogue("med2", [(WH, "Hyouka", [("JP", "manga", "Hyouka", vols(20, 4, date=False)),
+                                               ("JP", "novel", "Hyouka", vols(21, 3))])])
+db = sqlite3.connect(med_after)
+rep = K.redirects(db, med_carry, excluded=set())
+eq("medium changed: the line follows its ISBNs to the novel line, not retired into the manga main line",
+   db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (rl(WH, "JP", "Hyouka (Roman)"),)).fetchone(),
+   (rl(WH, "JP", "Hyouka", "novel"), "correction"))
+eq("medium changed: its volumes follow by ISBN",
+   db.execute("SELECT new_id FROM id_redirect WHERE old_id=?", (_id("v_", rl(WH, "JP", "Hyouka (Roman)"), "2"),)).fetchone(),
+   (_id("v_", rl(WH, "JP", "Hyouka", "novel"), "2"),))
+eq("medium changed: nothing retired, no orphan",
+   (rep["rows"].get(("release_line", "retired"), 0), rep["rows"].get(("volume", "retired"), 0), rep["orphans"]), (0, 0, []))
+db.close()
+eq("medium changed: the carried-id gate passes", ids_ok(artifact(med_after, med_carry), med_carry), [])
+
+# no ISBNs (Dagashi Kashi (Média) has none, only dates): the dated volumes decide in the new medium too
+WD = "fr:Kino"
+dated = [("1", None, "2001-01-01"), ("2", None, "2001-02-01")]
+med_before = catalogue("med3", [(WD, "Kino", [("JP", "manga", "Kino", vols(26, 2, date=False)),
+                                              ("JP", "manga", "Kino (Roman)", dated)])])
+med_carry = artifact(med_before)
+med_after = catalogue("med4", [(WD, "Kino", [("JP", "manga", "Kino", vols(26, 2, date=False)),
+                                             ("JP", "novel", "Kino", dated)])])
+db = sqlite3.connect(med_after)
+K.redirects(db, med_carry, excluded=set())
+eq("medium changed, no ISBNs: the dated volumes lead to the novel line",
+   db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (rl(WD, "JP", "Kino (Roman)"),)).fetchone(),
+   (rl(WD, "JP", "Kino", "novel"), "correction"))
+eq("... and each volume follows by number",
+   db.execute("SELECT new_id FROM id_redirect WHERE old_id=?", (_id("v_", rl(WD, "JP", "Kino (Roman)"), "2"),)).fetchone(),
+   (_id("v_", rl(WD, "JP", "Kino", "novel"), "2"),))
+db.close()
+
+# the Recast shape (stage 4b2 folds a ko 'manga' line into the ko 'manhwa' one): the folded id follows
+WR = "en:Recast (manhwa)"
+rv = vols(22, 6)
+med_before = catalogue("med5", [(WR, "Recast", [("KR", "manhwa", "Recast", rv), ("KR", "manga", "Recast", rv)])])
+med_carry = artifact(med_before)
+med_after = catalogue("med6", [(WR, "Recast", [("KR", "manhwa", "Recast", rv)])])
+db = sqlite3.connect(med_after)
+rep = K.redirects(db, med_carry, excluded=set())
+eq("a folded 'manga' duplicate redirects to the published 'manhwa' line (duplicate_merge)",
+   db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (rl(WR, "KR", "Recast"),)).fetchone(),
+   (rl(WR, "KR", "Recast", "manhwa"), "duplicate_merge"))
+eq("... its volumes follow by ISBN, no orphan",
+   (db.execute("SELECT new_id FROM id_redirect WHERE old_id=?", (_id("v_", rl(WR, "KR", "Recast"), "4"),)).fetchone(),
+    rep["orphans"]), ((_id("v_", rl(WR, "KR", "Recast", "manhwa"), "4"),), []))
+db.close()
+
+# ---- spec §5: a "Médias" section and the main list -> one line; the heading line's id redirects -----
+# Built with release_lines.split (the corpus stage's own splitter) and schema/load.py, so the fold is
+# the loader's natural key, not a hand-written line name.
+import release_lines as RL
+WS = "fr:A Sign"
+sv, fv = vols(23, 3), vols(24, 3)
+med_before = catalogue("medias1", [(WS, "A Sign", [("JP", "manga", "A Sign", sv), ("JP", "manga", "A Sign (Médias)", sv),
+                                                   ("FR", "manga", "A Sign (Médias)", fv)])])
+med_carry = artifact(med_before)
+src = "== Liste des volumes ==\n{{a}}\n== Médias ==\n=== Manga ===\n{{b}}\n"
+recs = [{"volume": n, "_offset": src.index("{{a}}"),
+         "markets": {"original": {"market": "JP", "isbn13": i, "date": d, "date_precision": "day"}}} for n, i, d in sv]
+recs += [{"volume": n, "_offset": src.index("{{b}}"),
+          "markets": {"original": {"market": "JP", "isbn13": i, "date": d, "date_precision": "day"},
+                      "licensed": {"market": "FR", "isbn13": fv[k][1], "date": fv[k][2], "date_precision": "day"}}}
+         for k, (n, i, d) in enumerate(sv)]
+med_after = os.path.join(TMP, "medias2.db")
+db = sqlite3.connect(med_after)
+db.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+load(db, "A Sign", RL.split(src, "Liste des volumes de A Sign", "A Sign", recs), work_key=WS)
+db.commit()
+eq("Médias: the heading section loads into the work's own lines (one JP, one FR)",
+   sorted(db.execute("SELECT market, medium FROM release_line")), [("FR", "manga"), ("JP", "manga")])
+rep = K.redirects(db, med_carry, excluded=set())
+eq("Médias: the carried JP heading line redirects to the published JP line (duplicate_merge)",
+   db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (rl(WS, "JP", "A Sign (Médias)"),)).fetchone(),
+   (rl(WS, "JP", "A Sign"), "duplicate_merge"))
+eq("Médias: the carried FR heading line redirects to the FR line that absorbed its volumes",
+   db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (rl(WS, "FR", "A Sign (Médias)"),)).fetchone(),
+   (rl(WS, "FR", "A Sign"), "correction"))
+eq("Médias: its volumes follow, nothing retired, no orphan",
+   (db.execute("SELECT new_id FROM id_redirect WHERE old_id=?", (_id("v_", rl(WS, "FR", "A Sign (Médias)"), "2"),)).fetchone(),
+    rep["rows"].get(("release_line", "retired"), 0), rep["orphans"]),
+   ((_id("v_", rl(WS, "FR", "A Sign"), "2"),), 0, []))
+db.close()
+eq("Médias: the carried-id gate passes", ids_ok(artifact(med_after, med_carry), med_carry), [])
+
 # ---- no carry: nothing to do ---------------------------------------------------------------------
 db = sqlite3.connect(after)
 eq("no carried artifact: an empty report", K.redirects(db, None, excluded=set())["orphans"], [])

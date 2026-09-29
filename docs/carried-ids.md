@@ -96,7 +96,9 @@ burst. After the enrichment the batches see the same ISBN set.
    that work was published, else `correction`.
 3. A carried **line** this build lost → in its (successor) work, same market + medium: the line
    holding a strict majority of its ISBNs; else a strict majority of its dated volumes; then the same ISBN test market-wide (a
-   line that moved to another work); else the work's main line of that market + medium, reason
+   line that moved to another work); then, in its work and market, a line of ANOTHER medium by the
+   same two tests (its medium changed: a heading that names a medium, or stage 4b2's Korean / Chinese
+   comic medium -- heading cleanup, 2026-09-29); else the work's main line of that market + medium, reason
    `retired`. Reason `duplicate_merge` when the successor was published, else `correction`.
 4. A carried **volume** this build lost → the one volume of its line's successor holding its ISBN
    (unique there: the English Drops of God article repeats vol 23's ISBN on vol 25, so that ISBN

@@ -40,7 +40,9 @@ resolve forever through id_redirect. Two stages keep it, for any market, any ent
          correction), else the work its lines went to;
       3. a carried LINE this build lost -> in its (successor) work, same market + medium, the
          line holding a strict majority of its ISBNs, else of its dated volumes; then the same
-         ISBN test market-wide (a line re-attached to another work); else the work's main
+         ISBN test market-wide (a line re-attached to another work); then its work and market in
+         ANOTHER medium by the same two tests (its medium changed: a heading that names a medium,
+         stage 4b2's comic medium); else the work's main
          line of that market + medium (reason retired). Two candidates tied at the top: the
          one NEW in this build wins when exactly one is (a re-key beside its published twin);
          otherwise AMBIGUOUS at every step: reported as an orphan (the gate fails);
@@ -453,6 +455,17 @@ def redirects(db, carry, excluded=None):
         if not succ and not amb:
             cands = {r for r, (_, m, d) in lines_now.items() if m == market and d == medium}
             succ, amb = _winner(*line_votes(l, cands), new=new_lines)
+        if not succ and not amb and wn:
+            # its MEDIUM changed (a heading that names a medium, release_lines.HEADING_MEDIUM_HINTS; the
+            # KR/CN comic medium, stage 4b2): the same work and market in ANOTHER medium, by its ISBNs,
+            # then its dated volumes -- before the main-line fallback retires it into its old medium
+            cands = {r for r, (rw, m, d) in lines_now.items() if rw == wn and m == market and d != medium}
+            succ, amb = _winner(*line_votes(l, cands), new=new_lines)
+            if not succ and not amb:
+                dated = {(n, d) for _, n, _, d in vols_of[l] if d}
+                if len(dated) >= 2:
+                    succ, amb = _winner(collections.Counter({r: len(dated & dated_in[r]) for r in cands}),
+                                        len(dated), new=new_lines)
         if amb:
             rep["ambiguous"].append(l)
             rep["orphans"].append(l)
