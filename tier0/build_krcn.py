@@ -674,9 +674,9 @@ def gate_report(lines, plan, rep, K, E=None, deferred=()):
       authors_differ       lines whose linker verdict was a title collision (authors differ; MR vs RR)
       deferred_to_jp_round P25
       jp_guard_overrides   link_work corrections that lifted the JP guard (line key, work, why)
-```python
       containment_created  review (the lift): every cluster the containment guard sent to review because
                            of a work created in THIS build -- [cluster, its line keys, those works]; the
+                           reviewer reads it (a pair of one series becomes a cluster_with)
       adoption_isbn_clash  review: an adopted Wikipedia volume's ISBN already on another volume of the
                            public line (offset numbering) -- [line key, public, number, Wikipedia ISBN,
                            ISBN kept]; set by load (adopt), so gate_report runs after load
