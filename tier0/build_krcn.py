@@ -1104,6 +1104,19 @@ def load(db, lines, lost, plan, K):
                    int(bool(ln["explicit"])), int(bool(ln["comic"])), ln["tier"], ln["via"], ln["link_work"],
                    json.dumps(ln["candidates"][:8]), ln["role"], ln["reason"], ln["cluster"], ln.get("target"),
                    int(bool(ln["exported"]))))
+    # the lift (spec 2026-10-01, F1a): a CREATED work none of whose lines export (every volume held back by the date
+    # rule, attached elsewhere...) is not written: its lines stay `absorbed` with no work, the plan forgets it, and
+    # the deterministic id appears in a later build once a volume publishes. A frozen work is never dropped here
+    # (a published work with no exported line is a carried-id problem, caught by the carried-id gates).
+    for wid in [w for w, e in plan["works"].items() if e["created"] and w in made and not any(
+            by_key[k]["exported"] for k in e["lines"] if k in by_key)]:
+        c.execute("DELETE FROM work_title WHERE work_id=?", (wid,))
+        c.execute("DELETE FROM work WHERE id=?", (wid,))
+        made.remove(wid)
+        for k in plan["works"].pop(wid)["lines"]:
+            if k in by_key:
+                by_key[k]["work"] = None
+        print("  work %s not written: none of its lines export (every volume held back or attached elsewhere)" % wid)
     for m, fate, key in lost:
         c.execute("""INSERT OR IGNORE INTO krcn_member (member,line_key,number,isbn13,volume_id,fate,filled,
                      announced_only,dated,paged) VALUES(?,?,NULL,NULL,NULL,?,NULL,0,0,0)""", (m, key, fate))
