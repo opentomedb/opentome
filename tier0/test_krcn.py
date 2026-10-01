@@ -3864,12 +3864,14 @@ wP = _id("w_", "krcn", FR_P)
 eq("cluster_with: one work, anchored on the FR line (lowest comic key), titled with the FR name",
    ([l["work"] for l in ls], list(plan["works"]), plan["works"][wP]["title"]), ([wP, wP], [wP], "Qui définit la popularité"))
 ls = [mkline("dnb:911", "DE", "Solo Leveling"), mkline("dnb:912", "DE", "Neuland")]
-_, _, err = decide_out(ls, L.Index(dbC), cluster_with=[("dnb:912", "dnb:911")], comic_works={"w_sl"})
-eq("cluster_with naming a linked line stops the build, naming the key and its role",
-   (err is not None and "dnb:911" in err and "the line is linked" in err), True)
+plan, out, err = decide_out(ls, L.Index(dbC), cluster_with=[("dnb:912", "dnb:911")], comic_works={"w_sl"})
+eq("cluster_with naming a linked line is skipped (printed, listed in corrections_skipped), never a stop (F2)",
+   (err, "CLUSTER_WITH / REVIEW SKIPPED -- lines.json cluster_with dnb:911: linked" in out,
+    plan["corrections_skipped"], ls[1]["role"]), (None, True, [["cluster_with", "dnb:911", "linked"]], "new_work"))
 ls = [mkline("dnb:913", "DE", "Neuland")]
-_, _, err = decide_out(ls, L.Index(dbC), review_lines={"dnb:999": "x"}, deferred={"dnb:999"})
-eq("review naming a deferred line (P25) stops the build", (err is not None and "deferred to the German JP round" in err), True)
+plan, out, err = decide_out(ls, L.Index(dbC), review_lines={"dnb:999": "x"}, deferred={"dnb:999"})
+eq("review naming a deferred line (P25) is skipped and listed, never a stop (F2)",
+   (err, plan["corrections_skipped"]), (None, [["review", "dnb:999", "deferred to the German JP round"]]))
 ls = [mkline("dnb:913", "DE", "Neuland")]
 plan, out, err = decide_out(ls, L.Index(dbC), cluster_with=[("dnb:913", "dnb:998")])
 eq("cluster_with naming a key the build does not have: STALE CORRECTION printed, the build goes on",
@@ -3882,9 +3884,17 @@ eq("review: the line's cluster goes to review with the correction's reason; no w
 Kr = {"works": {"w_libR"}, "lines": {"rl_R": "dnb"}, "series_ids": {"rl_R"}, "work_ids": {"w_libR"}, "int": {"rl_R": 4},
       "line_work": {"rl_R": "w_libR"}, "line_name": {}, "line_medium": {"rl_R": "manhwa"}, "line_vols": {}}
 ls = [mkline("dnb:916", "DE", "Alte Reihe", carried=True, tome_id="rl_R")]
-_, _, err = decide_out(ls, L.Index(dbC), Kr, review_lines={"dnb:916": "x"})
-eq("review on a cluster holding a published (carried) line is refused, naming the reviewed key and the cluster",
-   (err is not None and "lines.json review dnb:916 (cluster c0000)" in err and "published line dnb:916" in err), True)
+plan, out, err = decide_out(ls, L.Index(dbC), Kr, review_lines={"dnb:916": "x"})
+eq("review on a cluster holding a published (carried) line is skipped (printed, listed), never a stop; the cluster "
+   "is decided as before (frozen)", (err, "CLUSTER_WITH / REVIEW SKIPPED -- lines.json review dnb:916: cluster c0000 holds "
+                                      "the published line dnb:916" in out, plan["corrections_skipped"], ls[0]["role"]),
+   (None, True, [["review", "dnb:916", "cluster c0000 holds the published line dnb:916"]], "new_work"))
+ls = [mkline("dnb:916", "DE", "Alte Reihe", carried=True, tome_id="rl_R"), mkline("dnb:919", "DE", "Alte Reihe")]
+plan, out, err = decide_out(ls, L.Index(dbC), Kr, review_lines={"dnb:919": "x"}, cluster_with=[("dnb:916", "dnb:919")])
+eq("a review cluster that gained a carried line through cluster_with: the review is skipped and listed (the published "
+   "line stays published), the joined cluster is decided as before",
+   (err, ls[1]["role"], plan["corrections_skipped"]),
+   (None, "new_work", [["review", "dnb:919", "cluster c0000 holds the published line dnb:916"]]))
 ls = [mkline("dnb:917", "DE", "Solo Leveling", carried=True, tome_id="rl_X"), mkline("dnb:918", "DE", "Neuland")]
 plan, out, err = decide_out(ls, L.Index(dbC), cluster_with=[("dnb:918", "dnb:917")], comic_works={"w_sl"})
 eq("cluster_with naming a CARRIED line the linker now places: skipped and printed, never a stop",
@@ -4083,6 +4093,49 @@ d2, pl2, ls2 = made_work([("dnb:1395516287", [("1", "9783000000012", "dnb:139551
 eq("F1a: a cluster with one present and one held_future line still creates the work",
    (work_rows(d2)[0], work_rows(d2)[2], [l["role"] for l in ls2], list(pl2["works"])),
    (1, ["w_empty"], ["absorbed", "new_work"], ["w_empty"]))
+
+# ---- KR/CN lift F2 (2026-10-01): merge-branch anchor, carried-elsewhere, leading "the", containment_created -------
+wL = _id("w_", "krcn", "loc:2025000301")
+Km = {"works": {wL}, "lines": {"rl_mD": "dnb", "rl_mL": "loc"}, "series_ids": {"rl_mD", "rl_mL"}, "work_ids": {wL},
+      "int": {"rl_mD": 21, "rl_mL": 22}, "line_work": {"rl_mD": wL, "rl_mL": wL},
+      "line_name": {"rl_mD": "Dnb Name", "rl_mL": "Loc Name"}, "line_medium": {"rl_mD": "manhwa", "rl_mL": "manhwa"},
+      "line_vols": {}}
+ls = [mkline("dnb:950", "DE", "Ganz anderer Titel", carried=True, tome_id="rl_mD"),
+      mkline("loc:2025000301", "EN", "Totally Different", carried=True, tome_id="rl_mL")]
+plan, _, _ = decide_out(ls, L.Index(schema_db()), Km)
+eq("F2.1: two clusters frozen to one work: the hashed line of the LATER cluster (loc:) becomes the anchor and gives "
+   "the title; both clusters' lines are in the entry",
+   (plan["works"][wL]["anchor"], plan["works"][wL]["title"], sorted(plan["works"][wL]["lines"])),
+   ("loc:2025000301", "Loc Name", ["dnb:950", "loc:2025000301"]))
+dbW = schema_db()
+dbW.execute("INSERT INTO work VALUES('w_wiki7','Wikipedia Series',NULL,NULL,NULL,NULL,'x','x')")
+line_row(dbW, "rl_w7", "w_wiki7", "manhwa", "EN", "en")
+Kw = {"works": set(), "lines": {"rl_c7": "dnb"}, "series_ids": {"rl_c7"}, "work_ids": set(), "int": {"rl_c7": 23},
+      "line_work": {"rl_c7": "w_wiki7"}, "line_name": {}, "line_medium": {"rl_c7": "manhwa"}, "line_vols": {}}
+ls = [mkline("dnb:700", "DE", "Voellig Eigener Name", carried=True, tome_id="rl_c7")]
+plan, _, _ = decide_out(ls, L.Index(dbW), Kw)
+eq("F2.2: a carried line published under a Wikipedia work, linker verdict none -> review carried-elsewhere, then kept "
+   "under that work; no new work", (ls[0]["role"], ls[0]["work"], ls[0]["reason"], list(plan["works"])),
+   ("kept", "w_wiki7", "carried-elsewhere;kept", []))
+eq("F2.4: _words drops a leading 'the' (as fold does); a bare 'the' inside stays",
+   (BK._words("The Breaker"), BK._words("Rise of the King")), (("breaker",), ("rise", "of", "the", "king")))
+ls = [mkline("bnf:ark:/12148/cb44000001x", "FR", "The Breaker"), mkline("dnb:951", "DE", "Breaker: New Waves")]
+plan, _, _ = decide_out(ls, L.Index(schema_db()), None)
+eq("F2.4: 'Breaker: New Waves' is a whole-word partial hit on a created 'The Breaker' -> review containment",
+   (ls[1]["role"], ls[1]["reason"]), ("review", "containment"))
+GX = {"via": None, "tier": None, "work": None, "link_work": None, "exported": False}
+ls = [mkline("dnb:960", "DE", "A", role="review", reason="containment", cluster="c0003", candidates=["w_made", "w_frozen"], **GX),
+      mkline("dnb:961", "DE", "B", role="review", reason="containment", cluster="c0003", candidates=["w_made"], **GX),
+      mkline("dnb:962", "DE", "C", role="review", reason="containment", cluster="c0004", candidates=["w_frozen"], **GX),
+      mkline("dnb:963", "DE", "D", role="review", reason="cluster-medium", cluster="c0005", candidates=["w_made"], **GX)]
+planX = {"works": {"w_made": {"created": True, "anchor": "bnf:x", "title": "M", "lines": []},
+                   "w_frozen": {"created": False, "anchor": "bnf:y", "title": "F", "lines": []}}, "held": []}
+eq("F2.7: containment_created groups the lines of a cluster, lists only works CREATED in this build ('& made'), and "
+   "leaves out a cluster whose only candidate is frozen or whose reason is not containment",
+   BK.gate_report(ls, planX, {}, None)["containment_created"], [["c0003", ["dnb:960", "dnb:961"], ["w_made"]]])
+eq("F2.3: the gate list corrections_skipped carries plan['corrections_skipped']",
+   BK.gate_report([], {"works": {}, "corrections_skipped": [["review", "dnb:1", "linked"]]}, {}, None)["corrections_skipped"],
+   [["review", "dnb:1", "linked"]])
 
 # ==== summary ====
 print()
