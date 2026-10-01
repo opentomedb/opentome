@@ -4048,6 +4048,42 @@ del TA.FAILS[_n:]
 TA.KRCN_FIXTURES = _saved_fx
 shutil.rmtree(_t15, ignore_errors=True)
 
+# ---- KR/CN lift F1a (2026-10-01): a created work none of whose lines export is not written ----------------------
+def made_work(vols_by_line):
+    """BK.load of one created work with the given lines [(key, [(number, isbn, member, held)])] -> (db, plan, lines)."""
+    d = schema_db()
+    d.executescript(BK.STAGING_DDL)
+    lns = []
+    for key, vols in vols_by_line:
+        ln = lib_line(key, _id("rl_", key), "new_work", None, [(n, i, m) for n, i, m, _ in vols], work="w_empty")
+        ln["market"], ln["language"] = "DE", "de"
+        for v, (_, _, _, held) in zip(ln["vols"], vols):
+            if held:
+                v["date"] = ("HELD", None, None)
+        lns.append(ln)
+    pl = {"works": {"w_empty": {"anchor": lns[0]["key"], "created": True, "title": "Stahl unter Seide",
+                                "lines": [l["key"] for l in lns], "cluster": "c0000", "frozen": []}},
+          "adopt_works": [], "held": []}
+    BK.load(d, lns, [], pl, BK.NO_K)
+    return d, pl, lns
+
+
+def work_rows(d):
+    return (d.execute("SELECT COUNT(*) FROM work WHERE id='w_empty'").fetchone()[0],
+            d.execute("SELECT COUNT(*) FROM work_title WHERE work_id='w_empty'").fetchone()[0],
+            json.loads(d.execute("SELECT value FROM meta WHERE key='krcn:works_made'").fetchone()[0]))
+
+
+d1, pl1, ls1 = made_work([("dnb:1395516286", [("1", "9783000000011", "dnb:1395516286", True)])])
+eq("F1a: a cluster whose only member is held_future creates no work row, no work_title, no works_made entry; "
+   "its line is absorbed with no work and the plan no longer lists the work",
+   (work_rows(d1), ls1[0]["role"], ls1[0]["work"], list(pl1["works"])), ((0, 0, []), "absorbed", None, []))
+d2, pl2, ls2 = made_work([("dnb:1395516287", [("1", "9783000000012", "dnb:1395516287", True)]),
+                          ("dnb:1395516288", [("1", "9783000000013", "dnb:1395516288", False)])])
+eq("F1a: a cluster with one present and one held_future line still creates the work",
+   (work_rows(d2)[0], work_rows(d2)[2], [l["role"] for l in ls2], list(pl2["works"])),
+   (1, ["w_empty"], ["absorbed", "new_work"], ["w_empty"]))
+
 # ==== summary ====
 print()
 if FAILS:
