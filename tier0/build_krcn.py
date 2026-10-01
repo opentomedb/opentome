@@ -27,7 +27,7 @@ before the enrichment:
 Library works are created AFTER Wikipedia works and linking, so a work Wikipedia knows is never
 duplicated in the same build (§9). No covers, no 856, no publisher summaries from any library.
 """
-import collections, datetime, json, os, re, sqlite3, sys
+import collections, datetime, difflib, json, os, re, sqlite3, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -600,6 +600,59 @@ def _isbns(vols):
     return {i for _, i in vols if i}
 
 
+
+
+DUP_MIN_KEY = 7          # §3.3 of the lift: fuzzy duplicate candidates, keys of 7+ characters ...
+DUP_RATIO = 0.8          # ... at difflib ratio >= 0.8 are listed; >= DUP_GATE need a verdict (export/test_artifact.py)
+DUP_GATE = 0.9
+DUP_HEADER = ["kind", "work", "title", "other", "other_title", "key", "other_key", "ratio", "anilist_id"]
+
+
+def duplicate_rows(lines, plan, idx):
+    """The lift (§3.3 item 2), after step 4: every work created in this build whose title / native / orig
+    keys (fold, >= DUP_MIN_KEY characters) fuzzy-match a key of another created work, of a published library
+    work this build froze (only ever the `other` side), or of an existing work (idx.official / idx.alias: the
+    catalogue's work titles before 3f) at difflib ratio >= DUP_RATIO.
+    Bounded: only keys in the length window a ratio of DUP_RATIO allows, then real_quick_ratio /
+    quick_ratio before ratio(). Pure. -> rows in DUP_HEADER order, kind 'title', the best key pair per
+    (work, other), highest ratio first."""
+    by = {l["key"]: l for l in lines}
+    keys, frozen = {}, {}
+    for w, e in plan["works"].items():
+        ts = [t for k in e["lines"] if k in by for t in
+              list(by[k]["titles"]) + list(by[k]["native"]) + list(by[k]["orig"]) + [by[k]["name"] or ""]]
+        (keys if e["created"] else frozen)[w] = sorted({k for k in (L.fold(t, False) for t in ts) if len(k) >= DUP_MIN_KEY})
+    by_len = collections.defaultdict(list)
+    for w, ks in keys.items():
+        for k in ks:
+            by_len[len(k)].append((k, w, True))
+    for w, ks in frozen.items():        # published library works: only ever the `other` side
+        for k in ks:
+            by_len[len(k)].append((k, w, False))
+    for table in (idx.official, idx.alias):
+        for k, ws in table.items():
+            if len(k) >= DUP_MIN_KEY:
+                by_len[len(k)] += [(k, w, False) for w in sorted(ws)]
+    best = {}
+    sm = difflib.SequenceMatcher(autojunk=False)
+    for w in sorted(keys):
+        for a in keys[w]:
+            sm.set_seq2(a)
+            for n in range(-(-2 * len(a) // 3), 3 * len(a) // 2 + 1):     # 2 * min / (la + lb) >= DUP_RATIO
+                for b, o, made in by_len.get(n, ()):
+                    if o == w or (made and o < w):          # one row per pair of created works
+                        continue
+                    sm.set_seq1(b)
+                    if sm.real_quick_ratio() < DUP_RATIO or sm.quick_ratio() < DUP_RATIO:
+                        continue
+                    r = sm.ratio()
+                    if r >= DUP_RATIO and r > best.get((w, o), (0,))[0]:
+                        best[(w, o)] = (r, a, b, made)
+    title = lambda w, made: plan["works"][w]["title"] if w in plan["works"] else idx.name.get(w, "?")
+    return [["title", w, title(w, True), o, title(o, made), a, b, "%.3f" % r, ""]
+            for (w, o), (r, a, b, made) in sorted(best.items(), key=lambda kv: (-kv[1][0], kv[0]))]
+
+
 def gate_report(lines, plan, rep, K, E=None, deferred=()):
     """The lists the Task 15 publish gate reads (controller rulings, krcn-report.json). Pure.
     rep: krcn_identity.line_ids' report; E: krcn_identity.existing_lines' E, merged over the markets.
@@ -621,6 +674,9 @@ def gate_report(lines, plan, rep, K, E=None, deferred=()):
       authors_differ       lines whose linker verdict was a title collision (authors differ; MR vs RR)
       deferred_to_jp_round P25
       jp_guard_overrides   link_work corrections that lifted the JP guard (line key, work, why)
+```python
+      containment_created  review (the lift): every cluster the containment guard sent to review because
+                           of a work created in THIS build -- [cluster, its line keys, those works]; the
       adoption_isbn_clash  review: an adopted Wikipedia volume's ISBN already on another volume of the
                            public line (offset numbering) -- [line key, public, number, Wikipedia ISBN,
                            ISBN kept]; set by load (adopt), so gate_report runs after load
@@ -638,6 +694,7 @@ def gate_report(lines, plan, rep, K, E=None, deferred=()):
            "carried_not_exported": [], "carried_work_changed": [], "hangul_only_authors": [],
            "authors_differ": [], "deferred_to_jp_round": sorted(ln["key"] for ln in deferred),
            "jp_guard_overrides": [list(t) for t in plan.get("jp_overrides", [])],
+           "containment_created": [],
            "adoption_isbn_clash": [list(t) for t in plan.get("adoption_isbn_clash", [])]}
     renamed = dict(plan.get("adopt_works", []))
     for ln in lines:
@@ -673,6 +730,14 @@ def gate_report(lines, plan, rep, K, E=None, deferred=()):
             out["hangul_only_authors"].append([ln["key"], ln["role"], ln["authors"][:3]])
         if "authors differ" in (ln["via"] or ""):
             out["authors_differ"].append([ln["key"], ln["tier"], ln["link_work"], ln["name"]])
+    made = {w for w, e in plan.get("works", {}).items() if e.get("created")}
+    by_cluster = collections.defaultdict(list)
+    for ln in lines:
+        if ln["role"] == "review" and ln["reason"] == "containment" and set(ln.get("candidates") or ()) & made:
+            by_cluster[ln.get("cluster")].append(ln)
+    for cid, ls in by_cluster.items():
+        out["containment_created"].append([cid, sorted(l["key"] for l in ls),
+                                           sorted({w for l in ls for w in l["candidates"]} & made)])
     for w, p in plan.get("adopt_works", []):
         if w in K["work_ids"]:
             out["work_redirects"].append([w, p, "adopted"])
@@ -1077,7 +1142,8 @@ def _tsv(path, header, rows):
 
 def write_files(lines, plan, idx, stats):
     """build/krcn-review.tsv, krcn-held.tsv (R6, §9: every held cluster with its lines, member keys,
-    reason, candidate title keys and the four criteria), krcn-new-works.tsv, krcn-report.json.
+    reason, candidate title keys and the four criteria), krcn-new-works.tsv, krcn-duplicates.tsv (the
+    lift: duplicate_rows; stage 8a adds its AniList-id rows), krcn-report.json.
     -> (review lines, held clusters)."""
     os.makedirs(BUILD, exist_ok=True)
     rev = sorted((l for l in lines if l["role"] == "review"), key=lambda l: (l["reason"] or "", -len(l["vols"]), l["key"]))
@@ -1101,6 +1167,7 @@ def write_files(lines, plan, idx, stats):
          [(w, e["anchor"], e["title"], ",".join(sorted({by[k]["market"] for k in e["lines"] if k in by})),
            " ".join(e["lines"]), sum(len(by[k]["vols"]) for k in e["lines"] if k in by), "", "", "")
           for w, e in sorted(plan["works"].items()) if e["created"]])
+    _tsv(os.path.join(BUILD, "krcn-duplicates.tsv"), DUP_HEADER, duplicate_rows(lines, plan, idx))
     with open(os.path.join(BUILD, "krcn-report.json"), "w", encoding="utf8") as f:
         json.dump(stats, f, ensure_ascii=False, indent=1, sort_keys=True)
     return len(rev), len(held)
