@@ -159,6 +159,7 @@ echo "== 5b. corrections ==";      python3 tier2/corrections.py "$DB"
 echo "== 6. resolve ==";           python3 tier2/resolve.py "$DB"
 echo "== 7. audit ==";             python3 tier2/audit.py "$DB"
 echo "== 7b. redirects ==";        python3 tier0/carried_ids.py redirect "$DB" "$ID_CARRY"
+                                   python3 tier2/resolve.py "$DB" --dates   # 7b moved claims: a projected date never outranks a real one
 if [ "$DB" != "$FINAL" ]; then
   mv -f "$DB" "$FINAL"
   echo "   catalogue -> $FINAL"

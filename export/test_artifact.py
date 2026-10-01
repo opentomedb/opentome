@@ -498,6 +498,13 @@ def run_ids(path, carry):
         format(len(de_ids), ","), format(sum(1 for t in de_ids if t in red), ",")))
 
 
+# a projected volume that also has a release_date claim: projected outranked a real date. A claim dated after today
+# (at its own precision) is a plan too -- Open Library imports retailer pre-order dates -- and does not count (F5, 2026-10-01)
+PROJECTED_OUTRANKED = """SELECT COUNT(*) FROM volume v WHERE v.release_date_type='projected' AND EXISTS
+    (SELECT 1 FROM claim x WHERE x.entity='volume' AND x.entity_id=v.id AND x.field='release_date'
+     AND x.value <= SUBSTR(DATE('now'), 1, LENGTH(x.value)))"""
+
+
 def run_dnb(path, catalogue):
     """The German (DNB) rules, docs/dnb-design.md "Gates". Most need the pipeline catalogue:
     the artifact carries no per-claim provenance."""
@@ -545,8 +552,7 @@ def run_dnb(path, catalogue):
          c("SELECT COUNT(*) FROM claim WHERE source='dnb' AND field='projected_date' "
            "AND value NOT GLOB '[12][0-9][0-9][0-9]-[01][0-9]'"))
     rule("projected volumes that also have a release_date claim (projected outranked a real date)",
-         c("""SELECT COUNT(*) FROM volume v WHERE v.release_date_type='projected' AND EXISTS
-              (SELECT 1 FROM claim x WHERE x.entity='volume' AND x.entity_id=v.id AND x.field='release_date')"""))
+         c(PROJECTED_OUTRANKED))
     rule("projected dates more than 12 months past (a plan that never arrived is dropped)",
          c("""SELECT COUNT(*) FROM volume WHERE release_date_type='projected'
               AND release_date < strftime('%Y-%m', 'now', '-12 months')"""))

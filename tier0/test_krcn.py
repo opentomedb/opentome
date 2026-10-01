@@ -4173,6 +4173,22 @@ eq("corrections_skipped (no lift fixture): info only", (_nfail, "info  gate list
    ([], True))
 shutil.rmtree(_t15, ignore_errors=True)
 
+# ---- F5 (2026-10-01): the projected-date audit rule ignores release_date claims dated after today -----------------
+def proj_outranked(*claims):
+    d = sqlite3.connect(":memory:")
+    d.executescript("CREATE TABLE volume(id TEXT, release_date_type TEXT); "
+                    "CREATE TABLE claim(entity TEXT, entity_id TEXT, field TEXT, value TEXT);"
+                    "INSERT INTO volume VALUES('v1','projected');")
+    d.executemany("INSERT INTO claim VALUES('volume','v1','release_date',?)", [(c,) for c in claims])
+    return d.execute(TA.PROJECTED_OUTRANKED).fetchone()[0]
+
+
+eq("F5: a projected volume whose only release_date claim is dated after today passes the rule (a plan too)",
+   (proj_outranked("2999"), proj_outranked("2999-12"), proj_outranked("2999-12-31")), (0, 0, 0))
+eq("F5: ... a wrong-edition claim dated in the past still fails it, alone or beside a future one",
+   (proj_outranked("2019"), proj_outranked("2999", "2019-05")), (1, 1))
+eq("F5: no claim, no failure", proj_outranked(), 0)
+
 # ==== summary ====
 print()
 if FAILS:
