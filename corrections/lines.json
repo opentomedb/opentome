@@ -435,9 +435,10 @@
     "checked": "2026-10-01"
   },
   {
-    "line_key": "bnf:ark:/12148/cb40989382v",
-    "review": "same title as DE dnb:976419955 — one series? settle in the lift review (cluster_with or not-a-duplicate)",
+    "line_key": "dnb:976419955",
+    "cluster_with": "bnf:ark:/12148/cb40989382v",
     "source_url": "https://catalogue.bnf.fr/ark:/12148/cb40989382v",
-    "checked": "2026-10-01"
+    "checked": "2026-10-01",
+    "why": "one series: Bibi by Choi Kyung-Ah (BnF 200$f, DNB 245$c); DE Egmont 7 vols + FR Saphira 4 vols"
   }
 ]
