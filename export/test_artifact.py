@@ -857,6 +857,16 @@ def carried_title_changes(cat, C, carried_ids):
     return changed, frozen
 
 
+def carried_works_without_anchor(cat, carried_ids):
+    """Carried library works (carried_ids['works']) with no krcn_line whose natural key hashes to the work id: the
+    title check above cannot read their anchor (Wikipedia works a line adopted, ids of the first round's frozen
+    rule). -> sorted work ids, reported as info (F2, 2026-10-01)."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "schema"))
+    from load import _id
+    hashed = {_id("w_", "krcn", k) for (k,) in cat.execute("SELECT key FROM krcn_line")}
+    return sorted(set(carried_ids.get("works", [])) - hashed)
+
+
 def _meta(d, k):
     try:
         return (d.execute("SELECT value FROM meta WHERE key=?", (k,)).fetchone() or [None])[0]
@@ -936,6 +946,10 @@ def run_krcn(path, catalogue, carry=None):
         bad, frozen_titles = carried_title_changes(cat, C, carried_ids)
         rule("carried library works with an English comic line whose title changed against the carry", len(bad),
              str(bad[:4]))
+        no_anchor = carried_works_without_anchor(cat, carried_ids)
+        if no_anchor:
+            print("  info  carried library works with no krcn_line that hashes to their id (title not checked): %d %s"
+                  % (len(no_anchor), no_anchor[:10]))
         if frozen_titles:
             print("  info  carried library works without an English comic line any more, retitled by the frozen rule "
                   "(cl[0]; the first KR/CN round's rule, not this round's): %d %s" % (len(frozen_titles), frozen_titles))
@@ -993,8 +1007,12 @@ def run_krcn(path, catalogue, carry=None):
         verdicts, bad = read_dup_verdicts(os.path.join(KRCN_FIXTURES, DUP_VERDICTS))
         rule("rows of %s that are not a not-a-duplicate verdict with a why" % DUP_VERDICTS, len(bad), str(bad[:3]))
         open_ = unsettled_duplicates(dup_path, verdicts)
-        rule("KR/CN duplicate candidates (title ratio >= %.1f, every AniList-id collision) without a verdict in %s"
-             % (DUP_GATE, DUP_VERDICTS), len(open_), str(open_[:5]))
+        if lift is not None:            # F2 (2026-10-01): blocking in the lift build only; a weekly build reports
+            rule("KR/CN duplicate candidates (title ratio >= %.1f, every AniList-id collision) without a verdict in %s"
+                 % (DUP_GATE, DUP_VERDICTS), len(open_), str(open_[:5]))
+        elif open_:
+            print("  info  KR/CN duplicate candidates without a verdict in %s (blocking only while %s exists): %d %s"
+                  % (DUP_VERDICTS, LIFT_INPUT, len(open_), open_))
     if C is not None:
         bad = carried_isbn_moved(db, cat, C, ids, carried_ids)
         rule("carried KR/CN-scope volumes whose carried ISBN now sits on another present volume", len(bad), str(bad[:3]))
