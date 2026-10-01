@@ -52,6 +52,16 @@ LINK_WORK_FORBIDDEN = ("volumes", "medium", "market", "line", "origin_line")
 # Japan). Read by 3f only (load_jp_guard_overrides); the German JP round's out_of_scope rule is not
 # a JP guard and is never lifted.
 JP_GUARD_OVERRIDE = "override_jp_guard"
+# lines.json `cluster_with` / `review` (the KR/CN lift, 2026-10-01): two shapes that act BEFORE stage 3f
+# creates a library work. `cluster_with` unions two pooled library lines' clusters (a DE and an FR cluster
+# of one series: they cluster per library by design); `review` sends a pooled line's cluster to review
+# with the entry's text as the reason (a suspected duplicate a person cannot settle). Keyed by natural
+# keys, like link_work; read by 3f (load_cluster_with / load_review_lines); apply_line_corrections (5b)
+# skips both, as it skips link_work. A cluster_with entry STAYS after the publish, it is not cleanup:
+# without it the two halves it joined are decided as separate clusters again (each frozen to the one work id).
+CLUSTER_WITH_KEYS = ("line_key", "cluster_with", "source_url", "checked", "why")
+REVIEW_KEYS = ("line_key", "review", "source_url", "checked")
+PRE_CREATION = ("link_work", "cluster_with", "review")
 ALIAS_KEYS = ("line", "alias", "source_url", "checked")
 # A whole WORK the catalogue should not carry at all (2026-09-23 cleanup): a work
 # that entered through a Wikipedia list-of-volumes page but is not in scope (The
@@ -141,6 +151,58 @@ def load_link_work(directory=None):
             raise ValueError("lines.json[%d]: line_key %s corrected twice" % (i, e["line_key"]))
         out[e["line_key"]] = e["link_work"]
     return out
+
+
+def _pre_creation_problem(e, i):
+    """-> why a lines.json cluster_with / review entry is invalid, or None (the loaders and check() share it)."""
+    shape = "cluster_with" if "cluster_with" in e else "review"
+    try:
+        _require(e, CLUSTER_WITH_KEYS if shape == "cluster_with" else REVIEW_KEYS, "lines.json", i)
+    except ValueError as err:
+        return str(err)
+    extra = [k for k in LINK_WORK_FORBIDDEN + PRE_CREATION if k in e and k != shape]
+    if extra:
+        return ("lines.json[%d]: a %s entry also carries %s -- one entry, one correction shape "
+                "(see corrections/README.md)" % (i, shape, ", ".join(extra)))
+    for k in ("line_key", "cluster_with") if shape == "cluster_with" else ("line_key",):
+        if not LIBRARY_KEY.match(str(e[k])):
+            return "lines.json[%d]: %s %r is not a library line key (dnb:/loc:/bnf:)" % (i, k, e[k])
+    if shape == "cluster_with" and e["cluster_with"] == e["line_key"]:
+        return "lines.json[%d]: cluster_with names the line itself (%s)" % (i, e["line_key"])
+    if shape == "review" and (not isinstance(e["review"], str) or not e["review"].strip()):
+        return "lines.json[%d]: review must be the reason, a non-empty string (got %r)" % (i, e["review"])
+    return None
+
+
+def _pre_creation(directory=None):
+    """lines.json's cluster_with / review entries, validated; a line_key that link_work, cluster_with or
+    review entries name twice is refused (load_link_work refuses a link_work key twice the same way)."""
+    seen, out = set(), []
+    for i, e in enumerate(_read("lines.json", directory or DIR)):
+        if not isinstance(e, dict) or not any(k in e for k in PRE_CREATION):
+            continue
+        if "cluster_with" in e or "review" in e:
+            problem = _pre_creation_problem(e, i)
+            if problem:
+                raise ValueError(problem)
+            out.append(e)
+        k = e.get("line_key")
+        if k and k in seen:
+            raise ValueError("lines.json[%d]: line_key %s corrected twice" % (i, k))
+        seen.add(k)
+    return out
+
+
+def load_cluster_with(directory=None):
+    """-> [(library line key, library line key)] from lines.json's cluster_with entries (validated)."""
+    return [(e["line_key"], e["cluster_with"]) for e in _pre_creation(directory) if "cluster_with" in e]
+
+
+def load_review_lines(directory=None):
+    """-> {library line key: reason} from lines.json's review entries (validated)."""
+    return {e["line_key"]: e["review"].strip() for e in _pre_creation(directory) if "review" in e}
+
+
 
 
 def _override_problem(e, i):
@@ -329,8 +391,8 @@ def apply_line_corrections(db, entries=None, verbose=True):
     entries = _read("lines.json") if entries is None else entries
     n_lines = n_vols = n_medium = n_market = 0
     for i, e in enumerate(entries):
-        if "link_work" in e:
-            continue                    # consumed by 3e / 3f (load_link_work), not a 5b change
+        if any(k in e for k in PRE_CREATION):
+            continue                    # consumed by 3e / 3f (load_link_work, load_cluster_with, load_review_lines)
         if "volumes" not in e:
             if "medium" in e:
                 _require(e, MEDIUM_KEYS, "lines.json", i)
@@ -649,7 +711,7 @@ def check(directory=DIR, artifact=None):
     def exists(sql, value):
         return db.execute(sql, (value,)).fetchone() is not None
 
-    n_vol = n_line = n_medium = n_market = n_alias = n_link = 0
+    n_vol = n_line = n_medium = n_market = n_alias = n_link = n_cluster = n_review = 0
     for i, e in entries("volumes.json", VOLUME_KEYS):
         field = str(e["field"])
         if field not in VOLUME_FIELDS:
@@ -695,6 +757,20 @@ def check(directory=DIR, artifact=None):
             problem = _override_problem(e, i)
             if problem:
                 problems.append(problem)
+        if "cluster_with" in e or "review" in e:
+            # nothing to resolve against the artifact: both keys are library natural keys (stage 3f checks them)
+            problem = _pre_creation_problem(e, i)
+            if problem:
+                problems.append(problem)
+                continue
+            if str(e["line_key"]) in link_keys:
+                problems.append("lines.json[%d]: line_key %s corrected twice" % (i, e["line_key"]))
+            link_keys.add(str(e["line_key"]))
+            if "cluster_with" in e:
+                n_cluster += 1
+            else:
+                n_review += 1
+            continue
         if "link_work" in e:
             try:
                 _require(e, LINK_WORK_KEYS, "lines.json", i)
@@ -859,9 +935,10 @@ def check(directory=DIR, artifact=None):
         label = db.execute("SELECT value FROM meta WHERE key='gcd_dump'").fetchone()
     except sqlite3.OperationalError:
         label = None
-    print("  corrections check ok: %d volume, %d line, %d medium, %d market, %d link_work, %d alias, "
-          "%d anilist, %d excluded entries resolve against %s%s"
-          % (n_vol, n_line, n_medium, n_market, n_link, n_alias, n_anilist, n_excluded, os.path.basename(artifact),
+    print("  corrections check ok: %d volume, %d line, %d medium, %d market, %d link_work, %d cluster_with, "
+          "%d review, %d alias, %d anilist, %d excluded entries resolve against %s%s"
+          % (n_vol, n_line, n_medium, n_market, n_link, n_cluster, n_review, n_alias, n_anilist, n_excluded,
+             os.path.basename(artifact),
              " (%s)" % label[0] if label else ""))
     return 0
 
