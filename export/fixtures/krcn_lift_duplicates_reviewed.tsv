@@ -5,3 +5,33 @@
 # unsettled rows are printed as an info line and the file is the record of the verdicts already given.
 # One row per pair, either order: work, other, verdict (only not-a-duplicate), why.
 work	other	verdict	why
+w_86c808a8cea1	w_63a4213a3032	not-a-duplicate	Cashgirl (FR Saphira manhwa, 10 vols) vs Ashi-Girl (Japanese manga, Kozueko Morimoto): title fuzz only
+w_d5b8bb109e21	w_37498b41c708	not-a-duplicate	Mashimaro (FR Tokebi manhwa, 1 vol) vs Mashima Hero's (Japanese manga, Hiro Mashima): title fuzz only
+w_48d6f0fe6cd5	w_fdf5a68105b0	not-a-duplicate	Lovelock (DE Manlin manhua) vs Macross 7 (Japanese manga; key 'Ray Lovelock'): title fuzz only
+w_f541848ef3cc	w_ef6269d56fcc	not-a-duplicate	Demon king (FR edition of King of Hell, linked there) vs The Ride-On King (Japanese manga, Yasushi Baba)
+w_5dffb69b6e4e	w_cf2901132018	not-a-duplicate	Unintentional love story (Pibi, DE Manhwa Cult) vs Hanami: International Love Story (PLUS / Park Sung-Jae): different series
+w_f1a6e0196925	w_08ff44d3b860	not-a-duplicate	La legende de Maian (Lim Dall-Young / Jung Soo-Chul manhwa) vs Hokuto Gaiden (Japanese manga): title fuzz only
+w_8abdf0705654	w_0b29efa04d49	not-a-duplicate	L'epouse du dieu de l'eau (Bride of the Water God, Yun Mi-Kyung) vs Bride of the Death God (Japanese manga, Hako Ichiiro)
+w_ef240e1d759e	w_4a018245444c	not-a-duplicate	Die Kinder des Kaiserreichs (DE Splitter manhwa) vs Children of the Sea (Japanese manga, Daisuke Igarashi)
+w_0c5af6a4a9fe	w_c00ab703d8fc	not-a-duplicate	The legend of the sword (Chronicles of the Cursed Sword, linked there) vs The End of The World (Japanese manga)
+w_000ef9c3781c	w_808f732b45ab	not-a-duplicate	Alice im Wunderland (DE Ullmann manhwa) vs Alice in Murderland (Japanese manga, Kaori Yuki)
+w_000ef9c3781c	w_bb639ac9a68b	not-a-duplicate	Alice im Wunderland (DE Ullmann manhwa) vs Alice in Borderland (Japanese manga, Haro Aso)
+w_2b793aaa7056	w_67da932cfee5	not-a-duplicate	Project, girlfriend (FR Clair de lune manhwa) vs Rent-A-Girlfriend (Japanese manga, Reiji Miyajima)
+w_f1a6e0196925	w_bc2e58536d28	not-a-duplicate	La legende de Maian (manhwa) vs La Legende de Julia (Japanese manga): title fuzz only
+w_0a3d41956ade	w_4af1eb1365be	not-a-duplicate	Hyperventilation (DE Altraverse manhwa, Bbong Bbang Kkyu) vs Hyperinflation (Japanese manga, Kyu Sumiyoshi)
+w_35016592c643	w_d8d35a997dbb	not-a-duplicate	Audition (Chon Kye-Young manhwa) vs G-Maru Edition (Japanese manga)
+w_4470841703be	w_fb9da0d83574	not-a-duplicate	Knight gunner (Koh Jung-Uk / Chun Ki-Ho manhwa) vs Weiss Kreuz (Japanese manga; key 'Knight Hunters')
+w_44ec8eaa72ef	w_b6d6aca3b35b	not-a-duplicate	Mes cheres filles (Dear My Girls, Kim Hee-Eun) vs Red Garden (Japanese manga; key 'Dead Girls')
+w_4bb31eb3067e	w_b317989789a7	not-a-duplicate	AI hunter (FR Tokebi manhwa) vs Marine Hunter (Japanese manga, Shiro Otsuka)
+w_4de4216f3c47	w_aa3c9b3a060e	not-a-duplicate	Soulmate (DE papertoons manhua, Wenzhilizi) vs Soul Eater (Japanese manga)
+w_5d885e784cf1	w_9da930bf8241	not-a-duplicate	Lady Eris (DE papertoons manhwa, Haegi / Your April) vs Slayers (Japanese light novel)
+w_607905b5f9e8	w_8930e22695d0	not-a-duplicate	Doom breaker (DE papertoons manhwa) vs Code:Breaker (Japanese manga, Akimine Kamijyo)
+w_659fac31d426	w_2205e413c5b1	not-a-duplicate	Coup de foudre (FR Clair de lune manhwa, Kim Mi-Gyo) vs Why We Fall In Love (Japanese manga, ma2)
+w_86c808a8cea1	w_7f51dd5056d2	not-a-duplicate	Cashgirl (FR Saphira manhwa) vs Aho-Girl (Japanese manga, Hiroyuki): title fuzz only
+w_87709e73b9e0	w_d7ec539cf874	not-a-duplicate	Witchcraft troops (FR Samji manhwa) vs Witchcraft Works (Japanese manga)
+w_a5597138aa0c	w_ca409a32b4ae	not-a-duplicate	Archlord (Park Jin-Hwan manhwa) vs Warlord (Kim Sung-Jae / Kim Byung-Jin manhwa): different series
+w_aceac87d7f0f	w_953c2069e2fb	not-a-duplicate	Honey Bear (DE papertoons manhwa, Nutty / Ruyoung) vs Honey Bitter (Japanese manga, Miho Obana)
+w_e89b22f06ce6	w_0924fd4ba9c0	not-a-duplicate	Platina (Kim Yeon-Joo manhwa) vs Pokemon Adventures (Japanese manga; key 'Platinum' arc)
+w_ef240e1d759e	w_ce0aee3dc481	not-a-duplicate	Die Kinder des Kaiserreichs (DE Splitter manhwa) vs Children of the Whales (Japanese manga, Abi Umeda)
+w_f1a6e0196925	w_29846df3865f	not-a-duplicate	La legende de Maian (manhwa) vs Sokoku no Garo (Japanese manga): title fuzz only
+w_fa292e43724d	w_e2ac7c4e2871	not-a-duplicate	Dawn the teen witch (DE Manlin manhua, Jiao Xiang Ting / Tang Tang) vs The Dawn of the Witch (Japanese LN/manga, Kakeru Kobashiri)

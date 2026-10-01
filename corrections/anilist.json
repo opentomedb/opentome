@@ -229,5 +229,40 @@
     "source_url": "https://anilist.co/manga/30375",
     "checked": "2026-09-24",
     "reason": "EN manga line 'Initial D (Part 1: Akina's Eight-Six)' (17 volumes): AniList 30375 'Initial D', MANGA, 48 vols -- the whole serial, which the sibling '(Part 2: Project D)' line (31 volumes) already binds; AniList has one entry for the work, 17 + 31 = 48"
+  },
+  {
+    "line": "rl_87f1f4957383",
+    "anilist_id": 152943,
+    "source_url": "https://anilist.co/manga/152943",
+    "checked": "2026-10-01",
+    "reason": "Mawang, le roi des demons (FR Clair de lune, 3 vols, DL 2012): BnF credits Ryu Ki-Un and Choi Byung-Ick = AniList 152943 'Mawang' (2009, 8 vols; Gi-Un Ryu story, Byeong-Ik Choi art). The resolver bound 184652, a different 2024 'Mawang / Demon Lord' (Park Ju-Yeon, Son Yeong-Sik, Kim Nam-Jae)"
+  },
+  {
+    "line": "rl_62cb0b9a25e7",
+    "anilist_id": null,
+    "source_url": "https://anilist.co/search/manga?search=Fall%20in%20Love",
+    "checked": "2026-10-01",
+    "reason": "Coup de foudre (FR Clair de lune, 1 vol, DL 2013; Studio Haedal, drawn by Kim Mi-Gyo; BnF 454 'Fall in love'). The bound 143622 'Fall in Love' is a 2019 webtoon by Dare. Searched 'Fall in Love', the Korean title and 'Coup de foudre' (KR), and staff Kim Mi-Gyo / Haedal: no entry for this book"
+  },
+  {
+    "line": "rl_4f3da6c39c27",
+    "anilist_id": null,
+    "source_url": "https://anilist.co/search/manga?search=Secret%20Garden",
+    "checked": "2026-10-01",
+    "reason": "Der geheime Garten (DE Ullmann 2025, 'Manhwa - Klassiker für Kids'): Orange Toon's adaptation of Frances Hodgson Burnett, DNB 240 'Bi mil ui hwa won'. The bound 150164 is 'Our Secret Garden' (Ki-Mong, a Toomics romance) that only carries 'Der Geheime Garten' as a synonym. Searched 'Secret Garden', the Korean title and its romanisation (KR), and staff Orange Toon: no entry"
+  },
+  {
+    "line": "rl_6186afb54040",
+    "anilist_id": 37543,
+    "source_url": "https://anilist.co/manga/37543",
+    "checked": "2026-10-01",
+    "reason": "Daddy Long Legs (FR Saphira, 2 vols; BnF 200$f 'Do Chan, Hyoung-Jun Kim') = AniList 37543 'Kidari Ajeossi' (2004, 2 vols) by Eun-Ji O, AniList alternative name 'Do-Chan'. The resolver bound 166669 'Sugar Daddy / Daddy Long Legs', a 2020 webtoon by Sseom / Igyu"
+  },
+  {
+    "line": "rl_993300348899",
+    "anilist_id": 37543,
+    "source_url": "https://anilist.co/manga/37543",
+    "checked": "2026-10-01",
+    "reason": "Daddy Long Legs (DE Egmont, 2 vols; DNB 'Do-Chan ; Kim Hyoung-Jun') = AniList 37543 'Kidari Ajeossi' (2004, 2 vols) by Eun-Ji O, AniList alternative name 'Do-Chan'. The resolver bound 166669 'Sugar Daddy / Daddy Long Legs', a 2020 webtoon by Sseom / Igyu"
   }
 ]
