@@ -3832,6 +3832,69 @@ plan = BK.decide(ls, L.Index(schema_db()), None)
 eq("lift: a cluster of novels only is still held (novel-without-comic; R6 for prose unchanged)",
    ([l["role"] for l in ls], [h["reason"] for h in plan["held"]], plan["works"]), (["held", "held"], ["novel-without-comic"], {}))
 
+# ---- KR/CN lift: lines.json cluster_with / review act before a work is created ---------------------------------
+def decide_out(ls, idx_, K_=None, **kw):
+    """BK.decide with stdout captured -> (plan, printed text, SystemExit text or None)."""
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            return BK.decide(ls, idx_, K_, **kw), buf.getvalue(), None
+    except SystemExit as e:
+        return None, buf.getvalue(), str(e)
+
+
+dbC = schema_db()
+dbC.execute("INSERT INTO work VALUES('w_sl','Solo Leveling',NULL,NULL,NULL,NULL,'x','x')")
+line_row(dbC, "rl_sl", "w_sl", "manhwa", "EN", "en")
+FR_P, DE_P = "bnf:ark:/12148/cb41000001x", "dnb:910"
+ls = [mkline(DE_P, "DE", "Wer definiert Beliebtheit"), mkline(FR_P, "FR", "Qui définit la popularité")]
+plan, _, _ = decide_out(ls, L.Index(dbC))
+eq("without a correction a DE and an FR cluster of one series are two works", len(plan["works"]), 2)
+ls = [mkline(DE_P, "DE", "Wer definiert Beliebtheit"), mkline(FR_P, "FR", "Qui définit la popularité")]
+plan, _, _ = decide_out(ls, L.Index(dbC), cluster_with=[(DE_P, FR_P)])
+wP = _id("w_", "krcn", FR_P)
+eq("cluster_with: one work, anchored on the FR line (lowest comic key), titled with the FR name",
+   ([l["work"] for l in ls], list(plan["works"]), plan["works"][wP]["title"]), ([wP, wP], [wP], "Qui définit la popularité"))
+ls = [mkline("dnb:911", "DE", "Solo Leveling"), mkline("dnb:912", "DE", "Neuland")]
+_, _, err = decide_out(ls, L.Index(dbC), cluster_with=[("dnb:912", "dnb:911")], comic_works={"w_sl"})
+eq("cluster_with naming a linked line stops the build, naming the key and its role",
+   (err is not None and "dnb:911" in err and "the line is linked" in err), True)
+ls = [mkline("dnb:913", "DE", "Neuland")]
+_, _, err = decide_out(ls, L.Index(dbC), review_lines={"dnb:999": "x"}, deferred={"dnb:999"})
+eq("review naming a deferred line (P25) stops the build", (err is not None and "deferred to the German JP round" in err), True)
+ls = [mkline("dnb:913", "DE", "Neuland")]
+plan, out, err = decide_out(ls, L.Index(dbC), cluster_with=[("dnb:913", "dnb:998")])
+eq("cluster_with naming a key the build does not have: STALE CORRECTION printed, the build goes on",
+   (err, "STALE CORRECTION -- lines.json cluster_with dnb:998" in out, ls[0]["role"]), (None, True, "new_work"))
+ls = [mkline("dnb:914", "DE", "Athanasia"), mkline("dnb:915", "DE", "Andere Reihe")]
+plan, out, _ = decide_out(ls, L.Index(dbC), review_lines={"dnb:914": "may be Who Made Me a Princess"})
+eq("review: the line's cluster goes to review with the correction's reason; no work; others unaffected",
+   (ls[0]["role"], ls[0]["reason"], ls[0]["work"], ls[1]["role"], "dnb:914" in plan["review"]),
+   ("review", "correction: may be Who Made Me a Princess", None, "new_work", True))
+Kr = {"works": {"w_libR"}, "lines": {"rl_R": "dnb"}, "series_ids": {"rl_R"}, "work_ids": {"w_libR"}, "int": {"rl_R": 4},
+      "line_work": {"rl_R": "w_libR"}, "line_name": {}, "line_medium": {"rl_R": "manhwa"}, "line_vols": {}}
+ls = [mkline("dnb:916", "DE", "Alte Reihe", carried=True, tome_id="rl_R")]
+_, _, err = decide_out(ls, L.Index(dbC), Kr, review_lines={"dnb:916": "x"})
+eq("review on a cluster holding a published (carried) line is refused, naming the reviewed key and the cluster",
+   (err is not None and "lines.json review dnb:916 (cluster c0000)" in err and "published line dnb:916" in err), True)
+ls = [mkline("dnb:917", "DE", "Solo Leveling", carried=True, tome_id="rl_X"), mkline("dnb:918", "DE", "Neuland")]
+plan, out, err = decide_out(ls, L.Index(dbC), cluster_with=[("dnb:918", "dnb:917")], comic_works={"w_sl"})
+eq("cluster_with naming a CARRIED line the linker now places: skipped and printed, never a stop",
+   (err, "CLUSTER_WITH / REVIEW SKIPPED -- lines.json cluster_with dnb:917: carried line now linked" in out,
+    ls[1]["role"]), (None, True, "new_work"))
+W_P = _id("w_", "krcn", FR_P)
+Kp = {"works": {W_P}, "lines": {"rl_P1": "bnf", "rl_P2": "dnb"}, "series_ids": {"rl_P1", "rl_P2"}, "work_ids": {W_P},
+      "int": {"rl_P1": 3, "rl_P2": 4}, "line_work": {"rl_P1": W_P, "rl_P2": W_P},
+      "line_name": {"rl_P1": "Qui définit la popularité", "rl_P2": "Wer definiert Beliebtheit"},
+      "line_medium": {"rl_P1": "manhwa", "rl_P2": "manhwa"}, "line_vols": {}}
+ls = [mkline(DE_P, "DE", "Wer definiert Beliebtheit", carried=True, tome_id="rl_P2"),
+      mkline(FR_P, "FR", "Qui définit la popularité", carried=True, tome_id="rl_P1")]
+plan, _, _ = decide_out(ls, L.Index(dbC), Kp)
+eq("two clusters frozen to one published work (a cluster_with dropped): one plan entry with both lines, the first "
+   "cluster's anchor and title kept", (sorted(plan["works"][W_P]["lines"]), plan["works"][W_P]["anchor"],
+                                       plan["works"][W_P]["title"], [l["work"] for l in ls]),
+   (sorted([DE_P, FR_P]), FR_P, "Qui définit la popularité", [W_P, W_P]))
+
 # ==== summary ====
 print()
 if FAILS:
