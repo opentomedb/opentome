@@ -433,5 +433,11 @@
     "source_url": "https://d-nb.info/1269196383",
     "reason": "Athanasia – plötzlich Prinzessin is the German edition of Who Made Me a Princess (the miss docs/krcn-design.md §9 documents: syllable-split romanised original and creator)",
     "checked": "2026-10-01"
+  },
+  {
+    "line_key": "bnf:ark:/12148/cb40989382v",
+    "review": "same title as DE dnb:976419955 — one series? settle in the lift review (cluster_with or not-a-duplicate)",
+    "source_url": "https://catalogue.bnf.fr/ark:/12148/cb40989382v",
+    "checked": "2026-10-01"
   }
 ]
