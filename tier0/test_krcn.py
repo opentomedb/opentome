@@ -2806,7 +2806,7 @@ try:
     eq("record_meta: loc:degraded / bnf:degraded absent on a clean run",
        db.execute("SELECT COUNT(*) FROM meta WHERE key IN ('loc:degraded','bnf:degraded','dnb:degraded')").fetchone()[0], 0)
     eq("files written", sorted(f for f in os.listdir(_btmp) if f.startswith("krcn-")),
-       ["krcn-held.tsv", "krcn-new-works.tsv", "krcn-report.json", "krcn-review.tsv"])
+       ["krcn-duplicates.tsv", "krcn-held.tsv", "krcn-new-works.tsv", "krcn-report.json", "krcn-review.tsv"])
     held_rows = open(os.path.join(_btmp, "krcn-held.tsv"), encoding="utf8").read().splitlines()[1:]
     eq("the hold file: empty after the lift (no novel-only cluster in this build)", held_rows, [])
     rep = json.load(open(os.path.join(_btmp, "krcn-report.json"), encoding="utf8"))
@@ -3929,6 +3929,41 @@ idxE = L.Index(schema_db())
 idxE.add_krcn_work("w_tiara", ["Tiara"])
 eq("an exact short key against a created work counts (Tiara = Tiara, 5 letters)",
    BK.containment_hits([mkline("loc:2025000202", "EN", "Tiara")], idxE), {"w_tiara"})
+
+# ---- KR/CN lift: the duplicate-candidate list (build/krcn-duplicates.tsv) and the containment list -------------
+dbD = schema_db()
+dbD.execute("INSERT INTO work VALUES('w_emp','How to Hide the Emperor''s Child',NULL,NULL,NULL,NULL,'x','x')")
+idxD = L.Index(dbD)
+lsD = [mkline(k, m, n, role="new_work", work=w) for k, m, n, w in (
+    ("bnf:ark:/12148/cb43000001x", "FR", "How to Hide the Emperor's Children", "w_a"),
+    ("dnb:930", "DE", "Wie man des Kaisers Kind versteckt", "w_b"),
+    ("dnb:931", "DE", "Wie man des Kaisers Kinder versteckt", "w_c"), ("dnb:932", "DE", "Ganz anders", "w_d"),
+    ("dnb:939", "DE", "How to Hide the Emperors Child", "w_f"))]
+planD = {"works": {w: {"created": w != "w_f", "anchor": l["key"], "title": l["name"], "lines": [l["key"]]} for w, l in
+                   zip(("w_a", "w_b", "w_c", "w_d", "w_f"), lsD)}, "held": []}
+eq("duplicate_rows: a created work near an existing title, near a published (frozen) library work, and two created "
+   "works near each other (ratio >= 0.8, one row per pair, highest first); a frozen work is only ever `other`; short "
+   "keys never listed", BK.duplicate_rows(lsD, planD, idxD),
+   [["title", "w_b", "Wie man des Kaisers Kind versteckt", "w_c", "Wie man des Kaisers Kinder versteckt",
+     "wiemandeskaiserskindversteckt", "wiemandeskaiserskinderversteckt", "0.967", ""],
+    ["title", "w_a", "How to Hide the Emperor's Children", "w_emp", "How to Hide the Emperor's Child",
+     "howtohidetheemperorschildren", "howtohidetheemperorschild", "0.943", ""],
+    ["title", "w_a", "How to Hide the Emperor's Children", "w_f", "How to Hide the Emperors Child",
+     "howtohidetheemperorschildren", "howtohidetheemperorschild", "0.943", ""]])
+ls = [mkline("bnf:ark:/12148/cb43000002x", "FR", "Demon Diary"), mkline("dnb:933", "DE", "Demon Diary Sammelband")]
+plan = BK.decide(ls, L.Index(schema_db()), None)
+eq("gate list containment_created: the cluster the guard sent to review because of a work created in this build",
+   BK.gate_report(ls, plan, {}, None)["containment_created"],
+   [["c0001", ["dnb:933"], [_id("w_", "krcn", "bnf:ark:/12148/cb43000002x")]]])
+_dtmp = tempfile.mkdtemp(prefix="krcn-dups-")
+_saved_build, BK.BUILD = BK.BUILD, _dtmp
+try:
+    BK.write_files(lsD, planD, idxD, {})
+    rows = open(os.path.join(_dtmp, "krcn-duplicates.tsv"), encoding="utf8").read().splitlines()
+    eq("write_files: build/krcn-duplicates.tsv, the DUP_HEADER then the rows",
+       (rows[0].split("\t"), [r.split("\t")[1] for r in rows[1:]]), (BK.DUP_HEADER, ["w_b", "w_a", "w_a"]))
+finally:
+    BK.BUILD = _saved_build
 
 # ==== summary ====
 print()
