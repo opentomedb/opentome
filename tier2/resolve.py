@@ -87,6 +87,22 @@ def classify_dates(values):
     return "conflict", 0.30
 
 
+DATE_VALUE = re.compile(r"\d{4}(-\d{2}(-\d{2})?)?")
+
+
+def dated_by_now(val, projected, today=None):
+    """Is a resolved release_date value a real date by now (F6, 2026-10-01)? A well-formed YYYY[-MM[-DD]] that is on or
+    before today at its own precision; a bare year counts when it is before this year, or this year and the
+    volume's projected month (`projected`, 'YYYY-MM') is already past -- a current-year bare year says nothing
+    about a month still to come. export/test_artifact.py PROJECTED_OUTRANKED mirrors this in SQL."""
+    today = today or date.today().isoformat()
+    if not val or not DATE_VALUE.fullmatch(val):
+        return False
+    if len(val) == 4:
+        return val < today[:4] or (val == today[:4] and (projected or "") <= today[:7])
+    return val <= today[:len(val)]
+
+
 def apply_resolved_dates(db):
     """A projected date never outranks a real one (the KR/CN lift, 2026-10-01): a volume born with a planned month
     (release_date_type 'projected': an announced LoC / BnF / DNB record) that has a resolved release_date takes it,
@@ -101,7 +117,7 @@ def apply_resolved_dates(db):
                          WHERE r.entity='volume' AND r.field='release_date' AND v.release_date_type='projected'
                            AND v.release_date IS NOT NULL""").fetchall()
     for vid, val, proj in rows:
-        if not val or len(val) not in (4, 7, 10) or val > today[:len(val)] or abs(int(val[:4]) - int(proj[:4])) > 1:
+        if not dated_by_now(val, proj, today) or abs(int(val[:4]) - int(proj[:4])) > 1:
             continue
         n += db.execute("""UPDATE volume SET release_date=?, release_date_precision=?, release_date_type='published'
                            WHERE id=? AND release_date_type='projected'""",

@@ -93,6 +93,11 @@ def run():
              ("v_projwrongyr", "2025-12", "month", "projected", {"openlibrary": "2019"}, ("2025-12", "month", "projected")),
              ("v_projprev", "2025-12", "month", "projected", {"openlibrary": "2024-11"}, ("2024-11", "month", "published")),
              ("v_projtwo", "2025-12", "month", "projected", {"openlibrary": "2023-11"}, ("2025-12", "month", "projected"))]
+    Y = date.today().year
+    PROJ += [("v_yrlater", f"{Y + 1}-01", "month", "projected", {"openlibrary": str(Y)}, (f"{Y + 1}-01", "month", "projected")),
+             ("v_yrpast", f"{Y}-01", "month", "projected", {"openlibrary": str(Y)}, (str(Y), "year", "published")),
+             ("v_junkval", "2025-12", "month", "projected", {"openlibrary": "c.20"}, ("2025-12", "month", "projected")),
+             ("v_junk199x", "2025-12", "month", "projected", {"openlibrary": "199x"}, ("2025-12", "month", "projected"))]
     for num, (vid, d, p, t, claims, _) in enumerate(PROJ, 1):
         db.execute("INSERT INTO volume(id,release_line_id,number,release_date,release_date_precision,release_date_type,"
                    "created_at,updated_at) VALUES(?,?,?,?,?,?,'x','x')", (vid, "rl_p", str(num), d, p, t))
