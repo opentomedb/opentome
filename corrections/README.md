@@ -465,6 +465,9 @@ Required: `line`, `anilist_id`, `source_url`, `checked`. Optional: `reason`.
 the work at all, write `"anilist_id": null` (or `"none"`). `--anilist` writes NULL over the resolver's pick,
 and `export/resolve_anilist.py` reads the pins first and never searches that line again. `source_url` is the
 AniList search or page you checked; say in `reason` why no entry fits.
+A KR/CN binding is written to every main comic line of the work (the French and the German line of a
+lifted work share one id), so a wrong binding needs a pin, or an unbind pin, on EACH of those lines: a
+pin on one line leaves the resolver's id on the others.
 
 `line` is an OpenTome release-line id (`series.tome_id` in the published
 artifact), the same key `aliases.json` and the `lines.json` overrides use: it is

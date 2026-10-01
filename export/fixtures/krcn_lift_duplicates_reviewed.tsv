@@ -1,5 +1,7 @@
 # krcn_lift_duplicates_reviewed.tsv -- verdicts on build/krcn-duplicates.tsv (the KR/CN lift, 2026-10-01; permanent).
 # export/test_artifact.py needs one row here for every title row at ratio >= 0.9 and every anilist row the build
 # lists, unless a corrections/lines.json cluster_with / link_work / review settled the pair (then the row is gone).
+# The need is BLOCKING only while export/fixtures/krcn_lift_input.tsv exists (the lift build); afterwards the
+# unsettled rows are printed as an info line and the file is the record of the verdicts already given.
 # One row per pair, either order: work, other, verdict (only not-a-duplicate), why.
 work	other	verdict	why

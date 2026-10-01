@@ -4039,9 +4039,27 @@ eq("carried_title_changes: (blocking, info) -- the frozen case lists the work an
 DUP_HI = ["title", "w_new", "New", "w_x", "News", "newwork", "newworks", "0.933", ""]
 DUP_LO = ["title", "w_new", "New", "w_y", "Nova", "newwork", "nowork", "0.857", ""]
 DUP_AL = ["anilist", "w_new", "New", "w_z", "Old", "", "", "", "12345"]
-eq("duplicates: a title row >= 0.9 without a verdict fails", has(krcn_fails(dups=[DUP_HI]), "duplicate candidates"), True)
-eq("duplicates: a title row below 0.9 needs no verdict", krcn_fails(dups=[DUP_LO]), [])
-eq("duplicates: an AniList-id collision without a verdict fails", has(krcn_fails(dups=[DUP_AL]), "duplicate candidates"), True)
+LIFT_EMPTY = "cluster\treason\tmarkets\tlines\tmembers\tvolumes\ttitle_keys\tcriteria\n"    # a lift build, no held rows
+LIFTING = lambda: krcn_fx(new_works=LABELLED, lift=LIFT_EMPTY)
+eq("duplicates (lift build): a title row >= 0.9 without a verdict fails", has(krcn_fails(dups=[DUP_HI], fx=LIFTING()),
+                                                                              "duplicate candidates"), True)
+eq("duplicates: a title row below 0.9 needs no verdict", krcn_fails(dups=[DUP_LO], fx=LIFTING()), [])
+eq("duplicates (lift build): an AniList-id collision without a verdict fails", has(krcn_fails(dups=[DUP_AL], fx=LIFTING()),
+                                                                                   "duplicate candidates"), True)
+eq("duplicates (no lift fixture, a weekly build): unsettled rows do not block", krcn_fails(dups=[DUP_HI, DUP_AL]), [])
+artp_, catp_ = gate_pair(dups=[DUP_HI, DUP_AL])
+TA.KRCN_FIXTURES = krcn_fx(new_works=LABELLED)
+_buf = io.StringIO()
+with contextlib.redirect_stdout(_buf):
+    TA.run_krcn(artp_, catp_)
+del TA.FAILS[:]
+eq("duplicates (no lift fixture): the unsettled rows are an info line naming them",
+   ("info  KR/CN duplicate candidates without a verdict" in _buf.getvalue(), "w_x" in _buf.getvalue(),
+    "12345" in _buf.getvalue()), (True, True, True))
+artp_, catp_ = gate_pair()
+eq("carried_works_without_anchor: a carried work no krcn_line hashes to is listed; one whose anchor line exists is not",
+   TA.carried_works_without_anchor(sqlite3.connect(catp_), {"works": [_id("w_", "krcn", "loc:2023941160"), "w_nowhere"]}),
+   ["w_nowhere"])
 VERD = "# verdicts\nwork\tother\tverdict\twhy\nw_x\tw_new\tnot-a-duplicate\tdifferent series\nw_new\tw_z\tnot-a-duplicate\tsequel\n"
 eq("duplicates: a not-a-duplicate verdict (either order) settles the row", krcn_fails(
     dups=[DUP_HI, DUP_AL], fx=krcn_fx(new_works=LABELLED, verdicts=VERD)), [])
