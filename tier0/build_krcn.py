@@ -372,9 +372,10 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
                 for ln in cl:
                     ln.update(role="review", reason=why, candidates=cands)
                 continue
-        # the anchor of a new work is an English COMIC line (controller ruling): a cluster whose only
-        # English lines are novels is held like one with no English line
-        en = [l for l in cl if l["market"] == "EN" and l["medium"] in COMIC_ANCHOR]
+        # the anchor of a new work is a COMIC line (controller ruling), English first: a cluster of novels
+        # only is held (novel-without-comic)
+        comic = [l for l in cl if l["medium"] in COMIC_ANCHOR]
+        en = [l for l in comic if l["market"] == "EN"]
         hits = containment_hits(cl, idx)
         c2, c3 = any(l["explicit"] for l in cl), any(l["comic"] for l in cl)
         entry = _entry(cid, cl, {"linker": "none", "explicit_origin": c2, "comic": c3, "containment": sorted(hits)}, None)
@@ -410,17 +411,27 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
             for ln in cl:
                 ln.update(role="unlinked", reason=entry["reason"])
             continue
-        elif not en:
-            entry["reason"] = "no-english-comic-line" if any(l["market"] == "EN" for l in cl) else "no-english-line"
+        elif not comic:
+            # R6 for prose (unchanged): no work is ever created from novels alone
+            entry["reason"] = "novel-without-comic"
             plan["held"].append(entry)
             for ln in cl:
                 ln.update(role="held", reason=entry["reason"], work=None)
             continue
         else:
-            wid, created = _id("w_", "krcn", min(l["key"] for l in en)), True
+            # the lift (2026-10-01): an English comic line anchors as before; without one, the comic line
+            # with the lowest key in any market (bnf: sorts before dnb:, so an FR+DE cluster anchors on FR)
+            anchor = min(en or comic, key=lambda l: l["key"])
+            wid, created = _id("w_", "krcn", anchor["key"]), True
         entry["work"] = wid
-        anchor = min(en, key=lambda l: l["key"]) if en else cl[0]
-        plan["works"][wid] = {"anchor": anchor["key"], "created": created, "title": anchor["name"],
+        title = anchor["name"] if created else None
+        if not created:
+            # frozen: the line whose key the published id hashes is the anchor (the id is _id("w_", "krcn", its
+            # key)), titled with its carried name; only without one, the first round's rule (min EN, else cl[0])
+            anchor = next((l for l in cl if _id("w_", "krcn", l["key"]) == wid), None) or \
+                (min(en, key=lambda l: l["key"]) if en else cl[0])
+            title = K["line_name"].get(anchor["tome_id"]) or anchor["name"]
+        plan["works"][wid] = {"anchor": anchor["key"], "created": created, "title": title,
                               "lines": [l["key"] for l in cl], "cluster": cid, "frozen": frozen}
         for ln in cl:
             ln.update(role="new_work", work=wid)
@@ -991,8 +1002,8 @@ def write_files(lines, plan, idx, stats):
            "; ".join("%s %s" % (w, idx.name.get(w, "?")) for w in l["candidates"][:6]), " | ".join(l["orig"][:3]),
            " | ".join(l["native"][:3]), " | ".join(l["authors"][:3]), member_url(l["key"])) for l in rev])
     by = {l["key"]: l for l in lines}
-    # every held line has its plan['held'] entry (decide: no-english-line / no-english-comic-line /
-    # novel-without-comic), so the hold file is exactly plan['held']
+    # every held line has its plan['held'] entry (decide: novel-without-comic, the one reason since the
+    # lift), so the hold file is exactly plan['held']
     held = list(plan["held"])
     _tsv(os.path.join(BUILD, "krcn-held.tsv"),
          ["cluster", "reason", "markets", "lines", "members", "volumes", "title_keys", "criteria"],
