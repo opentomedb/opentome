@@ -212,3 +212,39 @@ EN member records are announced-only (CIP) records. Open Library (stage 4) raise
 | EN | 58 | 336 |
 
 `KRCN_MIN_WORKS` = 45.
+
+## Lift build
+
+Built 2026-10-01 on this workstation from branch `krcn-lift` (through the Task 14 commit `c2db3ae`), carry = the live
+`opentome-2026-09-29` artifact (sha256 `c91484c4…`, catalogue run 44), `LOC_OFFLINE=1 LOC_UNREACHABLE=1`.
+Logs: `build/lift-local/krcn-lift-build2.log`, `build/lift-local/measure-floors.log`.
+
+**Staged** (`krcn_line`), lines with volumes in brackets:
+
+| Market | Exported | linked | merged | new_work | review | unlinked | absorbed | held |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| DE | 327 (1,399) | 24 (170) | 1 (12) | 302 (1,217) | 32 (116) | 15 (39) | 8 (9) | 0 |
+| FR | 176 (986) | 12 (98) | 11 (90) | 153 (798) | 20 (179) | 0 | 0 | 0 |
+| EN | 70 (399) | 0 | 14 (105) | 56 (294) | 39 (109) | 72 (73) | 0 | 0 |
+
+The build staged 759 lines in total; another 14 DNB sets were deferred to the German JP round (P25). The
+`absorbed` lines are the DE announcements the date rule holds back (no exportable volume, so no work is written).
+
+**Works.** Created 371, frozen 53; held clusters 0 (`novel-without-comic` only, none left in this build). The lift
+input's 444 held lines: 371 works created from them; 0 dropped. Reviewer corrections: 22 `cluster_with`
+(Bibi included), 0 `review`, 9 `link_work` (Athanasia included); 31 non-comment rows in the duplicate-verdict
+fixture (the header row plus 30 `not-a-duplicate` verdicts).
+
+**AniList (8a, families krcn-KR / krcn-CN / krcn-TW).** 369 works considered, 239 bound (263 lines written),
+every binding read (`build/krcn-anilist-bindings.tsv`); 5 new pins (38 in `corrections/anilist.json`).
+
+**Exported floors** (`export/measure_library.py`), `round(0.85 × measured)`:
+
+| | Lines | Volumes |
+|---|---:|---:|
+| DE | 278 (measured 327) | 1,189 (measured 1,399) |
+| FR | 150 (measured 176) | 838 (measured 986) |
+| EN | 58 (unchanged) | 336 (unchanged) |
+
+`KRCN_MIN_WORKS` = 360 (measured 424 library works exported). Library measure 49/49; German JP round
+unchanged (meta `dnb_lines` and `build/dnb-review.tsv` equal to the carry's).
