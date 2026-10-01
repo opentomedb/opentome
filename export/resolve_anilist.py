@@ -145,6 +145,21 @@ hinted catalogue line's own name, never an alias or arc title it was matched by:
     Measured (export/replay_anilist.py --base main on opentome-2026-09-24): 52 new binds -- V1 26,
     V2 19, V3 5, V4 2 -- 0 changed, 0 lost; no new id is another work's EN line's, no two share one.
 
+KR/CN WORKS WITHOUT AN ENGLISH COMIC LINE (the lift, 2026-10-01; krcn_works() / resolve_krcn()): one search set
+per library work (meta krcn_ids.works) with no English comic line, over its is_main manhwa / manhua lines (FR
+first: the anchor), each search filtered by AniList `countryOfOrigin` -- KR for manhwa; CN, then TW, for
+manhua -- in families of their own in the cache key (krcn-KR, krcn-CN, krcn-TW), so a term searched for a
+manhwa never reads a manhua or a Japanese page. Terms in order: each main line's name with its de-slugged
+form and R6 retry; the native title, then the romanized one (series_alias official / romanized, ko / zh);
+then up to ALIAS_LIMIT aliases. The first term that binds wins, and its id goes to EVERY main comic line of
+the work still without one. Equality tiers only (primary / synonym with R1, R7) and V3; R2, R4, R5, V1, V2
+are off (a generic French or German name would otherwise bind a larger serial on its title alone: the 4x
+ceiling holds for a 1-2 volume line too, on every term); V4 needs an origin line these works do not have.
+A line an unbind pin (corrections/anilist.json, anilist_id null) keeps without an id is never searched.
+Every binding goes to build/krcn-anilist-bindings.tsv for a full read.
+`--krcn-duplicates` (after the pins) writes the AniList-id collisions of works created in this build into
+build/krcn-duplicates.tsv (the gate in export/test_artifact.py reads it).
+
 DISPLAY ONLY (2026-09-24, `--display`, after the pins): series.display_anilist_id / _via give a
 line the rules leave NULL a cover / synopsis source -- its bound parent line's id ('parent') or
 the manga-family entry of a novel AniList lists only as an adaptation ('medium'). Never a
@@ -157,7 +172,7 @@ anilist_id IS NULL are considered, and only resolved ones are written. Clean roo
 is a lookup-key source here (an id, and with --covers a cover URL) -- no title, synonym or
 description ever enters the artifact.
 """
-import argparse, hashlib, json, os, re, sqlite3, sys, time, unicodedata, urllib.error, urllib.request
+import argparse, collections, hashlib, json, os, re, sqlite3, sys, time, unicodedata, urllib.error, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 API = "https://graphql.anilist.co"
@@ -247,11 +262,12 @@ def art_key(s):
     return key(ARTICLE.sub("", for_search(s)))
 
 
-def pick(cands, term, volume_count, own_name=True):
+def pick(cands, term, volume_count, own_name=True, fallback=True):
     """Mangarr's AniListRanker.Pick, plus the fallback tiers in the module docstring.
     (media | None, via | None, rejections); via is 'primary', 'synonym' or the fallback
     tier that bound it ('article', 'substring', 'ceiling'). own_name is False for an alias retry (R3: the volume ceiling
-    then always holds, and no fallback tier runs)."""
+    then always holds, and no fallback tier runs). fallback False (the KR/CN works, 2026-10-01): R4 and R5 never
+    run and R2 is off -- the 4x ceiling holds for every term, the line's own name included; R7 stays."""
     k = key(term)
 
     def primary_title(m):
@@ -296,9 +312,9 @@ def pick(cands, term, volume_count, own_name=True):
             if volume_count - v > tol:
                 rejected.append("%s:volumes %s vs %s" % (m["id"], v, volume_count))
                 continue
-            if (volume_count > 2 or not own_name) and v > 4 * volume_count:   # R2 / R3
+            if (volume_count > 2 or not own_name or not fallback) and v > 4 * volume_count:   # R2 / R3
                 rejected.append("%s:volumes %s > 4x %s" % (m["id"], v, volume_count))
-                if own_name and (primary_title(m) or synonym_title(m)):
+                if fallback and own_name and (primary_title(m) or synonym_title(m)):
                     oversized.append(m)   # R4: rejected SOLELY by the ceiling
                 continue
         if primary_title(m):
@@ -316,7 +332,7 @@ def pick(cands, term, volume_count, own_name=True):
                 rejected.append("%s:synonym only (a primary-title candidate is on the page)" % m["id"])
             else:
                 art_synonym.append(m)
-        elif own_name and v and v == volume_count and contains(m):
+        elif fallback and own_name and v and v == volume_count and contains(m):
             substring.append(m)
     pool = primary or synonym
     if pool:
@@ -463,25 +479,27 @@ def _cache_put(path, value):
         json.dump(value, f, ensure_ascii=False)
 
 
-def _search_query(n, novel):
+def _search_query(n, novel, country=None):
     fmt = "format: NOVEL" if novel else "format_not: NOVEL"
+    if country:                 # the KR/CN works' families (krcn-KR / krcn-CN / krcn-TW)
+        fmt += ', countryOfOrigin: "%s"' % country
     args = ", ".join("$s%d: String" % i for i in range(n))
     body = " ".join("q%d: Page(perPage: %d) { media(search: $s%d, type: MANGA, %s) { %s } }"
                     % (i, PER_PAGE, i, fmt, FIELDS) for i in range(n))
     return "query (%s) { %s }" % (args, body)
 
 
-def _fetch_chunk(chunk, novel):
+def _fetch_chunk(chunk, novel, country=None):
     """{term: [media]} for one request; halves the batch on a 400 (query complexity /
     validation) instead of guessing AniList's limit."""
     try:
-        data = _post({"query": _search_query(len(chunk), novel),
+        data = _post({"query": _search_query(len(chunk), novel, country),
                       "variables": {"s%d" % i: t for i, t in enumerate(chunk)}})
     except urllib.error.HTTPError as e:
         if e.code == 400 and len(chunk) > 1:
             half = len(chunk) // 2
-            out = _fetch_chunk(chunk[:half], novel)
-            out.update(_fetch_chunk(chunk[half:], novel))
+            out = _fetch_chunk(chunk[:half], novel, country)
+            out.update(_fetch_chunk(chunk[half:], novel, country))
             return out
         raise
     if data.get("errors") and not data.get("data"):
@@ -493,9 +511,10 @@ def _fetch_chunk(chunk, novel):
     return out
 
 
-def search(terms, novel):
-    """{term: [media]} for every term -- cache first, the misses batched BATCH per request."""
-    family = "novel" if novel else "manga"
+def search(terms, novel, country=None):
+    """{term: [media]} for every term -- cache first, the misses batched BATCH per request. country: the
+    KR/CN works' AniList countryOfOrigin, a family of its own (krcn-<country>)."""
+    family = "krcn-" + country if country else "novel" if novel else "manga"
     out, todo = {}, []
     for t in dict.fromkeys(terms):
         cached = _cache_get(_cache_path("search", family, t))
@@ -506,7 +525,7 @@ def search(terms, novel):
     if todo and OFFLINE:
         raise OfflineMiss(todo)
     for i in range(0, len(todo), BATCH):
-        fetched = _fetch_chunk(todo[i:i + BATCH], novel)
+        fetched = _fetch_chunk(todo[i:i + BATCH], novel, country)
         for t, media in fetched.items():
             _cache_put(_cache_path("search", family, t), media)
         out.update(fetched)
@@ -529,9 +548,13 @@ def load_line(db, sid):
     return ln
 
 
-def load_lines(db, limit=None, only=None):
-    """English lines still without an id, most volumes first (they are the ones people add)."""
+def load_lines(db, limit=None, only=None, skip=()):
+    """English lines still without an id, most volumes first (they are the ones people add). skip: line ids
+    (tome_id) an unbind pin keeps without one (unbind_pins)."""
     where, params = "language='en' AND anilist_id IS NULL", []
+    if skip:
+        where += " AND tome_id NOT IN (%s)" % ",".join("?" * len(skip))
+        params += sorted(skip)
     if only:
         where += " AND name=? COLLATE NOCASE"
         params.append(only)
@@ -675,14 +698,15 @@ def arc_parts(name):
     return s[:m.start()], rest or None
 
 
-def post_walk_pick(ln, pages):
+def post_walk_pick(ln, pages, tiers=("prefix", "arc", "amp", "origin")):
     """The post-walk tiers for one line the walk left unbound, in order V1 -> V2 -> V3 -> V4, over
     `pages` = [(term, page, own_name)]: the name page first, then every page the walk fetched, in
-    walk order. (media, via, term) or (None, None, None). See the module docstring."""
+    walk order; `tiers` the ones that run (the KR/CN works: amp only). (media, via, term) or
+    (None, None, None). See the module docstring."""
     vc, orig = ln["volume_count"], ln.get("orig_vc")
     name = ln["name"]
     # V1 prefix: a bare name that is the head of AniList's full title
-    if vc and vc >= 3 and "(" not in name and parent_name(name) is None:
+    if "prefix" in tiers and vc and vc >= 3 and "(" not in name and parent_name(name) is None:
         for t, page, own in pages:
             if not own or len(key(t)) < 6 or equal_title_on_page(page, t):
                 continue
@@ -693,7 +717,7 @@ def post_walk_pick(ln, pages):
     # V2 arc: base AND arc inside one title, count = the line's or its (different) origin line's
     base, arc = arc_parts(name)
     kb, ka = key(base), key(arc) if arc else ""
-    if len(kb) >= 4 and len(ka) >= 4:
+    if "arc" in tiers and len(kb) >= 4 and len(ka) >= 4:
         counts = {vc, orig} - {None, 0}
         for t, page, own in pages:
             c = [m for m in page if volumes_pass(m, vc, own) and m.get("volumes") in counts
@@ -702,7 +726,7 @@ def post_walk_pick(ln, pages):
                 return c[0], "arc", t
     # V3 amp: '&' = 'and', an equality tier like R7 -- primary titles only, never beside an exact
     # title (rejected ones included)
-    for t, page, own in pages:
+    for t, page, own in pages if "amp" in tiers else ():
         if "&" not in t and " and " not in t.lower():
             continue
         k, ak = key(t), _amp_key(t)
@@ -714,7 +738,7 @@ def post_walk_pick(ln, pages):
             return max(pool, key=lambda m: m.get("popularity") or 0), "amp", t
     # V4 origin: on a retry term, an equal title rejected only by the 4x ceiling whose AniList count
     # is the origin line's
-    if vc and vc >= 3 and orig and orig != vc:
+    if "origin" in tiers and vc and vc >= 3 and orig and orig != vc:
         for t, page, own in pages[1:]:
             k = key(t)
             c = [m for m in page if m.get("format") != "ONE_SHOT" and m.get("volumes") == orig
@@ -757,6 +781,168 @@ def report(lines, path):
             f.write("\t".join([ln["name"], ln["medium"] or "", str(m.get("id") or ""),
                                t.get("english") or t.get("romaji") or "", ln["via"] or "unresolved",
                                "; ".join(ln["rejected"])]) + "\n")
+
+
+# ---------------------------------------------------------------- KR/CN works without an English comic line
+
+KRCN_COUNTRIES = {"manhwa": ("KR",), "manhua": ("CN", "TW")}
+KRCN_BINDINGS_HEADER = ["work", "lines", "anilist_id", "title", "country", "via", "term"]
+DUP_HEADER = ["kind", "work", "title", "other", "other_title", "key", "other_key", "ratio", "anilist_id"]  # = build_krcn.DUP_HEADER (asserted in test_resolve_anilist.py)
+
+
+def _krcn_ids(db):
+    try:
+        return json.loads(db.execute("SELECT value FROM meta WHERE key='krcn_ids'").fetchone()[0])
+    except (TypeError, ValueError, sqlite3.OperationalError):
+        return {}
+
+
+def krcn_terms(kw):
+    """The search terms of one KR/CN work, in order -> [(term, volume_count, own_name)]: each main line's name
+    (FR first), its de-slugged form, its R6 retry (ranked like an alias); the native title, then the
+    romanized one; then up to ALIAS_LIMIT remaining aliases. Native, romanized and aliases rank against the
+    anchor (first) line's volume_count, never as the line's own name."""
+    anchor, out, seen = kw["lines"][0], [], set()
+
+    def add(t, vc, own):
+        if t and key(t) and t not in seen:
+            seen.add(t)
+            out.append((t, vc, own))
+    for ln in kw["lines"]:
+        name = for_search(ln["name"])
+        add(name, ln["volume_count"], True)
+        add(deslug(ln["name"]), ln["volume_count"], True)
+        add(edition_stripped(ln["name"]), ln["volume_count"], False)
+    for t in kw["native"] + kw["romanized"]:
+        add(for_search(t), anchor["volume_count"], False)
+    used = {key(t) for t, _, _ in out}
+    extra = [a for a in alias_terms(anchor["name"], [a for ln in kw["lines"] for a in ln["aliases"]]) if key(a) not in used]
+    for a in extra[:ALIAS_LIMIT]:
+        add(a, anchor["volume_count"], False)
+    return out
+
+
+def unbind_pins():
+    """-> {tome_id} of the lines corrections/anilist.json unbinds (anilist_id null / "none"): 8a never binds them."""
+    sys.path.insert(0, os.path.join(ROOT, "tier2"))
+    import corrections
+    return {line for line, aid in corrections.load_anilist_pins() if aid is None}
+
+
+def krcn_works(db, skip=()):
+    """One entry per library work (meta krcn_ids.works) with no English comic line and an is_main manhwa /
+    manhua line still without an id: those main lines (minus `skip`: unbind-pinned tome_ids), FR first, then
+    by id; its countries (KRCN_COUNTRIES, by the first line's medium); its native and romanized titles (the
+    first of each, the anchor line's first); its terms (krcn_terms)."""
+    out = []
+    for w in sorted(_krcn_ids(db).get("works", [])):
+        if db.execute("""SELECT 1 FROM series WHERE tome_work_id=? AND language='en'
+                         AND medium IN ('manga','manhwa','manhua','webtoon')""", (w,)).fetchone():
+            continue
+        sids = [sid for sid, t in db.execute("""SELECT gcd_series_id, tome_id FROM series WHERE tome_work_id=? AND is_main=1
+                AND medium IN ('manhwa','manhua') ORDER BY language<>'fr', gcd_series_id""", (w,)) if t not in skip]
+        lines = [load_line(db, sid) for sid in sids]
+        if not lines or all(ln["anilist_id"] for ln in lines):
+            continue
+        q = ",".join("?" * len(sids))
+
+        def first(kind):
+            return [a for (a,) in db.execute("""SELECT alias FROM series_alias WHERE gcd_series_id IN (%s) AND kind=?
+                    AND language IN ('ko','zh') ORDER BY gcd_series_id<>?, rowid LIMIT 1""" % q, sids + [kind, sids[0]])]
+        kw = {"work": w, "lines": lines, "countries": KRCN_COUNTRIES[lines[0]["medium"]],
+              "native": first("official"), "romanized": first("romanized")}
+        kw["terms"] = krcn_terms(kw)
+        out.append(kw)
+    return out
+
+
+def resolve_krcn(works):
+    """Sets pick / via / term / country on every KR/CN work: its terms on its first country's family, the first
+    term that binds wins (pick, fallback off); none -> V3 (amp) over those pages; still none and a second
+    country (TW for a manhua) -> the same on that family. One batched search per family and round."""
+    for kw in works:
+        kw.update(pick=None, via=None, term=None, country=None)
+    for i in range(2):
+        todo = [kw for kw in works if not kw["pick"] and len(kw["countries"]) > i]
+        for country in sorted({kw["countries"][i] for kw in todo}):
+            group = [kw for kw in todo if kw["countries"][i] == country]
+            results = search([t for kw in group for t, _, _ in kw["terms"]], False, country=country)
+            for kw in group:
+                pages = []                                  # [(vc, (term, page, own))], vc = the term's own line's
+                for t, vc, own in kw["terms"]:
+                    pages.append((vc, (t, results[t], False)))   # R2 off: V3's volume rule keeps the ceiling too
+                    m, via, _ = pick(results[t], t, vc, own_name=own, fallback=False)
+                    if m:
+                        kw.update(pick=m, via=via, term=t, country=country)
+                        break
+                if not kw["pick"]:
+                    a = kw["lines"][0]
+                    # V3 ranks each page against the volume count of the line its term came from (F2, 2026-10-01),
+                    # not always the anchor's: one call per page, in term order, the first hit wins
+                    for vc, p in pages:
+                        m, via, t = post_walk_pick({"name": a["name"], "volume_count": vc, "orig_vc": None},
+                                                   [p], tiers=("amp",))
+                        if m:
+                            kw.update(pick=m, via=via, term=t, country=country)
+                            break
+    return works
+
+
+def write_krcn(db, works, dry_run):
+    """The picked id onto EVERY main comic line of the work still without one (FR and DE: Mangarr's
+    CatalogueHint reads the line of the user's search name). -> lines written."""
+    n = 0
+    for kw in works:
+        if kw["pick"] and not dry_run:
+            for ln in kw["lines"]:
+                n += db.execute("UPDATE series SET anilist_id=? WHERE gcd_series_id=? AND anilist_id IS NULL",
+                                (kw["pick"]["id"], ln["id"])).rowcount
+    if not dry_run:
+        db.commit()
+    return n
+
+
+def report_krcn(works, path):
+    """build/krcn-anilist-bindings.tsv: every KR/CN binding, for the reviewer's full read."""
+    with open(path, "w", encoding="utf8") as f:
+        f.write("\t".join(KRCN_BINDINGS_HEADER) + "\n")
+        for kw in works:
+            if kw["pick"]:
+                t = kw["pick"].get("title") or {}
+                f.write("\t".join([kw["work"], " | ".join(ln["name"] for ln in kw["lines"]), str(kw["pick"]["id"]),
+                                   " / ".join(x for x in (t.get("english") or t.get("romaji"), t.get("native")) if x),
+                                   kw["country"], kw["via"], kw["term"]]) + "\n")
+
+
+def krcn_collisions(db):
+    """Every work created in this build (meta krcn_ids.created) whose AniList id is on a line of another work
+    (or of another created work: one row per pair) -> rows in DUP_HEADER order, kind 'anilist'."""
+    created = set(_krcn_ids(db).get("created", []))
+    by_id = collections.defaultdict(set)
+    for w, aid in db.execute("SELECT tome_work_id, anilist_id FROM series WHERE anilist_id IS NOT NULL"):
+        by_id[aid].add(w)
+
+    def name(w):
+        return db.execute("SELECT name FROM series WHERE tome_work_id=? ORDER BY is_main DESC, gcd_series_id LIMIT 1",
+                          (w,)).fetchone()[0]
+    rows = []
+    for aid, ws in sorted(by_id.items()):
+        for w in sorted(ws & created):
+            for o in sorted(ws - {w}):
+                if o in created and o < w:
+                    continue
+                rows.append(["anilist", w, name(w), o, name(o), "", "", "", str(aid)])
+    return rows
+
+
+def write_krcn_duplicates(path, rows):
+    """Replace the 'anilist' rows of build/krcn-duplicates.tsv (stage 3f wrote the 'title' rows) with `rows`."""
+    keep = []
+    if os.path.exists(path):
+        with open(path, encoding="utf8") as f:
+            keep = [r for r in f.read().splitlines()[1:] if r and not r.startswith("anilist\t")]
+    with open(path, "w", encoding="utf8") as f:
+        f.write("\n".join(["\t".join(DUP_HEADER)] + keep + ["\t".join(r) for r in rows]) + "\n")
 
 
 # ---------------------------------------------------------------- display fallback
@@ -897,6 +1083,9 @@ def main(argv):
     ap.add_argument("--display", action="store_true",
                     help="resolve nothing, only recompute series.display_anilist_id / _via (display-only "
                          "fallback) -- stage 8a runs it after the pins, before --covers-only")
+    ap.add_argument("--krcn-duplicates", action="store_true",
+                    help="resolve nothing, only write the AniList-id collisions of works created in this build "
+                         "into <build>/krcn-duplicates.tsv -- stage 8a runs it after the pins")
     a = ap.parse_args(argv)
     build = os.path.dirname(os.path.abspath(a.artifact))
     db = sqlite3.connect(a.artifact)
@@ -906,13 +1095,21 @@ def main(argv):
         print("anilist: covers -> %s (%d ids, %d fetched)" % (cpath, have, fetched))
         db.close()
         return
+    if a.krcn_duplicates:
+        dpath = os.path.join(build, "krcn-duplicates.tsv")
+        rows = krcn_collisions(db)
+        write_krcn_duplicates(dpath, rows)
+        print("anilist: %d AniList-id collision(s) of works created in this build -> %s" % (len(rows), dpath))
+        db.close()
+        return
     if a.display:
         by = display(db)
         print("anilist: display fallback (display only, never a binding): %s"
               % ", ".join("%d via %s" % (by[v], v) for v in DISPLAY_VIAS))
         db.close()
         return
-    lines = load_lines(db, a.limit, a.only)
+    skip = unbind_pins()
+    lines = load_lines(db, a.limit, a.only, skip)
     resolve(lines)
     n = write(db, lines, a.dry_run)
     rep = os.path.join(build, "anilist-resolve-report.tsv")
@@ -926,6 +1123,13 @@ def main(argv):
     print("anilist: EN lines with volume_count >= 3: %d, without anilist_id: %d (%.1f %%)"
           % (tot, missing or 0, 100.0 * (missing or 0) / max(tot, 1)))
     print("anilist: report -> %s" % rep)
+    if not (a.only or a.limit):
+        kws = resolve_krcn(krcn_works(db, skip))
+        nk = write_krcn(db, kws, a.dry_run)
+        kpath = os.path.join(build, "krcn-anilist-bindings.tsv")
+        report_krcn(kws, kpath)
+        print("anilist: KR/CN works without an English comic line: %d considered, %d bound (%d line(s) written) -> %s"
+              % (len(kws), sum(1 for kw in kws if kw["pick"]), nk, kpath))
     if a.covers and not a.dry_run:
         cpath = os.path.join(build, "anilist-covers.json")
         have, fetched = covers(db, cpath)

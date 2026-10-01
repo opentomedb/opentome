@@ -164,6 +164,8 @@ jobs:
             build/krcn-review.tsv
             build/krcn-held.tsv
             build/krcn-new-works.tsv
+            build/krcn-duplicates.tsv
+            build/krcn-anilist-bindings.tsv
             build/krcn-report.json
             build/loc-report.json
             build/loc-netlog.tsv

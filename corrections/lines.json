@@ -426,5 +426,217 @@
     "source_url": "https://d-nb.info/1362776327",
     "reason": "Delusion by Hongjacga: C Lines (Carlsen manhwa imprint), 041 $h kor, colour drawings -- the Korean manhwa already in the catalogue (writer_only review, plan C5)",
     "checked": "2026-09-29"
+  },
+  {
+    "line_key": "dnb:1269196383",
+    "link_work": "w_19039254507d",
+    "source_url": "https://d-nb.info/1269196383",
+    "reason": "Athanasia – plötzlich Prinzessin is the German edition of Who Made Me a Princess (the miss docs/krcn-design.md §9 documents: syllable-split romanised original and creator)",
+    "checked": "2026-10-01"
+  },
+  {
+    "line_key": "dnb:976419955",
+    "cluster_with": "bnf:ark:/12148/cb40989382v",
+    "source_url": "https://catalogue.bnf.fr/ark:/12148/cb40989382v",
+    "checked": "2026-10-01",
+    "why": "one series: Bibi by Choi Kyung-Ah (BnF 200$f, DNB 245$c); DE Egmont 7 vols + FR Saphira 4 vols"
+  },
+  {
+    "line_key": "dnb:987483498",
+    "cluster_with": "bnf:ark:/12148/cb39237968c",
+    "source_url": "https://d-nb.info/987483498",
+    "checked": "2026-10-01",
+    "why": "one series: Demon Diary by Kara (art) and Lee Ji-Hyong / Lee Yun-Hee (story) -- DNB 245$c, BnF 200$f / 700 / 701; DE Tokyopop complete edition 2 vols + FR Saphira 7 vols"
+  },
+  {
+    "line_key": "dnb:98986796X",
+    "cluster_with": "bnf:ark:/12148/cb39999082c",
+    "source_url": "https://d-nb.info/98986796X",
+    "checked": "2026-10-01",
+    "why": "one series: Faeries' Landing by You Hyun (DNB 100/700, BnF 700); DE Tokyopop 10 vols + FR Tokebi 9 vols"
+  },
+  {
+    "line_key": "dnb:1395993513",
+    "cluster_with": "dnb:139599577X",
+    "source_url": "https://d-nb.info/1395993513",
+    "checked": "2026-10-01",
+    "why": "vol. 2 and vol. 1 of one papertoons series: consecutive ISBNs 978-3-98950-267-3 / -266-6, same creators Solar Shin, Tamseong, SSALBAP, KALTA; vol 2's 245 reads 'Rückkehr in meinen Körper 02', only its 490 says 'Rückkehr in meine Welt'"
+  },
+  {
+    "line_key": "dnb:1337575046",
+    "cluster_with": "bnf:ark:/12148/cb47437770j",
+    "source_url": "https://d-nb.info/1337575046",
+    "checked": "2026-10-01",
+    "why": "one series: Roses and Champagne by ZIG and Ttung-Gae (DNB 245$c, BnF 200$f; DNB 240 'Jang mi wa syam pe in'); DE papertoons 4 vols + FR Kbooks 6 vols"
+  },
+  {
+    "line_key": "dnb:982010842",
+    "cluster_with": "bnf:ark:/12148/cb39287485m",
+    "source_url": "https://d-nb.info/982010842",
+    "checked": "2026-10-01",
+    "why": "one series: Peppermint by Seo Eun-Jin (DNB 'Sŏ, Ŭn-chin', BnF 'Seo Eun-Jin'); DE Tokyopop 'Pfefferminz' 4 vols + FR Saphira 4 vols"
+  },
+  {
+    "line_key": "dnb:130038686X",
+    "cluster_with": "bnf:ark:/12148/cb47522988x",
+    "source_url": "https://d-nb.info/130038686X",
+    "checked": "2026-10-01",
+    "why": "one series: Cherry Blossoms After Winter by Bamwoo (DNB 240 'Gyeo ul ji na beoj kkoch'); DE papertoons 7 vols + FR Kbooks 3 vols"
+  },
+  {
+    "line_key": "dnb:134817269X",
+    "cluster_with": "bnf:ark:/12148/cb486539852",
+    "source_url": "https://d-nb.info/134817269X",
+    "checked": "2026-10-01",
+    "why": "one series: Eternal Covenant by Haejin (DNB 240 'Yeong won han gye yag'); DE papertoons 'Der Pakt der Ewigkeit' 8 vols + FR Kbooks 1 vol"
+  },
+  {
+    "line_key": "dnb:987266764",
+    "cluster_with": "bnf:ark:/12148/cb47428112r",
+    "source_url": "https://d-nb.info/987266764",
+    "checked": "2026-10-01",
+    "why": "one series: Chonchu / Chunchu by Kim Sung-Jae (story) and Kim Byung-Jin (art) -- DNB 245$c, BnF 200$f / 700 / 702; DE Tokyopop 15 vols + FR Kbooks 3 vols"
+  },
+  {
+    "line_key": "dnb:97027212X",
+    "link_work": "w_037c9326ccd6",
+    "source_url": "https://d-nb.info/97027212X",
+    "checked": "2026-10-01",
+    "reason": "The legend of the sword (Egmont, 18 vols) is the German edition of Chronicles of the Cursed Sword (Pa Gum Ki): Yeo Beop-Ryong and Park Hui-Jin in DNB 100/700 and on the work's LoC line; AniList 30167 on both",
+    "override_jp_guard": true,
+    "why": "Chronicles of the Cursed Sword is a Korean manhwa (Yeo Beop-Ryong / Park Hui-Jin); the work's JP-market line rl_80dc3b270fa2 (22 vols, 1999) stands for the Korean original, so the JP guard would send this correct link to review"
+  },
+  {
+    "line_key": "bnf:ark:/12148/cb39269582x",
+    "link_work": "w_004a43f2e56a",
+    "source_url": "https://catalogue.bnf.fr/ark:/12148/cb39269582x",
+    "checked": "2026-10-01",
+    "reason": "Demon king (Tokebi, 22 vols) is the French edition of King of Hell (Maje): Ra In-Soo and Kim Jae-Hwan in BnF 200$f, original title 'Maje'; AniList 30278 on both"
+  },
+  {
+    "line_key": "bnf:ark:/12148/cb42191275g",
+    "link_work": "w_004a43f2e56a",
+    "source_url": "https://catalogue.bnf.fr/ark:/12148/cb42191275g",
+    "checked": "2026-10-01",
+    "reason": "Demon king (Samji re-edition, 27 vols) is the French edition of King of Hell: Ra In-Soo and Kim Jae-Hwan in BnF 200$f, original title 'Maje', native 魔帝; AniList 30278 on both"
+  },
+  {
+    "line_key": "bnf:ark:/12148/cb42169699w",
+    "link_work": "w_cf2901132018",
+    "source_url": "https://catalogue.bnf.fr/ark:/12148/cb42169699w",
+    "checked": "2026-10-01",
+    "reason": "Hanami (Clair de lune, 4 vols) is the French edition of Hanami: International Love Story: story Plus, art Park Sung-Jae (BnF 700/701) = PLUS / Pak Sŏng-jae on LoC 2007299046 (Dark Horse, 4 vols); AniList 34082 on both"
+  },
+  {
+    "line_key": "dnb:1300390018",
+    "link_work": "w_4da3bff60abf",
+    "source_url": "https://d-nb.info/1300390018",
+    "checked": "2026-10-01",
+    "reason": "Aria & die goldene Sanduhr der Zeit (papertoons, 8 vols) is the German edition of The Villainess Turns the Hourglass (DNB 240 'Ag nyeo neun mo lae si gye leul doe dol lin da'): Sansobee and Antstudio in DNB and on the work's LoC / BnF lines; AniList 116382 on both"
+  },
+  {
+    "line_key": "bnf:ark:/12148/cb476812347",
+    "link_work": "w_d4d077aeaa62",
+    "source_url": "https://catalogue.bnf.fr/ark:/12148/cb476812347",
+    "checked": "2026-10-01",
+    "reason": "La nouvelle cheffe de clan (Kotoon, 2 vols) is the French edition of I Shall Master This Family: Kim Roah and Mon in BnF and on the work's DNB / LoC lines; AniList 130429 on both"
+  },
+  {
+    "line_key": "dnb:972154310",
+    "link_work": "w_4408e337f641",
+    "source_url": "https://d-nb.info/972154310",
+    "checked": "2026-10-01",
+    "reason": "Das Tarot-Café (Achterbahn, 5 vols) is the German edition of The Tarot Café by Park Sang-Sun (DNB 100 'Pak, Sang-son', 245$c 'Park Sang Sun'); AniList 30551 on the work's EN line"
+  },
+  {
+    "line_key": "dnb:1286128129",
+    "cluster_with": "dnb:1255815957",
+    "source_url": "https://d-nb.info/1286128129",
+    "checked": "2026-10-01",
+    "why": "The Beast Must Die: Sweet Bitter is the episode collection of The Beast Must Die (DNB 240 'Ya su neun jug eo ya han da e pi so deu jib sweet bitter'): same creator Lee Hyeon-sook, same publisher HAYABUSA"
+  },
+  {
+    "line_key": "dnb:129159356X",
+    "cluster_with": "bnf:ark:/12148/cb47600034s",
+    "source_url": "https://d-nb.info/129159356X",
+    "checked": "2026-10-01",
+    "why": "Who Can Define Popularity? Ever After (DNB 245$b 'Spin-Off') by Tak Bon is the spin-off of Who Can Define Popularity? = FR 'Stay popular !' (BnF 454 'Who can define popularity ?', Tak Bon)"
+  },
+  {
+    "line_key": "dnb:130037747X",
+    "cluster_with": "bnf:ark:/12148/cb47600034s",
+    "source_url": "https://d-nb.info/130037747X",
+    "checked": "2026-10-01",
+    "why": "the German (papertoons, 4 vols) and French (Kbooks 'Stay popular !', 3 vols; BnF 454 'Who can define popularity ?') editions of Who Can Define Popularity? by Tak Bon"
+  },
+  {
+    "line_key": "dnb:1350465763",
+    "cluster_with": "dnb:1348161841",
+    "source_url": "https://d-nb.info/1350465763",
+    "checked": "2026-10-01",
+    "why": "Sanctify - Lost Paradise: Godsstation (Zhixin Peng art, Fox^^ text), TOKYOPOP -- the creators and publisher of Sanctify (dnb:1348161841)"
+  },
+  {
+    "line_key": "dnb:1352521040",
+    "cluster_with": "bnf:ark:/12148/cb47560280k",
+    "source_url": "https://d-nb.info/1352521040",
+    "checked": "2026-10-01",
+    "why": "one series: How to Hide the Emperor's Child by Lee Yeonseon and Ssal -- DE Altraverse 'Astelle und der geheime Sohn des Kaisers' (DNB 240 'Hwang je ui a i leul sum gi neun bang beob') + FR Kbooks 'Comment cacher le fils de l'empereur' (BnF 454)"
+  },
+  {
+    "line_key": "dnb:1363916661",
+    "cluster_with": "dnb:1337575046",
+    "source_url": "https://d-nb.info/1363916661",
+    "checked": "2026-10-01",
+    "why": "Rosen & Champagner Side Story (papertoons, 3 vols; DNB 240 'Rosen und Champagner Side Story') by ZIG and Ttung Gae: the side story of Rosen & Champagner, same creators and publisher"
+  },
+  {
+    "line_key": "dnb:1363920340",
+    "cluster_with": "dnb:1343801141",
+    "source_url": "https://d-nb.info/1363920340",
+    "checked": "2026-10-01",
+    "why": "King's Maker: Triple Crown (DNB 240 'King seu me i keo: teu li peul keu la un') by Haga and Kang Ji-Young: the sequel of King's Maker, same creators and publisher (papertoons)"
+  },
+  {
+    "line_key": "dnb:1366900464",
+    "cluster_with": "dnb:1370329571",
+    "source_url": "https://d-nb.info/1366900464",
+    "checked": "2026-10-01",
+    "why": "Heaven Official's Blessing Animation Manhua vols 3-7 (TOKYOPOP; bilibili, BeDream; transl. Tina Bischof) continue TOKYOPOP's vols 1-2 (dnb:1370329571, illustrated by bilibili, same translator)"
+  },
+  {
+    "line_key": "dnb:1368765998",
+    "cluster_with": "dnb:1310923604",
+    "source_url": "https://d-nb.info/1368765998",
+    "checked": "2026-10-01",
+    "why": "Juvelian vol. 8 (regular and Collectors Edition, DNB 490 'Juvelian. Vater, ich will diese Ehe nicht ; 8') by Hong Heesu, Roal, Yuri continues Juvelian vols 1-7, same creators and publisher (Altraverse)"
+  },
+  {
+    "line_key": "dnb:1368929257",
+    "cluster_with": "dnb:134817370X",
+    "source_url": "https://d-nb.info/1368929257",
+    "checked": "2026-10-01",
+    "why": "Lady Eris - Nur der Tod kann mich erlösen vols 5-8 by Haegi and Your April (papertoons) continue Lady Eris vols 1-4, same creators and publisher"
+  },
+  {
+    "line_key": "dnb:1379671809",
+    "cluster_with": "dnb:1363918052",
+    "source_url": "https://d-nb.info/1379671809",
+    "checked": "2026-10-01",
+    "why": "How to win my Husband over - Der Weg zum Herzen meines Mannes vols 4-5 by Spice & Kitty and Siru (papertoons) continue How to Win My Husband Over vols 1-3"
+  },
+  {
+    "line_key": "dnb:1379672163",
+    "cluster_with": "dnb:1366412087",
+    "source_url": "https://d-nb.info/1379672163",
+    "checked": "2026-10-01",
+    "why": "The Broken Ring - Diese Ehe ist zum Scheitern verurteilt vols 4-7 by Cheong-gwa, Chokam and Chacha Kim (papertoons) continue The Broken Ring vols 1-3, same creators"
+  },
+  {
+    "line_key": "dnb:1379905052",
+    "cluster_with": "dnb:1339213753",
+    "source_url": "https://d-nb.info/1379905052",
+    "checked": "2026-10-01",
+    "why": "Payback. Ich will dich vernichten vols 4-6 (DNB 240 'Payback 04-06') by SAMK and Fujoking continue Payback vols 1-3, same creators and publisher (Altraverse)"
   }
 ]

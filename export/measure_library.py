@@ -267,11 +267,12 @@ def same_ids(catalogue):
 
 # KR/CN floors (docs/krcn-design.md §13). STAGED: what stage 3f built (krcn_line, held and review lines
 # included), from the spike at ~75-80%. EXPORTED: ~85% (rounded down) of the first real build's measurement,
-# 2026-09-29 (plan C4; docs/krcn-market.md "First build").
+# 2026-09-29 (plan C4; docs/krcn-market.md "First build"); DE / FR and the works floor raised to
+# round(0.85 x) of the lift build's measurement (docs/krcn-market.md "Lift build").
 KRCN_STAGED_FLOORS = {"DE": (300, 1250), "FR": (160, 1000), "EN": (65, 360)}      # (lines, volumes)
 KRCN_STAGED_COVERAGE = {"DE": {"deposited_year": 0.95, "pages": 0.90}, "FR": {"year": 0.95}}
-KRCN_EXPORTED_FLOORS = {"DE": (37, 241), "FR": (20, 126), "EN": (58, 336)}
-KRCN_MIN_WORKS = 45
+KRCN_EXPORTED_FLOORS = {"DE": (278, 1189), "FR": (150, 838), "EN": (58, 336)}
+KRCN_MIN_WORKS = 360
 
 
 def measure_krcn(art_path, catalogue, carry=None, check_ids=True):
@@ -321,7 +322,8 @@ def measure_krcn(art_path, catalogue, carry=None, check_ids=True):
     gate("library works exported", len(ids.get("works", [])) >= KRCN_MIN_WORKS,
          "%d (floor %d); created in this build %d" % (len(ids.get("works", [])), KRCN_MIN_WORKS, len(ids.get("created", []))))
     held = C.execute("SELECT COUNT(DISTINCT cluster), COUNT(*), COALESCE(SUM(n_volumes),0) FROM krcn_line WHERE role='held'").fetchone()
-    print("  info  held (R6, build/krcn-held.tsv): %d clusters, %d lines, %d volumes" % held)
+    print("  info  held (R6: novel-without-comic only since the lift; build/krcn-held.tsv): %d clusters, %d lines, "
+          "%d volumes" % held)
     if check_ids:
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         sys.path.insert(0, os.path.join(root, "tier0"))

@@ -150,6 +150,98 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("only valid on a link_work entry", out)
 
+    # -- cluster_with / review (the KR/CN lift, 2026-10-01): shapes that act before a library work is created
+    CW = {"line_key": "dnb:1393101849", "cluster_with": "bnf:ark:/12148/cb46807564x",
+          "source_url": "https://d-nb.info/1393101849", "checked": "2026-10-01",
+          "why": "the DE and FR editions of one series"}
+    RV = {"line_key": "dnb:1386543211", "review": "may be Who Made Me a Princess under another title",
+          "source_url": "https://d-nb.info/1386543211", "checked": "2026-10-01"}
+
+    def test_cluster_with_and_review_validate(self):
+        code, out = self.check(self.corrections(lines=[self.CW, self.RV]))
+        self.assertEqual(code, 0, out)
+        self.assertIn("1 cluster_with, 1 review", out)
+        d = self.corrections(lines=[self.CW, self.RV])
+        self.assertEqual(C.load_cluster_with(d), [("dnb:1393101849", "bnf:ark:/12148/cb46807564x")])
+        self.assertEqual(C.load_review_lines(d), {"dnb:1386543211": "may be Who Made Me a Princess under another title"})
+
+    def test_cluster_with_and_review_need_provenance(self):
+        for e, missing in ((dict(self.CW, source_url=""), "source_url"), (dict(self.CW, why=""), "why"),
+                           ({k: v for k, v in self.RV.items() if k != "checked"}, "checked"),
+                           (dict(self.RV, review=""), "review")):
+            with self.subTest(missing=missing):
+                code, out = self.check(self.corrections(lines=[e]))
+                self.assertEqual(code, 1)
+                self.assertIn("missing %s" % missing, out)
+                with self.assertRaises(ValueError):
+                    C.load_cluster_with(self.corrections(lines=[e]))
+
+    def test_cluster_with_and_review_keys_must_be_library_keys(self):
+        for e, k in ((dict(self.CW, cluster_with="rl_aaaaaaaaaaaa"), "cluster_with"),
+                     (dict(self.CW, line_key="dnb:1\n"), "line_key"), (dict(self.RV, line_key="foo:1"), "line_key")):
+            with self.subTest(e=e):
+                code, out = self.check(self.corrections(lines=[e]))
+                self.assertEqual(code, 1)
+                self.assertIn("%s %r is not a library line key" % (k, e[k]), out)
+                with self.assertRaises(ValueError):
+                    C.load_review_lines(self.corrections(lines=[e]))
+
+    def test_cluster_with_itself_fails(self):
+        code, out = self.check(self.corrections(lines=[dict(self.CW, cluster_with=self.CW["line_key"])]))
+        self.assertEqual(code, 1)
+        self.assertIn("names the line itself", out)
+
+    def test_review_reason_must_be_a_string(self):
+        for bad in (True, "   "):
+            with self.subTest(review=bad):
+                code, out = self.check(self.corrections(lines=[dict(self.RV, review=bad)]))
+                self.assertEqual(code, 1)
+                self.assertIn("review must be the reason", out)
+
+    def test_pre_creation_line_corrected_twice_fails(self):
+        for pair in ((self.CW, dict(self.RV, line_key=self.CW["line_key"])),
+                     (dict(self.LW, line_key=self.CW["line_key"]), self.CW), (self.RV, dict(self.RV))):
+            with self.subTest(pair=pair):
+                code, out = self.check(self.corrections(lines=list(pair)))
+                self.assertEqual(code, 1)
+                self.assertIn("corrected twice", out)
+                with self.assertRaises(ValueError):
+                    C.load_review_lines(self.corrections(lines=list(pair)))
+
+    def test_cluster_with_target_is_checked_and_a_union_may_share_a_key(self):
+        # F2 (2026-10-01): a cluster_with TARGET may not also be a link_work / review key; two cluster_with entries
+        # may share a key (a three-way union)
+        tgt = self.CW["cluster_with"]
+        for pair in ((self.CW, dict(self.RV, line_key=tgt)), (dict(self.LW, line_key=tgt), self.CW),
+                     (dict(self.RV, line_key=tgt), self.CW)):
+            with self.subTest(pair=pair):
+                code, out = self.check(self.corrections(lines=list(pair)))
+                self.assertEqual(code, 1)
+                self.assertIn("corrected twice", out)
+                with self.assertRaises(ValueError):
+                    C.load_cluster_with(self.corrections(lines=list(pair)))
+        third = dict(self.CW, cluster_with="dnb:1393101850")
+        d = self.corrections(lines=[self.CW, third])
+        code, out = self.check(d)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(C.load_cluster_with(d), [("dnb:1393101849", "bnf:ark:/12148/cb46807564x"),
+                                                  ("dnb:1393101849", "dnb:1393101850")])
+
+    def test_pre_creation_shapes_are_exclusive(self):
+        for e, extra in ((dict(self.CW, review="x"), "review"), (dict(self.RV, link_work="w_aaaaaaaaaaaa"), "link_work"),
+                         (dict(self.CW, medium="manhwa"), "medium"), (dict(self.RV, volumes=[]), "volumes")):
+            with self.subTest(extra=extra):
+                code, out = self.check(self.corrections(lines=[e]))
+                self.assertEqual(code, 1)
+                self.assertIn("also carries %s" % extra, out)
+                with self.assertRaises(ValueError):
+                    C.load_cluster_with(self.corrections(lines=[e]))
+
+    def test_line_corrections_skip_pre_creation_shapes(self):
+        # 5b: consumed by stage 3f, never an "unrecognised shape" error and never a database write
+        db = sqlite3.connect(":memory:")
+        self.assertEqual(C.apply_line_corrections(db, [self.CW, self.RV, self.LW], verbose=False), 0)
+
     # -- passes
     def test_all_empty_passes(self):
         code, out = self.check(self.corrections())
@@ -405,6 +497,30 @@ class CheckTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit):
             C.apply_anilist_pins(art, entries=[("rl_999999999999", 31741)])
         self.assertIn("STALE CORRECTION -- anilist.json[0]", out.getvalue())
+
+    def test_anilist_unbind_pin(self):
+        # the KR/CN lift (2026-10-01): null or "none" -- the line has no AniList entry; --anilist writes NULL
+        for unbind in (None, "none"):
+            with self.subTest(unbind=unbind):
+                d = self.anilist(dict(self.PIN, anilist_id=unbind))
+                code, out = self.check(d)
+                self.assertEqual(code, 0, out)
+                self.assertEqual(C.load_anilist_pins(d), [("rl_aaaaaaaaaaaa", None)])
+        art = sqlite3.connect(":memory:")
+        art.execute("CREATE TABLE series (gcd_series_id INTEGER PRIMARY KEY, tome_id TEXT, anilist_id INTEGER)")
+        art.execute("INSERT INTO series VALUES (1, 'rl_aaaaaaaaaaaa', 147044)")   # the resolver's wrong pick
+        with contextlib.redirect_stdout(io.StringIO()):
+            C.apply_anilist_pins(art, entries=[("rl_aaaaaaaaaaaa", None)])
+        self.assertEqual(art.execute("SELECT anilist_id FROM series").fetchone(), (None,))
+
+    def test_anilist_pin_without_anilist_id_key_fails(self):
+        pin = dict(self.PIN)
+        del pin["anilist_id"]
+        code, out = self.check(self.anilist(pin))
+        self.assertEqual(code, 1)
+        self.assertIn("missing anilist_id", out)
+        with self.assertRaises(ValueError):
+            C.load_anilist_pins(self.anilist(pin))
 
     def test_anilist_pins_load_validates(self):
         d = self.anilist(self.PIN)
