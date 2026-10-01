@@ -641,6 +641,168 @@ AUDITED = {
     466915185: 86399, 1373146654: 99022, 1528562038: 140475, 448083641: 63327, 1435036878: 30642,
     1867685718: 110218, 647305486: 98263, 1852909690: 117195, 471915974: 97337,
 }
+# ---- KR/CN works without an English comic line (the lift, 2026-10-01) ----------------------------------
+# Synthetic pages in a temporary cache (the resolver's own format): the country filter is AniList's, so offline
+# what is tested is that a krcn-<country> family never reads another family's page, and the rules on top of it.
+import json, tempfile  # noqa: E402
+eq("krcn query: countryOfOrigin, type MANGA, format_not NOVEL", all(x in R._search_query(1, False, "KR") for x in (
+    'countryOfOrigin: "KR"', "type: MANGA", "format_not: NOVEL")), True)
+eq("krcn query: no country filter on the existing families", "countryOfOrigin" in R._search_query(1, False), False)
+eq("krcn cache family: krcn-KR in the file name, a hash of its own",
+   (os.path.basename(R._cache_path("search", "krcn-KR", "Phantom")).startswith("search-krcn-KR-phantom-"),
+    R._cache_path("search", "krcn-KR", "Phantom") != R._cache_path("search", "manga", "Phantom")), (True, True))
+lune = {"id": 6001, "format": "MANGA", "volumes": 60, "popularity": 5, "status": "FINISHED",
+        "title": {"english": "Lune Rouge"}, "synonyms": []}
+eq("R4 still binds on the existing families (ceiling)", R.pick([lune], "Lune Rouge", 3)[:2], (lune, "ceiling"))
+eq("R4 off for the KR/CN works (fallback=False)", R.pick([lune], "Lune Rouge", 3, fallback=False)[0], None)
+sub = {"id": 6101, "format": "MANGA", "volumes": 3, "popularity": 5, "status": "FINISHED",
+       "title": {"english": "Lune Rouge: Le Retour"}, "synonyms": []}
+eq("R5 still binds on the existing families (substring)", R.pick([sub], "Lune Rouge", 3)[:2], (sub, "substring"))
+eq("R5 off for the KR/CN works", R.pick([sub], "Lune Rouge", 3, fallback=False)[0], None)
+art = {"id": 6201, "format": "MANGA", "volumes": None, "popularity": 5, "status": "FINISHED",
+       "title": {"english": "The Red Moon"}, "synonyms": []}
+eq("R7 stays on for the KR/CN works (article)", R.pick([art], "Red Moon", 4, fallback=False)[:2], (art, "article"))
+pre = {"id": 6301, "format": "MANGA", "volumes": 5, "popularity": 5, "status": "FINISHED",
+       "title": {"english": "Even Dogs Go: Life With My Hound"}, "synonyms": []}
+pln = {"name": "Even Dogs Go", "volume_count": 3, "orig_vc": None}
+eq("V1 still binds on the existing families (prefix)", R.post_walk_pick(pln, [("Even Dogs Go", [pre], True)])[1], "prefix")
+eq("V1 off for the KR/CN works (tiers=('amp',))", R.post_walk_pick(pln, [("Even Dogs Go", [pre], True)], tiers=("amp",)),
+   (None, None, None))
+r2 = {"id": 6501, "format": "MANGA", "volumes": 12, "popularity": 5, "status": "FINISHED",
+      "title": {"english": "Petite Lune"}, "synonyms": []}
+eq("R2 stays on the existing families: a 1-volume line binds a 12-volume serial on its own name",
+   R.pick([r2], "Petite Lune", 1)[:2], (r2, "primary"))
+eq("R2 off for the KR/CN works: the 4x ceiling holds for a 1-2 volume line on its own name too",
+   R.pick([r2], "Petite Lune", 1, fallback=False)[0], None)
+amp = {"id": 6401, "format": "MANGA", "volumes": 2, "popularity": 5, "status": "FINISHED",
+       "title": {"english": "Kiss and Fly"}, "synonyms": []}
+eq("V3 stays on for the KR/CN works (amp)", R.post_walk_pick({"name": "Kiss & Fly", "volume_count": 2, "orig_vc": None},
+                                                             [("Kiss & Fly", [amp], True)], tiers=("amp",))[:2], (amp, "amp"))
+
+kdb = sqlite3.connect(":memory:")
+kdb.executescript("""
+    CREATE TABLE series (gcd_series_id INTEGER PRIMARY KEY, name TEXT, language TEXT, medium TEXT, volume_count INTEGER,
+                         anilist_id INTEGER, orig_series_id INTEGER, is_main INTEGER, tome_work_id TEXT);
+    CREATE TABLE series_alias (gcd_series_id INTEGER, alias TEXT, language TEXT, kind TEXT);
+    CREATE TABLE meta (key TEXT, value TEXT);
+    INSERT INTO series VALUES (102, 'Königsklinge', 'de', 'manhwa', 2, NULL, NULL, 1, 'w_kr');
+    INSERT INTO series VALUES (101, 'Lame Royale', 'fr', 'manhwa', 3, NULL, NULL, 1, 'w_kr');
+    INSERT INTO series VALUES (103, 'Lame Royale (Intégrale)', 'fr', 'manhwa', 1, NULL, NULL, 0, 'w_kr');
+    INSERT INTO series_alias VALUES (101, '왕의 검', 'ko', 'official');
+    INSERT INTO series_alias VALUES (101, 'Wang-ui geom', 'ko', 'romanized');
+    INSERT INTO series VALUES (201, 'Phantom', 'fr', 'manhua', 2, NULL, NULL, 1, 'w_cn');
+    INSERT INTO series VALUES (301, 'Ciel d''Encre', 'fr', 'manhua', 4, NULL, NULL, 1, 'w_tw');
+    INSERT INTO series VALUES (401, 'Lune Rouge', 'fr', 'manhwa', 3, NULL, NULL, 1, 'w_r4');
+    INSERT INTO series VALUES (501, 'Semantic Error', 'en', 'novel', 1, NULL, NULL, 1, 'w_mix');
+    INSERT INTO series VALUES (502, 'Semantic Error', 'de', 'manhwa', 4, NULL, NULL, 1, 'w_mix');
+    INSERT INTO series VALUES (601, 'Has English', 'en', 'manhwa', 5, NULL, NULL, 1, 'w_en');
+    INSERT INTO series VALUES (602, 'A l''anglaise', 'fr', 'manhwa', 5, NULL, NULL, 1, 'w_en');
+    INSERT INTO series VALUES (701, 'Pas une oeuvre de bibliotheque', 'fr', 'manhwa', 5, NULL, NULL, 1, 'w_wiki');
+    INSERT INTO series VALUES (801, 'Petite Lune', 'fr', 'manhwa', 1, NULL, NULL, 1, 'w_r2');
+    ALTER TABLE series ADD COLUMN tome_id TEXT;
+    UPDATE series SET tome_id = 'rl_' || gcd_series_id;
+""")
+kdb.execute("INSERT INTO meta VALUES ('krcn_ids', ?)", (json.dumps(
+    {"works": ["w_kr", "w_cn", "w_tw", "w_r4", "w_mix", "w_en", "w_r2"],
+     "created": ["w_kr", "w_cn", "w_tw", "w_r4", "w_mix", "w_en", "w_r2"], "lines": {}}),))
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "tier2"))
+import corrections as CORR  # noqa: E402
+_pins = tempfile.mkdtemp(prefix="anilist-pins-")
+with open(os.path.join(_pins, "anilist.json"), "w", encoding="utf8") as f:
+    json.dump([{"line": "rl_102", "anilist_id": None, "source_url": "https://anilist.co/", "checked": "2026-10-01"},
+               {"line": "rl_101", "anilist_id": 5, "source_url": "https://anilist.co/manga/5", "checked": "2026-10-01"}], f)
+_saved_dir, CORR.DIR = CORR.DIR, _pins
+eq("unbind_pins: the lines anilist.json pins to null, nothing else", R.unbind_pins(), {"rl_102"})
+CORR.DIR = _saved_dir
+eq("unbind pin: an unbound English line is never searched again (load_lines skips it)",
+   [ln["id"] for ln in R.load_lines(kdb, skip={"rl_601"})], [501])
+eq("unbind pin: an unbound main line leaves its KR/CN work's search set (the other line stays)",
+   [ln["id"] for ln in next(kw for kw in R.krcn_works(kdb, {"rl_102"}) if kw["work"] == "w_kr")["lines"]], [101])
+kws = R.krcn_works(kdb)
+eq("krcn_works: library works with no English comic line, one entry per work (c0292-shaped w_mix: its DE comic only)",
+   [(kw["work"], [ln["id"] for ln in kw["lines"]], kw["countries"]) for kw in kws],
+   [("w_cn", [201], ("CN", "TW")), ("w_kr", [101, 102], ("KR",)), ("w_mix", [502], ("KR",)), ("w_r2", [801], ("KR",)),
+    ("w_r4", [401], ("KR",)), ("w_tw", [301], ("CN", "TW"))])
+kr = next(kw for kw in kws if kw["work"] == "w_kr")
+eq("krcn terms: FR name, its de-slug, DE name, its de-slug, native, romanized -- each against its own line's count, "
+   "native / romanized against the anchor's, never as the own name",
+   kr["terms"], [("Lame Royale", 3, True), ("lame royale", 3, True), ("Konigsklinge", 2, True), ("konigsklinge", 2, True),
+                 ("왕의 검", 3, False), ("Wang-ui geom", 3, False)])
+_saved_cache, R.CACHE = R.CACHE, tempfile.mkdtemp(prefix="anilist-krcn-")
+try:
+    hit = {"id": 5001, "format": "MANGA", "volumes": None, "popularity": 5, "status": "RELEASING",
+           "title": {"romaji": "Wang-ui Geom", "native": "왕의 검"}, "synonyms": []}
+    later = {"id": 5002, "format": "MANGA", "volumes": None, "popularity": 99, "status": "RELEASING",
+             "title": {"romaji": "Wang-ui geom"}, "synonyms": []}
+    tw = {"id": 7001, "format": "MANGA", "volumes": 4, "popularity": 5, "status": "FINISHED",
+          "title": {"romaji": "Mo Tian"}, "synonyms": ["Ciel d'Encre"]}
+    jp = {"id": 9001, "format": "MANGA", "volumes": 2, "popularity": 50, "status": "FINISHED",
+          "title": {"english": "Phantom"}, "synonyms": []}
+    PAGES = {("KR", "왕의 검"): [hit], ("KR", "Wang-ui geom"): [later], ("TW", "Ciel d'Encre"): [tw], ("KR", "Lune Rouge"): [lune],
+             ("KR", "Petite Lune"): [r2]}
+    for kw in kws:
+        for c in kw["countries"]:
+            for t, _, _ in kw["terms"]:
+                R._cache_put(R._cache_path("search", "krcn-" + c, t), PAGES.get((c, t), []))
+    R._cache_put(R._cache_path("search", "manga", "Phantom"), [jp])     # the Japanese 'Phantom' an English line would bind
+    R.resolve_krcn(kws)
+    got = {kw["work"]: (kw["pick"] or {}).get("id") for kw in kws}
+    eq("resolve_krcn: the first term that binds wins (the native title, 5001 -- not the romanized term's 5002)",
+       (got["w_kr"], kr["via"], kr["term"], kr["country"]), (5001, "primary", "왕의 검", "KR"))
+    eq("resolve_krcn: a generic name (Phantom) reads only its krcn-CN / krcn-TW pages -> unbound, never the JP 9001",
+       got["w_cn"], None)
+    eq("resolve_krcn: a manhua found on the TW family after CN found nothing", (got["w_tw"], next(
+        kw for kw in kws if kw["work"] == "w_tw")["country"]), (7001, "TW"))
+    eq("resolve_krcn: an equal title 20x the line's volumes stays unbound (R4 off)", got["w_r4"], None)
+    eq("resolve_krcn: a 1-volume line and an equal 12-volume title stay unbound (R2 off)", got["w_r2"], None)
+    eq("write_krcn: the id goes to every main comic line of the work (FR and DE), never the non-main line",
+       (R.write_krcn(kdb, kws, False), sorted(kdb.execute("SELECT gcd_series_id, anilist_id FROM series WHERE anilist_id IS NOT NULL"))),
+       (3, [(101, 5001), (102, 5001), (301, 7001)]))
+    eq("write_krcn: a line that has an id keeps it (writes only NULL ids)", R.write_krcn(kdb, kws, False), 0)
+    _rp = os.path.join(R.CACHE, "krcn-anilist-bindings.tsv")
+    R.report_krcn(kws, _rp)
+    eq("report_krcn: one row per binding (work, lines, id, title, country, via, term)",
+       open(_rp, encoding="utf8").read().splitlines(),
+       ["\t".join(R.KRCN_BINDINGS_HEADER),
+        "w_kr\tLame Royale | Königsklinge\t5001\tWang-ui Geom / 왕의 검\tKR\tprimary\t왕의 검",
+        "w_tw\tCiel d'Encre\t7001\tMo Tian\tTW\tsynonym\tCiel d'Encre"])
+    kdb.execute("UPDATE series SET anilist_id=5001 WHERE gcd_series_id=601")      # w_en's English line: the same id
+    rows = R.krcn_collisions(kdb)
+    eq("krcn_collisions: a created work whose AniList id is on another work's line (one row per pair)",
+       rows, [["anilist", "w_en", "Has English", "w_kr", "Lame Royale", "", "", "", "5001"]])
+    _dp = os.path.join(R.CACHE, "krcn-duplicates.tsv")
+    with open(_dp, "w", encoding="utf8") as f:
+        f.write("\t".join(R.DUP_HEADER) + "\ntitle\tw_a\tA\tw_b\tB\tka\tkb\t0.950\t\nanilist\tw_old\tO\tw_p\tP\t\t\t\t1\n")
+    R.write_krcn_duplicates(_dp, rows)
+    eq("write_krcn_duplicates: the title rows stay, the anilist rows are replaced",
+       [r.split("\t")[:2] for r in open(_dp, encoding="utf8").read().splitlines()],
+       [["kind", "work"], ["title", "w_a"], ["anilist", "w_en"]])
+finally:
+    R.CACHE = _saved_cache
+
+# ---- F2 (2026-10-01): V3 ranks each page against the volume count of the line its term came from ----------------
+_saved_cache, R.CACHE = R.CACHE, tempfile.mkdtemp(prefix="anilist-krcn-v3-")
+try:
+    big = {"id": 8101, "format": "MANGA", "volumes": 12, "popularity": 5, "status": "FINISHED",
+           "title": {"english": "Kiss and Fly"}, "synonyms": []}
+    small = dict(big, id=8102, volumes=2)
+    for t, page in (("Lame Royale", []), ("Kiss & Fly", [big])):
+        R._cache_put(R._cache_path("search", "krcn-KR", t), page)
+    mk = lambda: {"work": "w_v3", "countries": ("KR",), "pick": None,
+                  "lines": [{"name": "Lame Royale", "volume_count": 10}, {"name": "Kiss & Fly", "volume_count": 2}],
+                  "terms": [("Lame Royale", 10, True), ("Kiss & Fly", 2, True)]}
+    got = R.resolve_krcn([mk()])[0]
+    eq("V3 for a KR/CN work: the DE line's 2-volume term does not bind a 12-volume entry (the anchor's 10 would let it)",
+       got["pick"], None)
+    R._cache_put(R._cache_path("search", "krcn-KR", "Kiss & Fly"), [small])
+    got = R.resolve_krcn([mk()])[0]
+    eq("V3 for a KR/CN work: a 2-volume entry for the 2-volume line's term binds", (got["pick"] or {}).get("id"), 8102)
+finally:
+    R.CACHE = _saved_cache
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "tier0"))
+import build_krcn as BK_  # noqa: E402
+eq("DUP_HEADER is the same list as build_krcn.DUP_HEADER", R.DUP_HEADER, BK_.DUP_HEADER)
+
 ART = os.environ.get("OPENTOME_ART", os.path.join(os.path.dirname(HERE), "build", "manga-metadata.sqlite"))
 if os.path.exists(ART):
     db = sqlite3.connect("file:%s?mode=ro" % ART, uri=True)

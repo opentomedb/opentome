@@ -498,6 +498,16 @@ def run_ids(path, carry):
         format(len(de_ids), ","), format(sum(1 for t in de_ids if t in red), ",")))
 
 
+# a projected volume that also has a release_date claim: projected outranked a real date. A claim dated after today
+# (at its own precision) is a plan too -- Open Library imports retailer pre-order dates -- and does not count; a bare
+# year of THIS year counts only once the volume's planned month is past (F5 / F6, 2026-10-01; tier2/resolve.py dated_by_now)
+PROJECTED_OUTRANKED = """SELECT COUNT(*) FROM volume v WHERE v.release_date_type='projected' AND EXISTS
+    (SELECT 1 FROM claim x WHERE x.entity='volume' AND x.entity_id=v.id AND x.field='release_date'
+     AND CASE WHEN LENGTH(x.value) = 4
+              THEN x.value < STRFTIME('%Y', 'now') OR (x.value = STRFTIME('%Y', 'now') AND v.release_date <= STRFTIME('%Y-%m', 'now'))
+              ELSE x.value <= SUBSTR(DATE('now'), 1, LENGTH(x.value)) END)"""
+
+
 def run_dnb(path, catalogue):
     """The German (DNB) rules, docs/dnb-design.md "Gates". Most need the pipeline catalogue:
     the artifact carries no per-claim provenance."""
@@ -545,8 +555,7 @@ def run_dnb(path, catalogue):
          c("SELECT COUNT(*) FROM claim WHERE source='dnb' AND field='projected_date' "
            "AND value NOT GLOB '[12][0-9][0-9][0-9]-[01][0-9]'"))
     rule("projected volumes that also have a release_date claim (projected outranked a real date)",
-         c("""SELECT COUNT(*) FROM volume v WHERE v.release_date_type='projected' AND EXISTS
-              (SELECT 1 FROM claim x WHERE x.entity='volume' AND x.entity_id=v.id AND x.field='release_date')"""))
+         c(PROJECTED_OUTRANKED))
     rule("projected dates more than 12 months past (a plan that never arrived is dropped)",
          c("""SELECT COUNT(*) FROM volume WHERE release_date_type='projected'
               AND release_date < strftime('%Y-%m', 'now', '-12 months')"""))
@@ -760,6 +769,111 @@ MAX_NEW_LIBRARY_WORKS = 20       # a refresh build (docs/krcn-design.md §9 floo
 KRCN_FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 COMIC = ("manga", "manhwa", "manhua", "webtoon")
 SHIPS = ("linked", "merged", "sibling", "adopting", "kept")
+# The KR/CN lift (2026-10-01): the published hold file of opentome-2026-09-29 plus a dropped section. Its rules
+# run only while the file exists; the commit after the lift's publish deletes it (the lifted works are carried
+# from then on, and the carried-id gates protect them).
+LIFT_INPUT = "krcn_lift_input.tsv"
+LIFT_OK = ("merged", "sibling", "adopting", "linked", "kept", "new_work", "review", "absorbed")
+# Verdicts on build/krcn-duplicates.tsv (permanent: every library work a build creates)
+DUP_VERDICTS = "krcn_lift_duplicates_reviewed.tsv"
+DUP_GATE = 0.9
+
+
+def read_lift_input(path):
+    """export/fixtures/krcn_lift_input.tsv -> (every line key of the held clusters, {dropped key: reason}).
+    '#' lines are comments, except '# dropped', which starts the dropped section; each section is a header
+    row, then tab-separated rows. The held section is the published krcn-held.tsv (its `lines` column)."""
+    keys, dropped, section, header = set(), {}, "held", None
+    with open(path, encoding="utf8") as f:
+        for row in f:
+            row = row.rstrip("\n")
+            if row.strip() == "# dropped":
+                section, header = "dropped", None
+                continue
+            if not row.strip() or row.startswith("#"):
+                continue
+            cols = row.split("\t")
+            if header is None:
+                header = cols
+                continue
+            rec = dict(zip(header, cols))
+            if section == "held":
+                keys |= set(rec["lines"].split())
+            else:
+                dropped[rec["key"]] = rec["reason"]
+    return keys, dropped
+
+
+def read_dup_verdicts(path):
+    """export/fixtures/krcn_lift_duplicates_reviewed.tsv -> ({frozenset({work, other}): why}, [bad rows]). '#'
+    lines are comments, then a 'work other verdict why' header; a row counts only with verdict
+    'not-a-duplicate', both ids and a why -- any other row is bad. No file: no verdicts."""
+    good, bad, header = {}, [], None
+    if not os.path.exists(path):
+        return good, bad
+    with open(path, encoding="utf8") as f:
+        for row in f:
+            row = row.rstrip("\n")
+            if not row.strip() or row.startswith("#"):
+                continue
+            cols = row.split("\t")
+            if header is None:
+                header = cols
+                continue
+            rec = dict(zip(header, cols))
+            if rec.get("verdict") == "not-a-duplicate" and rec.get("work") and rec.get("other") and (rec.get("why") or "").strip():
+                good[frozenset((rec["work"], rec["other"]))] = rec["why"]
+            else:
+                bad.append(row)
+    return good, bad
+
+
+def unsettled_duplicates(path, verdicts):
+    """build/krcn-duplicates.tsv rows that need a verdict and have none: a title row at ratio >= DUP_GATE and
+    every AniList-id row. -> [[kind, work, other, ratio or AniList id]]"""
+    out = []
+    with open(path, encoding="utf8") as f:
+        header = f.readline().rstrip("\n").split("\t")
+        for row in f:
+            r = dict(zip(header, row.rstrip("\n").split("\t")))
+            need = r["kind"] == "anilist" or (r["kind"] == "title" and float(r["ratio"]) >= DUP_GATE)
+            if need and frozenset((r["work"], r["other"])) not in verdicts:
+                out.append([r["kind"], r["work"], r["other"], r["ratio"] or r["anilist_id"]])
+    return out
+
+
+def carried_title_changes(cat, C, carried_ids):
+    """Every carried library work keeps its title (the lift, 2026-10-01). The artifact carries no work
+    title, so the carry's is read off the work's anchor line: the krcn_line whose natural key the work id
+    hashes (_id('w_', 'krcn', key) IS the id), under the id it shipped as (krcn_line.rl_id, carried=1),
+    named in the carry's series. -> (changed, frozen): [[work, title in the carry, title now]] each. `changed`
+    (blocking): the work still has an English comic line in this build. `frozen` (info): it has none any
+    more, so decide's frozen rule titles it from cl[0] -- the frozen rule of the first KR/CN round, not this
+    round's."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "schema"))
+    from load import _id
+    works, changed, frozen = set(carried_ids.get("works", [])), [], []
+    for key, rid in cat.execute("SELECT key, rl_id FROM krcn_line WHERE carried=1 AND rl_id IS NOT NULL ORDER BY key"):
+        w = _id("w_", "krcn", key)
+        if w not in works:
+            continue
+        was = C.execute("SELECT name FROM series WHERE tome_id=?", (rid,)).fetchone()
+        now = cat.execute("SELECT primary_title FROM work WHERE id=?", (w,)).fetchone()
+        if was and now and was[0] != now[0]:
+            en = cat.execute("SELECT COUNT(*) FROM release_line WHERE work_id=? AND market='EN' AND medium IN (%s)"
+                             % ",".join("?" * len(COMIC)), (w,) + COMIC).fetchone()[0]
+            (changed if en else frozen).append([w, was[0], now[0]])
+    return changed, frozen
+
+
+def carried_works_without_anchor(cat, carried_ids):
+    """Carried library works (carried_ids['works']) with no krcn_line whose natural key hashes to the work id: the
+    title check above cannot read their anchor (Wikipedia works a line adopted, ids of the first round's frozen
+    rule). -> sorted work ids, reported as info (F2, 2026-10-01)."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "schema"))
+    from load import _id
+    hashed = {_id("w_", "krcn", k) for (k,) in cat.execute("SELECT key FROM krcn_line")}
+    return sorted(set(carried_ids.get("works", [])) - hashed)
 
 
 def _meta(d, k):
@@ -820,9 +934,9 @@ def run_krcn(path, catalogue, carry=None):
         "SELECT COUNT(*) FROM release_line WHERE work_id=? AND medium IN (%s)" % ",".join("?" * len(COMIC)), w, *COMIC)))
     rule("library-created works with a Japanese line", sum(1 for w in created if c(
         "SELECT COUNT(*) FROM release_line WHERE work_id=? AND market='JP' AND medium NOT IN ('manhwa','manhua','webtoon')", w)))
-    rule("R6: library works created in this build exported without an English line", sum(
-        1 for w in created if not g("SELECT COUNT(*) FROM series WHERE tome_work_id=? AND language='en'", w)))
     art_ids = {r[0] for r in db.execute("SELECT tome_id FROM series")}
+    lift_path = os.path.join(KRCN_FIXTURES, LIFT_INPUT)
+    lift = read_lift_input(lift_path) if os.path.exists(lift_path) else None
     if carried_ids is not None:
         try:
             red = {r[0] for r in db.execute("SELECT old_tome_id FROM id_redirect")}
@@ -831,8 +945,23 @@ def run_krcn(path, catalogue, carry=None):
         gone = sorted(t for t in carried_ids.get("lines", {}) if t not in art_ids and t not in red)
         rule("published KR/CN lines absent from the artifact (never demoted to held)", len(gone), str(gone[:5]))
         new = sorted(set(created) - set(carried_ids.get("works", [])))
+        if lift is not None:            # the lift build: a work keyed on a held line is not a flood (its anchor is one)
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "schema"))
+            from load import _id
+            lifted = {_id("w_", "krcn", k) for k in lift[0]}
+            new = [w for w in new if w not in lifted]
         rule("more than %d new library works in a refresh build (flood gate)" % MAX_NEW_LIBRARY_WORKS,
              0 if len(new) <= MAX_NEW_LIBRARY_WORKS else len(new), str(new[:5]))
+        bad, frozen_titles = carried_title_changes(cat, C, carried_ids)
+        rule("carried library works with an English comic line whose title changed against the carry", len(bad),
+             str(bad[:4]))
+        no_anchor = carried_works_without_anchor(cat, carried_ids)
+        if no_anchor:
+            print("  info  carried library works with no krcn_line that hashes to their id (title not checked): %d %s"
+                  % (len(no_anchor), no_anchor[:10]))
+        if frozen_titles:
+            print("  info  carried library works without an English comic line any more, retitled by the frozen rule "
+                  "(cl[0]; the first KR/CN round's rule, not this round's): %d %s" % (len(frozen_titles), frozen_titles))
     # never demoted (final review I2): a line whose id came from the carry does not export as held / review /
     # unlinked -- 7b would only retire it to its work's main line. Absorbed and merged lines stay 7b's. The fix
     # for a real demotion is a link_work correction.
@@ -867,9 +996,35 @@ def run_krcn(path, catalogue, carry=None):
         weak = [t for t in gate["taken_weak"] if (t[1], t[0]) not in ok]
         rule("step-2 takes of a carried id without a strict ISBN majority (taken_weak), not confirmed in "
              "krcn_linker_labels.json taken_ok", len(weak), str(weak[:5]))
+        if lift is not None:            # F4 (2026-10-01): an entry 3f could not act on blocks the lift build only
+            rule("lines.json cluster_with / review entries stage 3f skipped (gate list corrections_skipped)",
+                 len(gate.get("corrections_skipped", [])), str(gate.get("corrections_skipped", [])[:5]))
         for k in sorted(gate):
-            if gate[k] and k != "taken_weak":
+            if gate[k] and k != "taken_weak" and not (k == "corrections_skipped" and lift is not None):
                 print("  info  gate list %s (review, not failed): %d %s" % (k, len(gate[k]), json.dumps(gate[k][:3])))
+    if lift is not None:
+        keys, dropped = lift
+        role = dict(cat.execute("SELECT key, role FROM krcn_line"))
+        deferred = set((gate or {}).get("deferred_to_jp_round", []))
+        lost = sorted((k, role.get(k)) for k in keys if role.get(k) not in LIFT_OK and k not in deferred and k not in dropped)
+        rule("lift input: held lines not exported, in review, absorbed, deferred to the JP round or dropped (named)",
+             len(lost), str(lost[:5]))
+        work_of = dict(cat.execute("SELECT key, work FROM krcn_line WHERE exported=1"))
+        made = {work_of[k] for k in keys if k in work_of} & set(created)
+        print("  info  lift input: %d held lines, %d dropped; %d works created from them" % (len(keys), len(dropped), len(made)))
+    dup_path = os.path.join(os.path.dirname(os.path.abspath(catalogue)), "krcn-duplicates.tsv")
+    if not os.path.exists(dup_path):
+        rule("build/krcn-duplicates.tsv missing (stage 3f writes it, 8a adds the AniList rows)", 1)
+    else:
+        verdicts, bad = read_dup_verdicts(os.path.join(KRCN_FIXTURES, DUP_VERDICTS))
+        rule("rows of %s that are not a not-a-duplicate verdict with a why" % DUP_VERDICTS, len(bad), str(bad[:3]))
+        open_ = unsettled_duplicates(dup_path, verdicts)
+        if lift is not None:            # F2 (2026-10-01): blocking in the lift build only; a weekly build reports
+            rule("KR/CN duplicate candidates (title ratio >= %.1f, every AniList-id collision) without a verdict in %s"
+                 % (DUP_GATE, DUP_VERDICTS), len(open_), str(open_[:5]))
+        elif open_:
+            print("  info  KR/CN duplicate candidates without a verdict in %s (blocking only while %s exists): %d %s"
+                  % (DUP_VERDICTS, LIFT_INPUT, len(open_), open_))
     if C is not None:
         bad = carried_isbn_moved(db, cat, C, ids, carried_ids)
         rule("carried KR/CN-scope volumes whose carried ISBN now sits on another present volume", len(bad), str(bad[:3]))

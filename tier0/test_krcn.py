@@ -2193,7 +2193,7 @@ ls = [mkline("dnb:1", "DE", "Solo Leveling"),                                 # 
       mkline("dnb:2", "DE", "Ouroboros"),                                     # JP-only work: guard
       mkline("loc:2023000001", "EN", "Men of the Harem"),                      # EN + DE: a new work
       mkline("dnb:3", "DE", "Men of the Harem"),
-      mkline("dnb:4", "DE", "Gänseblümchenwiese"),                             # DE only: held (R6)
+      mkline("dnb:4", "DE", "Gänseblümchenwiese"),                             # DE only: a new work (the lift)
       mkline("dnb:5", "DE", "Raeliana"),                                      # containment -> review
       mkline("loc:2024000002", "EN", "The Star Seekers", explicit=False),     # Ize-only: no explicit origin
       mkline("loc:2024000003", "EN", "Finding Camellia", medium=None, ize=True),  # Ize medium unresolved
@@ -2207,22 +2207,24 @@ w_new = _id("w_", "krcn", "loc:2023000001")
 eq("EN + DE cluster: a new work keyed krcn|<EN key>; the DE line ships in it",
    (role["loc:2023000001"][:2], role["dnb:3"][:2], plan["works"][w_new]["created"]),
    (("new_work", w_new), ("new_work", w_new), True))
-# deviation (R6 hold file lists every held line): the novel held under a work with no comic line has its own entry
-eq("DE-only cluster: held, no work, in plan['held'] (R6); the held novel has an entry too",
-   (role["dnb:4"], [h["lines"] for h in plan["held"]]), (("held", None, "no-english-line"), [["dnb:4"], ["dnb:6"]]))
+# the lift (2026-10-01): a DE-only comic cluster is a work anchored on its DE line; only the novel is held
+w_de = _id("w_", "krcn", "dnb:4")
+eq("DE-only cluster: a new work keyed krcn|<its DE key>, titled with the DE name; only the novel is held",
+   (role["dnb:4"], plan["works"][w_de]["anchor"], plan["works"][w_de]["title"], [h["lines"] for h in plan["held"]]),
+   (("new_work", w_de, None), "dnb:4", "Gänseblümchenwiese", [["dnb:6"]]))
 eq("containment guard: 'Raeliana' is inside the existing work's title -> review", role["dnb:5"][::2], ("review", "containment"))
 eq("no explicit origin (imprint only): unlinked, not held (P16)", role["loc:2024000002"][::2], ("unlinked", "no-explicit-origin"))
 eq("Ize medium unresolved -> review", role["loc:2024000003"][::2], ("review", "ize-medium"))
 eq("a novel line under a work without a comic line -> held", role["dnb:6"][::2], ("held", "novel-without-comic"))
 eq("link_work correction wins (R2)", role["bnf:ark:/12148/cb10000001x"][:2], ("linked", "w_kr"))
 eq("exported flags follow the roles", sorted(l["key"] for l in ls if l["exported"]),
-   ["bnf:ark:/12148/cb10000001x", "dnb:1", "dnb:3", "loc:2023000001"])
+   ["bnf:ark:/12148/cb10000001x", "dnb:1", "dnb:3", "dnb:4", "loc:2023000001"])
 eq("created works join the KR/CN set", w_new in idx.krcn_works, True)
 eq("R6: no held line is exported or has a work; no held line is in a work of the plan",
    ([(l["exported"], l["work"]) for l in ls if l["role"] == "held"],
-    sorted(k for e in plan["works"].values() for k in e["lines"] if role[k][0] == "held")), ([(False, None)] * 2, []))
-eq("R6: a held entry names its member keys and reason (the hold file)",
-   {k: plan["held"][0][k] for k in ("reason", "markets", "members")}, {"reason": "no-english-line", "markets": ["DE"],
+    sorted(k for e in plan["works"].values() for k in e["lines"] if role[k][0] == "held")), ([(False, None)], []))
+eq("R6: a held entry names its member keys and reason (the hold file; novel-without-comic is the one reason left)",
+   {k: plan["held"][0][k] for k in ("reason", "markets", "members")}, {"reason": "novel-without-comic", "markets": ["DE"],
                                                                         "members": []})
 eq("review keys", sorted(plan["review"]), ["dnb:2", "dnb:5", "loc:2024000003"])
 
@@ -2382,8 +2384,8 @@ eq("fixture check: a Hangul-only creator name gives no author evidence -> title-
    got["dnb:51"], ("linked", "medium", "title", "w_orv"))
 eq("fixture check: a romanisation variant of the creator (Sing Syong vs Sing Shong) is a collision -> low, review",
    got["dnb:52"], ("review", "low", "title, authors differ", None))
-eq("fixture check: an MR original title (Chŏnjijŏk tokcha sijŏm) keys nothing against RR/English titles -> linker none (DE only: held)",
-   got["dnb:53"][:2], ("held", "none"))
+eq("fixture check: an MR original title (Chŏnjijŏk tokcha sijŏm) keys nothing against RR/English titles -> linker none (DE only: a new work)",
+   got["dnb:53"][:2], ("new_work", "none"))
 
 
 # ---- Task 12 controller rulings (pre-review): the anchor is an English COMIC line; LoC imprint series ----------
@@ -2393,10 +2395,11 @@ ls = [mkline("loc:2025033006", "EN", "Semantic error", medium="novel", comic=Fal
       mkline("dnb:1362777552", "DE", "Semantic error", medium="novel", comic=False),
       mkline("dnb:1369956126", "DE", "Semantic error")]                                   # the DE comic
 plan = BK.decide(ls, idx6, None)
-eq("Semantic Error: the only English line is a novel -> no new work, held 'no-english-comic-line' (R6 entry)",
-   ([(l["role"], l["reason"], l["work"]) for l in ls], plan["works"], [(h["reason"], h["lines"]) for h in plan["held"]]),
-   ([("held", "no-english-comic-line", None)] * 3, {},
-    [("no-english-comic-line", ["dnb:1362777552", "dnb:1369956126", "loc:2025033006"])]))
+w_se = _id("w_", "krcn", "dnb:1369956126")
+eq("Semantic Error (c0292): an EN novel and a DE comic -> a work anchored on the DE COMIC line (the novel has the lower "
+   "key); the EN novel ships in it as new_work; nothing held",
+   ([(l["role"], l["work"]) for l in ls], plan["works"][w_se]["anchor"], plan["held"]),
+   ([("new_work", w_se)] * 3, "dnb:1369956126", []))
 ls = [mkline("loc:2025000001", "EN", "Dark moon", medium="novel", comic=False),
       mkline("loc:2025000002", "EN", "Dark moon")]
 plan = BK.decide(ls, idx6, None)
@@ -2756,9 +2759,9 @@ try:
     BK.run(cat, None)
     db = sqlite3.connect(cat)
     roles = dict(db.execute("SELECT key, role FROM krcn_line"))
-    eq("roles: LoC Solo Leveling merged into the EN line; Mystery a new work; Raeliana review; The Gamer held",
+    eq("roles: LoC Solo Leveling merged into the EN line; Mystery a new work; Raeliana review; The Gamer a new work (the lift)",
        (roles["loc:2020950228"], roles["loc:2025007302"], roles["dnb:1390000000"], roles["bnf:ark:/12148/cb09999999z"]),
-       ("merged", "new_work", "review", "held"))
+       ("merged", "new_work", "review", "new_work"))
     w_m, r_m = _id("w_", "krcn", "loc:2025007302"), _id("rl_", "loc:2025007302")
     eq("the new work and its line", (db.execute("SELECT primary_title FROM work WHERE id=?", (w_m,)).fetchone(),
                                      db.execute("SELECT work_id, medium, market FROM release_line WHERE id=?", (r_m,)).fetchone()),
@@ -2767,10 +2770,11 @@ try:
        (db.execute("SELECT language, kind FROM work_title WHERE work_id=? AND title='Mystery Science Detectives'",
                    (w_m,)).fetchall(), db.execute("SELECT status FROM work WHERE id=?", (w_m,)).fetchone()[0]),
        ([("en", "official")], None))
-    eq("R6: a held line has no id anywhere",
-       (db.execute("SELECT rl_id FROM krcn_line WHERE role='held'").fetchall(),
-        db.execute("SELECT COUNT(*) FROM release_line WHERE id=?", (_id("rl_", "bnf:ark:/12148/cb09999999z"),)).fetchone()[0]),
-       ([(None,)], 0))
+    w_g, r_g = _id("w_", "krcn", "bnf:ark:/12148/cb09999999z"), _id("rl_", "bnf:ark:/12148/cb09999999z")
+    eq("the lift: The Gamer (FR only) is a work keyed krcn|<its BnF key>, its line under it; no held line",
+       (db.execute("SELECT work_id, market FROM release_line WHERE id=?", (r_g,)).fetchone(),
+        db.execute("SELECT COUNT(*) FROM krcn_line WHERE role='held'").fetchone()[0]),
+       ((w_g, "FR"), 0))
     eq("R6: review / held rows hold no work either",
        db.execute("SELECT COUNT(*) FROM krcn_line WHERE exported=0 AND (rl_id IS NOT NULL OR work IS NOT NULL)").fetchone()[0], 0)
     eq("ruling: a merged row's rl_id is the line it merged into (3e dnb_line convention), carried 0",
@@ -2797,16 +2801,14 @@ try:
         """SELECT COUNT(*) FROM loc_member m JOIN krcn_line l ON l.key=m.line_key
            WHERE l.exported=1 AND (m.volume_id IS NULL OR m.fate IS NULL)""").fetchone()[0], 0)
     ids = json.loads(db.execute("SELECT value FROM meta WHERE key='krcn:ids'").fetchone()[0])
-    eq("meta krcn:ids: the created work and the library-born line", (ids["created"], ids["lines"]), ([w_m], {r_m: "loc"}))
+    eq("meta krcn:ids: the created works and the library-born lines", (ids["created"], ids["lines"]),
+       (sorted([w_m, w_g]), {r_m: "loc", r_g: "bnf"}))
     eq("record_meta: loc:degraded / bnf:degraded absent on a clean run",
        db.execute("SELECT COUNT(*) FROM meta WHERE key IN ('loc:degraded','bnf:degraded','dnb:degraded')").fetchone()[0], 0)
     eq("files written", sorted(f for f in os.listdir(_btmp) if f.startswith("krcn-")),
-       ["krcn-held.tsv", "krcn-new-works.tsv", "krcn-report.json", "krcn-review.tsv"])
+       ["krcn-duplicates.tsv", "krcn-held.tsv", "krcn-new-works.tsv", "krcn-report.json", "krcn-review.tsv"])
     held_rows = open(os.path.join(_btmp, "krcn-held.tsv"), encoding="utf8").read().splitlines()[1:]
-    eq("the hold file: one row per held cluster (no double entries), with its member keys",
-       [(r.split("\t")[1], r.split("\t")[3], sorted(r.split("\t")[4].split())) for r in held_rows],
-       [("no-english-line", "bnf:ark:/12148/cb09999999z",
-         ["bnf:ark:/12148/cb09999999z", "bnf:ark:/12148/cb47253773p"])])
+    eq("the hold file: empty after the lift (no novel-only cluster in this build)", held_rows, [])
     rep = json.load(open(os.path.join(_btmp, "krcn-report.json"), encoding="utf8"))
     eq("krcn-report.json carries the Task 15 gate lists", set(rep["gate"]) >= {"adopt_conflicts", "left", "taken_weak", "deferred_to_jp_round"}, True)
     # §12: enrich_bnf must not spend one SRU call per volume the BnF line source already covered -- its
@@ -2870,23 +2872,25 @@ try:
     eq("... its volumes are minted under the carried id (v_(tome_id, number)), the new one included",
        sorted(db.execute("SELECT number, id FROM volume WHERE release_line_id=?", (r_m,))),
        sorted((n, _id("v_", r_m, n)) for n in ("2", "3", "4")))
-    eq("... the frozen work is not created again (works_created 0)", (st["works_created"], st["works_frozen"]), (0, 1))
+    eq("... the frozen work is not created again (created 1 = The Gamer, not in this carry; frozen 1)",
+       (st["works_created"], st["works_frozen"]), (1, 1))
 finally:
     E2.enumerate_krcn, LS2.enumerate_loc, BS2.enumerate_bnf, BK.BUILD = _saved_enum
 
 
-# the hold file is plan['held'] exactly: a no-english-comic-line cluster is one row, never one per line again
+# the hold file is plan['held'] exactly: a cluster of novels only (a comic signal, no comic line) is one row,
+# never one per line
 _htmp = tempfile.mkdtemp(prefix="krcn-held-")
 _saved_build, BK.BUILD = BK.BUILD, _htmp
 try:
-    hs = [mkline(k, m, "Semantic error", medium=med, comic=med != "novel", members=[k], reason=None, candidates=[])
-          for k, m, med in (("loc:2025033006", "EN", "novel"), ("dnb:1362777552", "DE", "novel"), ("dnb:1369956126", "DE", "manhwa"))]
+    hs = [mkline(k, m, "Semantic error", medium="novel", members=[k], reason=None, candidates=[])
+          for k, m in (("loc:2025033006", "EN"), ("dnb:1362777552", "DE"))]
     hplan = BK.decide(hs, L.Index(schema_db()), None)
     BK.write_files(hs, hplan, L.Index(schema_db()), {})
     rows = open(os.path.join(_htmp, "krcn-held.tsv"), encoding="utf8").read().splitlines()[1:]
-    eq("the hold file: one row for a no-english-comic-line cluster of 3 lines (no per-line duplicates)",
+    eq("the hold file: one novel-without-comic row for a cluster of 2 novel lines (no per-line duplicates)",
        [(r.split("\t")[1], r.split("\t")[3]) for r in rows],
-       [("no-english-comic-line", "dnb:1362777552 dnb:1369956126 loc:2025033006")])
+       [("novel-without-comic", "dnb:1362777552 loc:2025033006")])
 finally:
     BK.BUILD = _saved_build
 
@@ -3084,7 +3088,8 @@ _t15 = tempfile.mkdtemp(prefix="krcn-t15-", dir=os.path.join(ROOT, "build"))
 _saved_fx = TA.KRCN_FIXTURES
 
 
-def krcn_fx(new_works=None, pre=(), must_link=(), must_not_link=(), taken_ok=()):
+def krcn_fx(new_works=None, pre=(), must_link=(), must_not_link=(), taken_ok=(), lift=None, verdicts=None):
+    """lift / verdicts: the text of krcn_lift_input.tsv / krcn_lift_duplicates_reviewed.tsv (absent when None)."""
     d = tempfile.mkdtemp(prefix="fx-", dir=_t15)
     for name, body in (("krcn_lines_pre.json", {"lines": list(pre)}),
                        ("krcn_linker_labels.json", {"must_link": list(must_link), "must_not_link": list(must_not_link),
@@ -3092,14 +3097,21 @@ def krcn_fx(new_works=None, pre=(), must_link=(), must_not_link=(), taken_ok=())
                        ("krcn_new_works.json", {"works": new_works or {}})):
         with open(os.path.join(d, name), "w") as f:
             json.dump(body, f)
+    for name, text in ((TA.LIFT_INPUT, lift), (TA.DUP_VERDICTS, verdicts)):
+        if text is not None:
+            with open(os.path.join(d, name), "w", encoding="utf8") as f:
+                f.write(text)
     return d
 
 
-def gate_pair(taken_weak=()):
+def gate_pair(taken_weak=(), dups=()):
     """A catalogue with 3f staging + claims + meta krcn:stats and its artifact, on which every KR/CN rule is
-    green (the licence gate included: the artifact has cover_url, the catalogue the current clean_claim)."""
+    green (the licence gate included: the artifact has cover_url, the catalogue the current clean_claim).
+    dups: rows of the catalogue's krcn-duplicates.tsv (BK.DUP_HEADER order; the header is always written)."""
     d = tempfile.mkdtemp(prefix="gate-", dir=_t15)
     catp, artp = os.path.join(d, "cat.db"), os.path.join(d, "art.sqlite")
+    with open(os.path.join(d, "krcn-duplicates.tsv"), "w", encoding="utf8") as f:
+        f.write("".join("\t".join(r) + "\n" for r in [BK.DUP_HEADER] + list(dups)))
     cat = sqlite3.connect(catp)
     cat.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
     cat.executescript(BK.STAGING_DDL)
@@ -3133,8 +3145,8 @@ def gate_pair(taken_weak=()):
 LABELLED = {"w_new": {"verdict": "must_create", "anchor_key": "loc:2023941160", "title": "New"}}
 
 
-def krcn_fails(mutate_cat=(), mutate_art=(), fx=None, carry=None, taken_weak=()):
-    artp, catp = gate_pair(taken_weak)
+def krcn_fails(mutate_cat=(), mutate_art=(), fx=None, carry=None, taken_weak=(), dups=()):
+    artp, catp = gate_pair(taken_weak, dups)
     for sql in mutate_cat:
         sqlite3.connect(catp).executescript(sql)
     for sql in mutate_art:
@@ -3172,8 +3184,8 @@ eq("a clean_claim view without us_gov_pd fails (pre-Task-13 catalogue)", has(krc
     "clean_claim misses loc claims"), True)
 eq("a held line with an id fails R6 (the licence gate's rule, called from run_krcn)", has(krcn_fails(
     ["UPDATE krcn_line SET rl_id='rl_x' WHERE key='dnb:77';"]), "non-exported krcn_line rows holding a tome_id"), True)
-eq("a created work without an English line fails R6", has(krcn_fails(
-    mutate_art=["UPDATE series SET language='de';"]), "English line"), True)
+eq("the lift: a created work without an English line passes (R6's English-line rule is retired)", krcn_fails(
+    mutate_art=["UPDATE series SET language='de';"]), [])
 eq("a created work without explicit KR/CN origin fails", has(krcn_fails(
     ["UPDATE krcn_line SET explicit=0 WHERE key='loc:2023941160';"]), "explicit KR/CN origin"), True)
 eq("a created work with a JP manga line fails", has(krcn_fails(
@@ -3783,6 +3795,403 @@ eq("E1: a fragment's reason is joined, never overwritten", (ls[0]["role"], ls[0]
 ls = [mkline("bnf:ark:/12148/cb46910428j", "FR", "Solo leveling", vols=vols(4, 15, 17))]
 BK.decide(ls, L.Index(db), None, comic_works={"w_sle"})
 eq("E1: no carry (a cold build): nothing is a fragment", ls[0]["role"], "linked")
+
+# ---- KR/CN lift (2026-10-01): the anchor of a new work with no English comic line -----------------------------
+ls = [mkline("bnf:ark:/12148/cb40000001x", "FR", "Lame royale")]
+plan = BK.decide(ls, L.Index(schema_db()), None)
+wA = _id("w_", "krcn", "bnf:ark:/12148/cb40000001x")
+eq("lift: an FR comic line alone -> a new work keyed krcn|<its key>, anchored on it, titled with its name",
+   (ls[0]["role"], ls[0]["work"], plan["works"][wA]["anchor"], plan["works"][wA]["title"], plan["works"][wA]["created"]),
+   ("new_work", wA, "bnf:ark:/12148/cb40000001x", "Lame royale", True))
+ls = [mkline("dnb:900", "DE", "Demon Diary"), mkline("bnf:ark:/12148/cb40000002x", "FR", "Demon Diary")]
+plan = BK.decide(ls, L.Index(schema_db()), None)
+wB = _id("w_", "krcn", "bnf:ark:/12148/cb40000002x")
+eq("lift: a DE + FR comic cluster -> one work anchored on the FR line (bnf: sorts before dnb:)",
+   ([l["work"] for l in ls], plan["works"][wB]["anchor"]), ([wB, wB], "bnf:ark:/12148/cb40000002x"))
+ls = [mkline("loc:2025000101", "EN", "Ink Sky", medium="novel"), mkline("bnf:ark:/12148/cb40000003x", "FR", "Ink Sky")]
+plan = BK.decide(ls, L.Index(schema_db()), None)
+wC = _id("w_", "krcn", "bnf:ark:/12148/cb40000003x")
+eq("lift: an EN novel + an FR comic -> a work anchored on the FR comic; the EN novel ships in it as new_work",
+   ([(l["role"], l["work"]) for l in ls], plan["works"][wC]["anchor"]), ([("new_work", wC)] * 2, "bnf:ark:/12148/cb40000003x"))
+ls = [mkline("loc:2025000102", "EN", "Red Moon"), mkline("bnf:ark:/12148/cb40000004x", "FR", "Red Moon")]
+plan = BK.decide(ls, L.Index(schema_db()), None)
+wD = _id("w_", "krcn", "loc:2025000102")
+eq("lift: an EN comic + an FR comic -> unchanged: keyed and anchored on the EN line",
+   (list(plan["works"]), plan["works"][wD]["anchor"]), ([wD], "loc:2025000102"))
+Kz = {"works": {"w_libF"}, "lines": {"rl_F": "dnb"}, "series_ids": {"rl_F"}, "work_ids": {"w_libF"}, "int": {"rl_F": 9},
+      "line_work": {"rl_F": "w_libF"}, "line_name": {}, "line_medium": {"rl_F": "manhwa"}, "line_vols": {}}
+ls = [mkline("dnb:800", "DE", "Sternenlicht (Roman)", medium="novel", titles=["Sternenlicht"]),
+      mkline("dnb:801", "DE", "Sternenlicht", titles=["Sternenlicht"], carried=True, tome_id="rl_F")]
+plan = BK.decide(ls, L.Index(schema_db()), Kz)
+eq("lift: a FROZEN cluster with no line hashing to its id keeps the first round's rule (cl[0], here the novel)",
+   (plan["works"]["w_libF"]["anchor"], plan["works"]["w_libF"]["title"], plan["works"]["w_libF"]["created"]),
+   ("dnb:800", "Sternenlicht (Roman)", False))
+wH = _id("w_", "krcn", "dnb:861")
+Kh = {"works": {wH}, "lines": {"rl_M": "dnb"}, "series_ids": {"rl_M"}, "work_ids": {wH}, "int": {"rl_M": 11},
+      "line_work": {"rl_M": wH}, "line_name": {"rl_M": "Little mushroom"}, "line_medium": {"rl_M": "manhua"}, "line_vols": {}}
+ls = [mkline("dnb:860", "DE", "Xiao Mo Gu", medium="novel", titles=["Kleiner Pilz"]),
+      mkline("dnb:861", "DE", "Kleiner Pilz", medium="manhua", titles=["Kleiner Pilz"], carried=True, tome_id="rl_M")]
+plan = BK.decide(ls, L.Index(schema_db()), Kh)
+eq("lift: a FROZEN cluster keeps the line its id hashes as the anchor (the manhua, not the lower-keyed novel), "
+   "titled with that line's carried name", (plan["works"][wH]["anchor"], plan["works"][wH]["title"]),
+   ("dnb:861", "Little mushroom"))
+ls = [mkline("dnb:802", "DE", "Ein Roman", medium="novel"), mkline("bnf:ark:/12148/cb40000005x", "FR", "Ein Roman", medium="novel")]
+plan = BK.decide(ls, L.Index(schema_db()), None)
+eq("lift: a cluster of novels only is still held (novel-without-comic; R6 for prose unchanged)",
+   ([l["role"] for l in ls], [h["reason"] for h in plan["held"]], plan["works"]), (["held", "held"], ["novel-without-comic"], {}))
+
+# ---- KR/CN lift: lines.json cluster_with / review act before a work is created ---------------------------------
+def decide_out(ls, idx_, K_=None, **kw):
+    """BK.decide with stdout captured -> (plan, printed text, SystemExit text or None)."""
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            return BK.decide(ls, idx_, K_, **kw), buf.getvalue(), None
+    except SystemExit as e:
+        return None, buf.getvalue(), str(e)
+
+
+dbC = schema_db()
+dbC.execute("INSERT INTO work VALUES('w_sl','Solo Leveling',NULL,NULL,NULL,NULL,'x','x')")
+line_row(dbC, "rl_sl", "w_sl", "manhwa", "EN", "en")
+FR_P, DE_P = "bnf:ark:/12148/cb41000001x", "dnb:910"
+ls = [mkline(DE_P, "DE", "Wer definiert Beliebtheit"), mkline(FR_P, "FR", "Qui définit la popularité")]
+plan, _, _ = decide_out(ls, L.Index(dbC))
+eq("without a correction a DE and an FR cluster of one series are two works", len(plan["works"]), 2)
+ls = [mkline(DE_P, "DE", "Wer definiert Beliebtheit"), mkline(FR_P, "FR", "Qui définit la popularité")]
+plan, _, _ = decide_out(ls, L.Index(dbC), cluster_with=[(DE_P, FR_P)])
+wP = _id("w_", "krcn", FR_P)
+eq("cluster_with: one work, anchored on the FR line (lowest comic key), titled with the FR name",
+   ([l["work"] for l in ls], list(plan["works"]), plan["works"][wP]["title"]), ([wP, wP], [wP], "Qui définit la popularité"))
+ls = [mkline("dnb:911", "DE", "Solo Leveling"), mkline("dnb:912", "DE", "Neuland")]
+plan, out, err = decide_out(ls, L.Index(dbC), cluster_with=[("dnb:912", "dnb:911")], comic_works={"w_sl"})
+eq("cluster_with naming a linked line is skipped (printed, listed in corrections_skipped), never a stop (F2)",
+   (err, "CLUSTER_WITH / REVIEW SKIPPED -- lines.json cluster_with dnb:911: linked" in out,
+    plan["corrections_skipped"], ls[1]["role"]), (None, True, [["cluster_with", "dnb:911", "linked"]], "new_work"))
+ls = [mkline("dnb:913", "DE", "Neuland")]
+plan, out, err = decide_out(ls, L.Index(dbC), review_lines={"dnb:999": "x"}, deferred={"dnb:999"})
+eq("review naming a deferred line (P25) is skipped and listed, never a stop (F2)",
+   (err, plan["corrections_skipped"]), (None, [["review", "dnb:999", "deferred to the German JP round"]]))
+ls = [mkline("dnb:913", "DE", "Neuland")]
+plan, out, err = decide_out(ls, L.Index(dbC), cluster_with=[("dnb:913", "dnb:998")])
+eq("cluster_with naming a key the build does not have: STALE CORRECTION printed, the build goes on",
+   (err, "STALE CORRECTION -- lines.json cluster_with dnb:998" in out, ls[0]["role"]), (None, True, "new_work"))
+ls = [mkline("dnb:914", "DE", "Athanasia"), mkline("dnb:915", "DE", "Andere Reihe")]
+plan, out, _ = decide_out(ls, L.Index(dbC), review_lines={"dnb:914": "may be Who Made Me a Princess"})
+eq("review: the line's cluster goes to review with the correction's reason; no work; others unaffected",
+   (ls[0]["role"], ls[0]["reason"], ls[0]["work"], ls[1]["role"], "dnb:914" in plan["review"]),
+   ("review", "correction: may be Who Made Me a Princess", None, "new_work", True))
+Kr = {"works": {"w_libR"}, "lines": {"rl_R": "dnb"}, "series_ids": {"rl_R"}, "work_ids": {"w_libR"}, "int": {"rl_R": 4},
+      "line_work": {"rl_R": "w_libR"}, "line_name": {}, "line_medium": {"rl_R": "manhwa"}, "line_vols": {}}
+ls = [mkline("dnb:916", "DE", "Alte Reihe", carried=True, tome_id="rl_R")]
+plan, out, err = decide_out(ls, L.Index(dbC), Kr, review_lines={"dnb:916": "x"})
+eq("review on a cluster holding a published (carried) line is skipped (printed, listed), never a stop; the cluster "
+   "is decided as before (frozen)", (err, "CLUSTER_WITH / REVIEW SKIPPED -- lines.json review dnb:916: cluster c0000 holds "
+                                      "the published line dnb:916" in out, plan["corrections_skipped"], ls[0]["role"]),
+   (None, True, [["review", "dnb:916", "cluster c0000 holds the published line dnb:916"]], "new_work"))
+ls = [mkline("dnb:916", "DE", "Alte Reihe", carried=True, tome_id="rl_R"), mkline("dnb:919", "DE", "Alte Reihe")]
+plan, out, err = decide_out(ls, L.Index(dbC), Kr, review_lines={"dnb:919": "x"}, cluster_with=[("dnb:916", "dnb:919")])
+eq("a review cluster that gained a carried line through cluster_with: the review is skipped and listed (the published "
+   "line stays published), the joined cluster is decided as before",
+   (err, ls[1]["role"], plan["corrections_skipped"]),
+   (None, "new_work", [["review", "dnb:919", "cluster c0000 holds the published line dnb:916"]]))
+ls = [mkline("dnb:917", "DE", "Solo Leveling", carried=True, tome_id="rl_X"), mkline("dnb:918", "DE", "Neuland")]
+plan, out, err = decide_out(ls, L.Index(dbC), cluster_with=[("dnb:918", "dnb:917")], comic_works={"w_sl"})
+eq("cluster_with naming a CARRIED line the linker now places: skipped and printed, never a stop",
+   (err, "CLUSTER_WITH / REVIEW SKIPPED -- lines.json cluster_with dnb:917: carried line now linked" in out,
+    ls[1]["role"]), (None, True, "new_work"))
+W_P = _id("w_", "krcn", FR_P)
+Kp = {"works": {W_P}, "lines": {"rl_P1": "bnf", "rl_P2": "dnb"}, "series_ids": {"rl_P1", "rl_P2"}, "work_ids": {W_P},
+      "int": {"rl_P1": 3, "rl_P2": 4}, "line_work": {"rl_P1": W_P, "rl_P2": W_P},
+      "line_name": {"rl_P1": "Qui définit la popularité", "rl_P2": "Wer definiert Beliebtheit"},
+      "line_medium": {"rl_P1": "manhwa", "rl_P2": "manhwa"}, "line_vols": {}}
+ls = [mkline(DE_P, "DE", "Wer definiert Beliebtheit", carried=True, tome_id="rl_P2"),
+      mkline(FR_P, "FR", "Qui définit la popularité", carried=True, tome_id="rl_P1")]
+plan, _, _ = decide_out(ls, L.Index(dbC), Kp)
+eq("two clusters frozen to one published work (a cluster_with dropped): one plan entry with both lines, the first "
+   "cluster's anchor and title kept", (sorted(plan["works"][W_P]["lines"]), plan["works"][W_P]["anchor"],
+                                       plan["works"][W_P]["title"], [l["work"] for l in ls]),
+   (sorted([DE_P, FR_P]), FR_P, "Qui définit la popularité", [W_P, W_P]))
+
+# ---- KR/CN lift: orig keys of created works (both directions) and whole-word containment ------------------------
+eq("_words: split where fold() strips, each word folded", BK._words("How to Hide the Emperor's Child"),
+   ("how", "to", "hide", "the", "emperor", "s", "child"))
+eq("_whole_word: a contiguous word run of >= 7 letters", BK._whole_word(("demon", "diary"), ("demon", "diary", "tome", "1")), True)
+eq("_whole_word: 'legend' (6 letters) never counts as a partial", BK._whole_word(("legend",), ("legend", "of", "the", "sun", "knight")), False)
+eq("_whole_word: letters inside a word are no match", BK._whole_word(("demondiary",), ("demon", "diary", "x")), False)
+ls = [mkline("bnf:ark:/12148/cb42000001x", "FR", "Le Phénix noir", orig=["Heukbong"]),
+      mkline("dnb:920", "DE", "Der schwarze Phönix", orig=["Heukbong"])]
+plan = BK.decide(ls, L.Index(schema_db()), None)
+wF = _id("w_", "krcn", "bnf:ark:/12148/cb42000001x")
+eq("orig keys: a DE cluster whose romanised original equals a work created from FR earlier -> review (containment)",
+   (ls[0]["role"], ls[1]["role"], ls[1]["reason"], ls[1]["candidates"]), ("new_work", "review", "containment", [wF]))
+ls = [mkline("dnb:921", "DE", "Die Mondprinzessin", orig=["Dal-ui gongju"]),
+      mkline("loc:2025000201", "EN", "The Moon Princess Saga", orig=["Dal-ui gongju"])]
+plan = BK.decide(ls, L.Index(schema_db()), None)
+wM = _id("w_", "krcn", "dnb:921")
+eq("orig keys: a LoC EN cluster with the same romanised original as a created DE work and another title -> review",
+   (ls[0]["role"], ls[1]["role"], ls[1]["reason"], ls[1]["candidates"]), ("new_work", "review", "containment", [wM]))
+ls = [mkline("bnf:ark:/12148/cb42000002x", "FR", "Legend"), mkline("dnb:922", "DE", "Legend of the Sun Knight")]
+plan = BK.decide(ls, L.Index(schema_db()), None)
+eq("whole-word: 'Legend of the Sun Knight' is not contained by a created 'Legend' (6 letters) -> its own work",
+   [l["role"] for l in ls], ["new_work", "new_work"])
+ls = [mkline("bnf:ark:/12148/cb42000003x", "FR", "Demon Diary"), mkline("dnb:923", "DE", "Demon Diary Sammelband")]
+plan = BK.decide(ls, L.Index(schema_db()), None)
+eq("whole-word: 'Demon Diary Sammelband' contains a created 'Demon Diary' as whole words -> review",
+   (ls[1]["role"], ls[1]["reason"]), ("review", "containment"))
+ls = [mkline("bnf:ark:/12148/cb42000004x", "FR", "Tiara"), mkline("dnb:924", "DE", "Tiara")]
+plan = BK.decide(ls, L.Index(schema_db()), None)
+eq("an exact key always counts: a DE 'Tiara' and an FR 'Tiara' share a title key -> one cluster, one work",
+   len({l["work"] for l in ls}), 1)
+idxE = L.Index(schema_db())
+idxE.add_krcn_work("w_tiara", ["Tiara"])
+eq("an exact short key against a created work counts (Tiara = Tiara, 5 letters)",
+   BK.containment_hits([mkline("loc:2025000202", "EN", "Tiara")], idxE), {"w_tiara"})
+
+# ---- KR/CN lift: the duplicate-candidate list (build/krcn-duplicates.tsv) and the containment list -------------
+dbD = schema_db()
+dbD.execute("INSERT INTO work VALUES('w_emp','How to Hide the Emperor''s Child',NULL,NULL,NULL,NULL,'x','x')")
+idxD = L.Index(dbD)
+lsD = [mkline(k, m, n, role="new_work", work=w) for k, m, n, w in (
+    ("bnf:ark:/12148/cb43000001x", "FR", "How to Hide the Emperor's Children", "w_a"),
+    ("dnb:930", "DE", "Wie man des Kaisers Kind versteckt", "w_b"),
+    ("dnb:931", "DE", "Wie man des Kaisers Kinder versteckt", "w_c"), ("dnb:932", "DE", "Ganz anders", "w_d"),
+    ("dnb:939", "DE", "How to Hide the Emperors Child", "w_f"))]
+planD = {"works": {w: {"created": w != "w_f", "anchor": l["key"], "title": l["name"], "lines": [l["key"]]} for w, l in
+                   zip(("w_a", "w_b", "w_c", "w_d", "w_f"), lsD)}, "held": []}
+eq("duplicate_rows: a created work near an existing title, near a published (frozen) library work, and two created "
+   "works near each other (ratio >= 0.8, one row per pair, highest first); a frozen work is only ever `other`; short "
+   "keys never listed", BK.duplicate_rows(lsD, planD, idxD),
+   [["title", "w_b", "Wie man des Kaisers Kind versteckt", "w_c", "Wie man des Kaisers Kinder versteckt",
+     "wiemandeskaiserskindversteckt", "wiemandeskaiserskinderversteckt", "0.967", ""],
+    ["title", "w_a", "How to Hide the Emperor's Children", "w_emp", "How to Hide the Emperor's Child",
+     "howtohidetheemperorschildren", "howtohidetheemperorschild", "0.943", ""],
+    ["title", "w_a", "How to Hide the Emperor's Children", "w_f", "How to Hide the Emperors Child",
+     "howtohidetheemperorschildren", "howtohidetheemperorschild", "0.943", ""]])
+ls = [mkline("bnf:ark:/12148/cb43000002x", "FR", "Demon Diary"), mkline("dnb:933", "DE", "Demon Diary Sammelband")]
+plan = BK.decide(ls, L.Index(schema_db()), None)
+eq("gate list containment_created: the cluster the guard sent to review because of a work created in this build",
+   BK.gate_report(ls, plan, {}, None)["containment_created"],
+   [["c0001", ["dnb:933"], [_id("w_", "krcn", "bnf:ark:/12148/cb43000002x")]]])
+_dtmp = tempfile.mkdtemp(prefix="krcn-dups-")
+_saved_build, BK.BUILD = BK.BUILD, _dtmp
+try:
+    BK.write_files(lsD, planD, idxD, {})
+    rows = open(os.path.join(_dtmp, "krcn-duplicates.tsv"), encoding="utf8").read().splitlines()
+    eq("write_files: build/krcn-duplicates.tsv, the DUP_HEADER then the rows",
+       (rows[0].split("\t"), [r.split("\t")[1] for r in rows[1:]]), (BK.DUP_HEADER, ["w_b", "w_a", "w_a"]))
+finally:
+    BK.BUILD = _saved_build
+
+# ---- KR/CN lift: the contract rules (lift input, flood exemption, carried titles, duplicate verdicts) ----------
+_t15 = tempfile.mkdtemp(prefix="krcn-lift-", dir=os.path.join(ROOT, "build"))    # krcn_fx / gate_pair write here
+LIFT_HEAD = ("# test lift input\ncluster\treason\tmarkets\tlines\tmembers\tvolumes\ttitle_keys\tcriteria\n"
+             "c0001\tno-english-line\tEN\tloc:2023941160\t\t1\tnew\t{}\n"
+             "c0002\tno-english-line\tDE\tdnb:77\t\t3\theld\t{}\n")
+eq("read_lift_input: the held keys and the dropped section", TA.read_lift_input(os.path.join(krcn_fx(
+    lift=LIFT_HEAD + "# dropped\nkey\treason\ndnb:77\tnot KR/CN after all\n"), TA.LIFT_INPUT)),
+   ({"loc:2023941160", "dnb:77"}, {"dnb:77": "not KR/CN after all"}))
+eq("lift input: a held key still held fails, named", has(krcn_fails(fx=krcn_fx(new_works=LABELLED, lift=LIFT_HEAD)),
+                                                        "lift input: held lines"), True)
+eq("lift input: in review passes", krcn_fails(["UPDATE krcn_line SET role='review' WHERE key='dnb:77';"],
+                                              fx=krcn_fx(new_works=LABELLED, lift=LIFT_HEAD)), [])
+eq("lift input: unlinked fails", has(krcn_fails(["UPDATE krcn_line SET role='unlinked' WHERE key='dnb:77';"],
+                                                fx=krcn_fx(new_works=LABELLED, lift=LIFT_HEAD)), "lift input"), True)
+eq("lift input: a key in the dropped section passes", krcn_fails(fx=krcn_fx(
+    new_works=LABELLED, lift=LIFT_HEAD + "# dropped\nkey\treason\ndnb:77\tnot KR/CN after all\n")), [])
+eq("lift input: a key absent from the build but deferred to the JP round passes", krcn_fails(
+    ["DELETE FROM krcn_line WHERE key='dnb:77';",
+     "UPDATE meta SET value='%s' WHERE key='krcn:stats';" % json.dumps(
+         {"gate": {"taken_weak": [], "adoption_isbn_clash": [], "deferred_to_jp_round": ["dnb:77"]}})],
+    fx=krcn_fx(new_works=LABELLED, lift=LIFT_HEAD)), [])
+eq("lift input: a key absent and not deferred fails", has(krcn_fails(["DELETE FROM krcn_line WHERE key='dnb:77';"],
+                                                                     fx=krcn_fx(new_works=LABELLED, lift=LIFT_HEAD)), "lift input"), True)
+eq("no lift fixture: the rule does not run (a held line is the build's own business)", krcn_fails(), [])
+many_l = {"works": [_id("w_", "krcn", "dnb:%d" % i) for i in range(21)],
+          "created": [_id("w_", "krcn", "dnb:%d" % i) for i in range(21)], "lines": {}}
+lift21 = "cluster\treason\tmarkets\tlines\tmembers\tvolumes\ttitle_keys\tcriteria\n" + "".join(
+    "c%04d\tno-english-line\tDE\tdnb:%d\t\t1\tx\t{}\n" % (i, i) for i in range(21))
+eq("flood gate: 21 works keyed on lift-input lines are exempt in the lift build", has(krcn_fails(
+    mutate_art=["UPDATE meta SET value='%s' WHERE key='krcn_ids';" % json.dumps(many_l)], fx=krcn_fx(lift=lift21), carry=refresh),
+    "new library works"), False)
+eq("flood gate: ... and counted again once the lift fixture is deleted", has(krcn_fails(
+    mutate_art=["UPDATE meta SET value='%s' WHERE key='krcn_ids';" % json.dumps(many_l)], fx=krcn_fx(), carry=refresh),
+    "new library works"), True)
+W_LOC = _id("w_", "krcn", "loc:2023941160")
+TITLED = ["INSERT INTO work VALUES('%s','New',NULL,NULL,NULL,NULL,'x','x');" % W_LOC,
+          "UPDATE krcn_line SET carried=1 WHERE key='loc:2023941160';"]
+EN_COMIC = ["INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at) "
+            "VALUES('rl_wloc','%s','manhwa','EN','en','x','x');" % W_LOC]
+c_same = carry_file("ctitle1", [("rl_new", W_LOC, "New", "manhwa", "en", [])], works=[W_LOC], krcn_lines={"rl_new": "loc"})
+c_diff = carry_file("ctitle2", [("rl_new", W_LOC, "Old name", "manhwa", "en", [])], works=[W_LOC], krcn_lines={"rl_new": "loc"})
+eq("carried titles: a carried library work whose anchor line's carried name is its title now passes",
+   has(krcn_fails(TITLED + EN_COMIC, carry=c_same), "title changed"), False)
+eq("carried titles: a carried library work WITH an English comic line whose title differs from the carry fails",
+   has(krcn_fails(TITLED + EN_COMIC, carry=c_diff), "title changed"), True)
+eq("carried titles: without an English comic line any more (the frozen cl[0] rule) the change is info, not a failure",
+   has(krcn_fails(TITLED, carry=c_diff), "title changed"), False)
+artp_, catp_ = gate_pair()
+for sql in TITLED:
+    sqlite3.connect(catp_).executescript(sql)
+eq("carried_title_changes: (blocking, info) -- the frozen case lists the work and both titles",
+   TA.carried_title_changes(sqlite3.connect(catp_), sqlite3.connect(c_diff), {"works": [W_LOC]}),
+   ([], [[W_LOC, "Old name", "New"]]))
+DUP_HI = ["title", "w_new", "New", "w_x", "News", "newwork", "newworks", "0.933", ""]
+DUP_LO = ["title", "w_new", "New", "w_y", "Nova", "newwork", "nowork", "0.857", ""]
+DUP_AL = ["anilist", "w_new", "New", "w_z", "Old", "", "", "", "12345"]
+LIFT_EMPTY = "cluster\treason\tmarkets\tlines\tmembers\tvolumes\ttitle_keys\tcriteria\n"    # a lift build, no held rows
+LIFTING = lambda: krcn_fx(new_works=LABELLED, lift=LIFT_EMPTY)
+eq("duplicates (lift build): a title row >= 0.9 without a verdict fails", has(krcn_fails(dups=[DUP_HI], fx=LIFTING()),
+                                                                              "duplicate candidates"), True)
+eq("duplicates: a title row below 0.9 needs no verdict", krcn_fails(dups=[DUP_LO], fx=LIFTING()), [])
+eq("duplicates (lift build): an AniList-id collision without a verdict fails", has(krcn_fails(dups=[DUP_AL], fx=LIFTING()),
+                                                                                   "duplicate candidates"), True)
+eq("duplicates (no lift fixture, a weekly build): unsettled rows do not block", krcn_fails(dups=[DUP_HI, DUP_AL]), [])
+artp_, catp_ = gate_pair(dups=[DUP_HI, DUP_AL])
+TA.KRCN_FIXTURES = krcn_fx(new_works=LABELLED)
+_buf = io.StringIO()
+with contextlib.redirect_stdout(_buf):
+    TA.run_krcn(artp_, catp_)
+del TA.FAILS[:]
+eq("duplicates (no lift fixture): the unsettled rows are an info line naming them",
+   ("info  KR/CN duplicate candidates without a verdict" in _buf.getvalue(), "w_x" in _buf.getvalue(),
+    "12345" in _buf.getvalue()), (True, True, True))
+artp_, catp_ = gate_pair()
+eq("carried_works_without_anchor: a carried work no krcn_line hashes to is listed; one whose anchor line exists is not",
+   TA.carried_works_without_anchor(sqlite3.connect(catp_), {"works": [_id("w_", "krcn", "loc:2023941160"), "w_nowhere"]}),
+   ["w_nowhere"])
+VERD = "# verdicts\nwork\tother\tverdict\twhy\nw_x\tw_new\tnot-a-duplicate\tdifferent series\nw_new\tw_z\tnot-a-duplicate\tsequel\n"
+eq("duplicates: a not-a-duplicate verdict (either order) settles the row", krcn_fails(
+    dups=[DUP_HI, DUP_AL], fx=krcn_fx(new_works=LABELLED, verdicts=VERD)), [])
+eq("duplicates: a verdict row without a why fails", has(krcn_fails(fx=krcn_fx(
+    new_works=LABELLED, verdicts="work\tother\tverdict\twhy\nw_x\tw_new\tnot-a-duplicate\t\n")), "not a not-a-duplicate"), True)
+artp_, catp_ = gate_pair()
+os.remove(os.path.join(os.path.dirname(catp_), "krcn-duplicates.tsv"))
+TA.KRCN_FIXTURES = krcn_fx(new_works=LABELLED)
+_n = len(TA.FAILS)
+with contextlib.redirect_stdout(io.StringIO()):
+    TA.run_krcn(artp_, catp_)
+eq("duplicates: no build/krcn-duplicates.tsv fails closed", any("krcn-duplicates.tsv missing" in f for f in TA.FAILS[_n:]), True)
+del TA.FAILS[_n:]
+TA.KRCN_FIXTURES = _saved_fx
+shutil.rmtree(_t15, ignore_errors=True)
+
+# ---- KR/CN lift F1a (2026-10-01): a created work none of whose lines export is not written ----------------------
+def made_work(vols_by_line):
+    """BK.load of one created work with the given lines [(key, [(number, isbn, member, held)])] -> (db, plan, lines)."""
+    d = schema_db()
+    d.executescript(BK.STAGING_DDL)
+    lns = []
+    for key, vols in vols_by_line:
+        ln = lib_line(key, _id("rl_", key), "new_work", None, [(n, i, m) for n, i, m, _ in vols], work="w_empty")
+        ln["market"], ln["language"] = "DE", "de"
+        for v, (_, _, _, held) in zip(ln["vols"], vols):
+            if held:
+                v["date"] = ("HELD", None, None)
+        lns.append(ln)
+    pl = {"works": {"w_empty": {"anchor": lns[0]["key"], "created": True, "title": "Stahl unter Seide",
+                                "lines": [l["key"] for l in lns], "cluster": "c0000", "frozen": []}},
+          "adopt_works": [], "held": []}
+    BK.load(d, lns, [], pl, BK.NO_K)
+    return d, pl, lns
+
+
+def work_rows(d):
+    return (d.execute("SELECT COUNT(*) FROM work WHERE id='w_empty'").fetchone()[0],
+            d.execute("SELECT COUNT(*) FROM work_title WHERE work_id='w_empty'").fetchone()[0],
+            json.loads(d.execute("SELECT value FROM meta WHERE key='krcn:works_made'").fetchone()[0]))
+
+
+d1, pl1, ls1 = made_work([("dnb:1395516286", [("1", "9783000000011", "dnb:1395516286", True)])])
+eq("F1a: a cluster whose only member is held_future creates no work row, no work_title, no works_made entry; "
+   "its line is absorbed with no work and the plan no longer lists the work",
+   (work_rows(d1), ls1[0]["role"], ls1[0]["work"], list(pl1["works"])), ((0, 0, []), "absorbed", None, []))
+d2, pl2, ls2 = made_work([("dnb:1395516287", [("1", "9783000000012", "dnb:1395516287", True)]),
+                          ("dnb:1395516288", [("1", "9783000000013", "dnb:1395516288", False)])])
+eq("F1a: a cluster with one present and one held_future line still creates the work",
+   (work_rows(d2)[0], work_rows(d2)[2], [l["role"] for l in ls2], list(pl2["works"])),
+   (1, ["w_empty"], ["absorbed", "new_work"], ["w_empty"]))
+
+# ---- KR/CN lift F2 (2026-10-01): merge-branch anchor, carried-elsewhere, leading "the", containment_created -------
+wL = _id("w_", "krcn", "loc:2025000301")
+Km = {"works": {wL}, "lines": {"rl_mD": "dnb", "rl_mL": "loc"}, "series_ids": {"rl_mD", "rl_mL"}, "work_ids": {wL},
+      "int": {"rl_mD": 21, "rl_mL": 22}, "line_work": {"rl_mD": wL, "rl_mL": wL},
+      "line_name": {"rl_mD": "Dnb Name", "rl_mL": "Loc Name"}, "line_medium": {"rl_mD": "manhwa", "rl_mL": "manhwa"},
+      "line_vols": {}}
+ls = [mkline("dnb:950", "DE", "Ganz anderer Titel", carried=True, tome_id="rl_mD"),
+      mkline("loc:2025000301", "EN", "Totally Different", carried=True, tome_id="rl_mL")]
+plan, _, _ = decide_out(ls, L.Index(schema_db()), Km)
+eq("F2.1: two clusters frozen to one work: the hashed line of the LATER cluster (loc:) becomes the anchor and gives "
+   "the title; both clusters' lines are in the entry",
+   (plan["works"][wL]["anchor"], plan["works"][wL]["title"], sorted(plan["works"][wL]["lines"])),
+   ("loc:2025000301", "Loc Name", ["dnb:950", "loc:2025000301"]))
+dbW = schema_db()
+dbW.execute("INSERT INTO work VALUES('w_wiki7','Wikipedia Series',NULL,NULL,NULL,NULL,'x','x')")
+line_row(dbW, "rl_w7", "w_wiki7", "manhwa", "EN", "en")
+Kw = {"works": set(), "lines": {"rl_c7": "dnb"}, "series_ids": {"rl_c7"}, "work_ids": set(), "int": {"rl_c7": 23},
+      "line_work": {"rl_c7": "w_wiki7"}, "line_name": {}, "line_medium": {"rl_c7": "manhwa"}, "line_vols": {}}
+ls = [mkline("dnb:700", "DE", "Voellig Eigener Name", carried=True, tome_id="rl_c7")]
+plan, _, _ = decide_out(ls, L.Index(dbW), Kw)
+eq("F2.2: a carried line published under a Wikipedia work, linker verdict none -> review carried-elsewhere, then kept "
+   "under that work; no new work", (ls[0]["role"], ls[0]["work"], ls[0]["reason"], list(plan["works"])),
+   ("kept", "w_wiki7", "carried-elsewhere;kept", []))
+eq("F2.4: _words drops a leading 'the' (as fold does); a bare 'the' inside stays",
+   (BK._words("The Breaker"), BK._words("Rise of the King")), (("breaker",), ("rise", "of", "the", "king")))
+ls = [mkline("bnf:ark:/12148/cb44000001x", "FR", "The Breaker"), mkline("dnb:951", "DE", "Breaker: New Waves")]
+plan, _, _ = decide_out(ls, L.Index(schema_db()), None)
+eq("F2.4: 'Breaker: New Waves' is a whole-word partial hit on a created 'The Breaker' -> review containment",
+   (ls[1]["role"], ls[1]["reason"]), ("review", "containment"))
+GX = {"via": None, "tier": None, "work": None, "link_work": None, "exported": False}
+ls = [mkline("dnb:960", "DE", "A", role="review", reason="containment", cluster="c0003", candidates=["w_made", "w_frozen"], **GX),
+      mkline("dnb:961", "DE", "B", role="review", reason="containment", cluster="c0003", candidates=["w_made"], **GX),
+      mkline("dnb:962", "DE", "C", role="review", reason="containment", cluster="c0004", candidates=["w_frozen"], **GX),
+      mkline("dnb:963", "DE", "D", role="review", reason="cluster-medium", cluster="c0005", candidates=["w_made"], **GX)]
+planX = {"works": {"w_made": {"created": True, "anchor": "bnf:x", "title": "M", "lines": []},
+                   "w_frozen": {"created": False, "anchor": "bnf:y", "title": "F", "lines": []}}, "held": []}
+eq("F2.7: containment_created groups the lines of a cluster, lists only works CREATED in this build ('& made'), and "
+   "leaves out a cluster whose only candidate is frozen or whose reason is not containment",
+   BK.gate_report(ls, planX, {}, None)["containment_created"], [["c0003", ["dnb:960", "dnb:961"], ["w_made"]]])
+eq("F2.3: the gate list corrections_skipped carries plan['corrections_skipped']",
+   BK.gate_report([], {"works": {}, "corrections_skipped": [["review", "dnb:1", "linked"]]}, {}, None)["corrections_skipped"],
+   [["review", "dnb:1", "linked"]])
+
+# ---- F4 (2026-10-01): corrections_skipped blocks the lift build only -----------------------------------------
+_t15 = tempfile.mkdtemp(prefix="krcn-f4-", dir=os.path.join(ROOT, "build"))
+SKIPPED_GATE = "UPDATE meta SET value='%s' WHERE key='krcn:stats';" % json.dumps(
+    {"gate": {"taken_weak": [], "adoption_isbn_clash": [], "corrections_skipped": [["review", "dnb:1", "linked"]]}})
+eq("corrections_skipped (lift build): a non-empty list is a blocking rule", has(krcn_fails(
+    [SKIPPED_GATE], fx=krcn_fx(new_works=LABELLED, lift=LIFT_EMPTY)), "corrections_skipped"), True)
+_buf = io.StringIO()
+artp_, catp_ = gate_pair()
+sqlite3.connect(catp_).executescript(SKIPPED_GATE)
+TA.KRCN_FIXTURES = krcn_fx(new_works=LABELLED)
+with contextlib.redirect_stdout(_buf):
+    TA.run_krcn(artp_, catp_)
+_nfail = [f for f in TA.FAILS if "corrections_skipped" in f]
+del TA.FAILS[:]
+eq("corrections_skipped (no lift fixture): info only", (_nfail, "info  gate list corrections_skipped" in _buf.getvalue()),
+   ([], True))
+shutil.rmtree(_t15, ignore_errors=True)
+
+# ---- F5 (2026-10-01): the projected-date audit rule ignores release_date claims dated after today -----------------
+def proj_outranked(*claims, planned="2026-03"):
+    d = sqlite3.connect(":memory:")
+    d.executescript("CREATE TABLE volume(id TEXT, release_date_type TEXT, release_date TEXT); "
+                    "CREATE TABLE claim(entity TEXT, entity_id TEXT, field TEXT, value TEXT);")
+    d.execute("INSERT INTO volume VALUES('v1','projected',?)", (planned,))
+    d.executemany("INSERT INTO claim VALUES('volume','v1','release_date',?)", [(c,) for c in claims])
+    return d.execute(TA.PROJECTED_OUTRANKED).fetchone()[0]
+
+
+eq("F5: a projected volume whose only release_date claim is dated after today passes the rule (a plan too)",
+   (proj_outranked("2999"), proj_outranked("2999-12"), proj_outranked("2999-12-31")), (0, 0, 0))
+eq("F5: ... a wrong-edition claim dated in the past still fails it, alone or beside a future one",
+   (proj_outranked("2019"), proj_outranked("2999", "2019-05")), (1, 1))
+_Y = datetime.date.today().year
+eq("F6: a bare CURRENT year counts only once the planned month is past: a later planned month passes the rule, an "
+   "already-past one fails it", (proj_outranked(str(_Y), planned="%d-01" % (_Y + 1)), proj_outranked(str(_Y), planned="%d-01" % _Y)),
+   (0, 1))
+eq("F5: no claim, no failure", proj_outranked(), 0)
 
 # ==== summary ====
 print()

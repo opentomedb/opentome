@@ -5,9 +5,10 @@ The rule is the product's differentiator and, on real data so far, only its
 to trust is exactly the wrong place to have them.
 """
 import os, sqlite3, sys, tempfile
+from datetime import date
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from resolve import resolve, classify_dates, _compatible
+from resolve import resolve, classify_dates, _compatible, apply_resolved_dates
 
 CASES = [
     # (name, claim values by source, expected basis)
@@ -77,7 +78,54 @@ def run():
         ok = got == want
         fails += not ok
         print(f"{name:<40}{want:<14}{got:<14}  {'' if ok else '<-- FAIL'}")
-    n = len(CASES) + len(VALUE_CASES)
+    # a projected date never outranks a real one (the KR/CN lift, 2026-10-01): a volume created with a projected
+    # month takes the resolved real date, even a bare year, with its precision and type 'published'
+    PROJ = [("v_projyear", "2025-12", "month", "projected", {"openlibrary": "2025"}, ("2025", "year", "published")),
+            ("v_projday", "2025-12", "month", "projected", {"openlibrary": "2025-11-04", "loc": "2025-11-04"},
+             ("2025-11-04", "day", "published")),
+            ("v_projalone", "2025-12", "month", "projected", {}, ("2025-12", "month", "projected")),
+            ("v_pubkeeps", "2024-05", "month", "published", {"openlibrary": "2024"}, ("2024-05", "month", "published"))]
+    db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_p','P','x','x')")
+    db.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at) "
+               "VALUES('rl_p','w_p','novel','EN','en','x','x')")
+    FUT = str(date.today().year + 1)
+    PROJ += [("v_projfuture", FUT + "-03", "month", "projected", {"openlibrary": FUT}, (FUT + "-03", "month", "projected")),
+             ("v_projwrongyr", "2025-12", "month", "projected", {"openlibrary": "2019"}, ("2025-12", "month", "projected")),
+             ("v_projprev", "2025-12", "month", "projected", {"openlibrary": "2024-11"}, ("2024-11", "month", "published")),
+             ("v_projtwo", "2025-12", "month", "projected", {"openlibrary": "2023-11"}, ("2025-12", "month", "projected"))]
+    Y = date.today().year
+    PROJ += [("v_yrlater", f"{Y + 1}-01", "month", "projected", {"openlibrary": str(Y)}, (f"{Y + 1}-01", "month", "projected")),
+             ("v_yrpast", f"{Y}-01", "month", "projected", {"openlibrary": str(Y)}, (str(Y), "year", "published")),
+             ("v_junkval", "2025-12", "month", "projected", {"openlibrary": "c.20"}, ("2025-12", "month", "projected")),
+             ("v_junk199x", "2025-12", "month", "projected", {"openlibrary": "199x"}, ("2025-12", "month", "projected"))]
+    for num, (vid, d, p, t, claims, _) in enumerate(PROJ, 1):
+        db.execute("INSERT INTO volume(id,release_line_id,number,release_date,release_date_precision,release_date_type,"
+                   "created_at,updated_at) VALUES(?,?,?,?,?,?,'x','x')", (vid, "rl_p", str(num), d, p, t))
+        db.execute("""INSERT INTO claim(entity,entity_id,field,value,source,licence,retrieved_at)
+                      VALUES('volume',?,'projected_date',?,'loc','open','2026-01-01')""", (vid, d))
+        for src, val in claims.items():
+            db.execute("""INSERT INTO claim(entity,entity_id,field,value,source,licence,retrieved_at)
+                          VALUES('volume',?,'release_date',?,?,'open','2026-01-01')""", (vid, val, src))
+    db.commit()
+    resolve(db)
+    for vid, _, _, _, _, want in PROJ:
+        got = db.execute("SELECT release_date, release_date_precision, release_date_type FROM volume WHERE id=?",
+                         (vid,)).fetchone()
+        ok = got == want
+        fails += not ok
+        print(f"{'projected ' + vid:<40}{str(want):<40}{str(got):<40}  {'' if ok else '<-- FAIL'}")
+    # 7b moves claim / resolution rows between volume ids after resolve ran: apply_resolved_dates converts again
+    db.execute("INSERT INTO volume(id,release_line_id,number,release_date,release_date_precision,release_date_type,"
+               "created_at,updated_at) VALUES('v_moved','rl_p','99','2025-12','month','projected','x','x')")
+    db.execute("""INSERT INTO resolution(entity,entity_id,field,value,confidence,basis,n_agree,n_sources)
+                  VALUES('volume','v_moved','release_date','2025-10',0.7,'single_source',1,1)""")
+    got1 = apply_resolved_dates(db)
+    got2 = apply_resolved_dates(db)
+    row = db.execute("SELECT release_date, release_date_precision, release_date_type FROM volume WHERE id='v_moved'").fetchone()
+    ok = (got1, got2, row) == (1, 0, ("2025-10", "month", "published"))
+    fails += not ok
+    print(f"{'moved resolution converts, idempotent':<40}{str((1, 0)):<40}{str((got1, got2, row)):<40}  {'' if ok else '<-- FAIL'}")
+    n = len(CASES) + len(VALUE_CASES) + len(PROJ) + 1
     print(f"{n-fails}/{n} passed")
     return fails
 

@@ -377,6 +377,64 @@ key, a `link_work` that is not a work id, a key corrected twice, an entry that
 also carries another shape's keys, and a work that is not in the published
 artifact.
 
+### `lines.json` — `cluster_with` and `review`: before a library work is created (fifth and sixth entry shapes, same file)
+
+Stage 3f clusters the library lines the linker left unlinked (the **pooled** lines) and creates a work
+from a cluster that passes every bar (`docs/krcn-design.md` §9). These two shapes act on pooled lines
+before any work is created. A person writes them from the lists a build writes: `build/krcn-duplicates.tsv`
+and the `containment_created` list in `build/krcn-report.json`.
+
+```json
+[
+  {
+    "line_key": "dnb:1393101849",
+    "cluster_with": "bnf:ark:/12148/cb46807564x",
+    "source_url": "https://d-nb.info/1393101849",
+    "checked": "2026-10-01",
+    "why": "the German and French editions of Who Can Define Popularity?"
+  },
+  {
+    "line_key": "dnb:1386543211",
+    "review": "may be Who Made Me a Princess under another title; not settled",
+    "source_url": "https://d-nb.info/1386543211",
+    "checked": "2026-10-01"
+  }
+]
+```
+
+`cluster_with` joins the two lines' clusters into one work, anchored on the joined cluster's comic line
+with the lowest key (`bnf:` sorts before `dnb:`, so the French line wins over the German one) and titled
+with that line's name. Use it for a German and a French cluster of one series: they cluster per library
+by design, because a romanised original title only joins lines of one library. Required: `line_key`,
+`cluster_with`, `source_url`, `checked`, `why`.
+
+`review` sends the line's whole cluster to review (role `review`, reason `correction: <text>`), so no
+work is created. Use it for a suspected duplicate you cannot settle. Required: `line_key`, `review` (the
+reason, a non-empty string), `source_url`, `checked`. It is refused for a cluster that holds a published
+line: a published line never goes back to review (use `link_work`).
+
+Rules for both:
+- Every key is a library line's natural key (`dnb:<IDN>`, `loc:<LCCN>`, `bnf:<ark>`), as in `link_work`.
+- The key must be a line the linker left unlinked in this build. A key that is linked, merged / sibling /
+  adopting by ISBN, already in review, or deferred to the German JP round stops stage 3f with a
+  correction error naming the key and its role. Exception: a published (carried) line the linker now
+  places elsewhere is skipped with a printed `CLUSTER_WITH / REVIEW SKIPPED` line (a weekly build never
+  stops on it). A key the build does not have prints `STALE CORRECTION` and the build goes on.
+- A cluster that IS an existing work under another title is not this shape: give each of its lines a
+  `link_work`.
+- An entry carries one shape only (no `link_work`, `volumes`, `medium`, `market`, `line` or
+  `origin_line` beside it), and a `line_key` appears in at most one `link_work` / `cluster_with` /
+  `review` entry.
+- Applied by 3f; 5b's `apply_line_corrections` skips them; `--check` validates the shape. There is
+  nothing to resolve against the published artifact, because the keys are natural keys.
+- Keep a `cluster_with` entry after the publish; it is not cleanup. Without it the two halves it
+  joined are decided as separate clusters again (each frozen to the one work id).
+
+A pair in `build/krcn-duplicates.tsv` that is NOT a duplicate gets a verdict row in
+`export/fixtures/krcn_lift_duplicates_reviewed.tsv` (`work`, `other`, `not-a-duplicate`, `why`). That
+fixture is the only file the build's duplicate gate reads; it needs a verdict for every title row at
+ratio 0.9 or more and every AniList-id row that no correction settled.
+
 ### `anilist.json` — a hand-checked AniList id for a line
 
 For a line `export/resolve_anilist.py` binds to the wrong AniList entry, where no
@@ -403,10 +461,18 @@ add, so a wrong one is worth a correction.
 
 Required: `line`, `anilist_id`, `source_url`, `checked`. Optional: `reason`.
 
+**Unbind pin (2026-10-01).** When the resolver bound a line to a wrong entry and AniList has no entry for
+the work at all, write `"anilist_id": null` (or `"none"`). `--anilist` writes NULL over the resolver's pick,
+and `export/resolve_anilist.py` reads the pins first and never searches that line again. `source_url` is the
+AniList search or page you checked; say in `reason` why no entry fits.
+A KR/CN binding is written to every main comic line of the work (the French and the German line of a
+lifted work share one id), so a wrong binding needs a pin, or an unbind pin, on EACH of those lines: a
+pin on one line leaves the resolver's id on the others.
+
 `line` is an OpenTome release-line id (`series.tome_id` in the published
 artifact), the same key `aliases.json` and the `lines.json` overrides use: it is
 stable across rebuilds and names exactly one line, where a series name does not
-(many lines share one). `anilist_id` is a JSON integer (not a string); `source_url`
+(many lines share one). `anilist_id` is a JSON integer (not a string), or null / `"none"` for an unbind pin; `source_url`
 is the AniList entry that was checked. Put the evidence in `reason` — which
 catalogue fact the entry matches (volume count of the origin line, author, dates).
 

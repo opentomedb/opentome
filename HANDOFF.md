@@ -1,6 +1,16 @@
 # HANDOFF — OpenTome
 
-_Last updated: 2026-09-29 (heading cleanup)_
+_Last updated: 2026-10-01 (KR/CN lift, in progress)_
+
+## 2026-10-01 — branch `krcn-lift`: the KR/CN hold (R6) lifted (IN PROGRESS, not merged)
+
+Spec/plan: docs/superpowers/specs|plans/2026-10-01-krcn-lift* (local, gitignored).
+- Inputs: the live artifact of catalogue run 44 (sha256 `c91484c4…`) is the carry at `build/manga-metadata.sqlite`
+  (copy kept at `build/lift-carry-44/`); its `krcn-held.tsv` is `export/fixtures/krcn_lift_input.tsv`.
+- **Gotcha: delete `export/fixtures/krcn_lift_input.tsv` in the commit after the lift's publish.** Its rule and the
+  flood-gate exemption run only while it exists.
+- **Gotcha: a successful local build moves its new artifact over `build/manga-metadata.sqlite`.** Copy
+  `build/lift-carry-44/manga-metadata.sqlite` back before the next local build, or the build carries from itself.
 
 ## 2026-09-29 — branch `heading-cleanup`: section headings and KR/CN medium (cleanup round A+B, NOT merged)
 

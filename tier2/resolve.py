@@ -87,6 +87,44 @@ def classify_dates(values):
     return "conflict", 0.30
 
 
+DATE_VALUE = re.compile(r"\d{4}(-\d{2}(-\d{2})?)?")
+
+
+def dated_by_now(val, projected, today=None):
+    """Is a resolved release_date value a real date by now (F6, 2026-10-01)? A well-formed YYYY[-MM[-DD]] that is on or
+    before today at its own precision; a bare year counts when it is before this year, or this year and the
+    volume's projected month (`projected`, 'YYYY-MM') is already past -- a current-year bare year says nothing
+    about a month still to come. export/test_artifact.py PROJECTED_OUTRANKED mirrors this in SQL."""
+    today = today or date.today().isoformat()
+    if not val or not DATE_VALUE.fullmatch(val):
+        return False
+    if len(val) == 4:
+        return val < today[:4] or (val == today[:4] and (projected or "") <= today[:7])
+    return val <= today[:len(val)]
+
+
+def apply_resolved_dates(db):
+    """A projected date never outranks a real one (the KR/CN lift, 2026-10-01): a volume born with a planned month
+    (release_date_type 'projected': an announced LoC / BnF / DNB record) that has a resolved release_date takes it,
+    with its own precision, as 'published' -- but only a PLAUSIBLE one: on or before today at its own precision and
+    within one year of the projected month's year (Open Library imports retailer pre-order dates, and a wrong
+    edition's date must not become a published date; such a volume stays projected and the audit rule
+    "projected volumes that also have a release_date claim" flags a past one). Reads `resolution`, so it is
+    idempotent and can run again after stage 7b moves claim / resolution rows between volume ids
+    (tier2/resolve.py --dates). -> volumes converted."""
+    today, n = date.today().isoformat(), 0
+    rows = db.execute("""SELECT r.entity_id, r.value, v.release_date FROM resolution r JOIN volume v ON v.id=r.entity_id
+                         WHERE r.entity='volume' AND r.field='release_date' AND v.release_date_type='projected'
+                           AND v.release_date IS NOT NULL""").fetchall()
+    for vid, val, proj in rows:
+        if not dated_by_now(val, proj, today) or abs(int(val[:4]) - int(proj[:4])) > 1:
+            continue
+        n += db.execute("""UPDATE volume SET release_date=?, release_date_precision=?, release_date_type='published'
+                           WHERE id=? AND release_date_type='projected'""",
+                        (val, {4: "year", 7: "month", 10: "day"}[len(val)], vid)).rowcount
+    return n
+
+
 def resolve(db, verbose=False):
     c = db.cursor()
     c.execute("DELETE FROM resolution")
@@ -143,13 +181,20 @@ def resolve(db, verbose=False):
     c.executemany("""INSERT OR REPLACE INTO resolution
         (entity,entity_id,field,value,confidence,basis,n_agree,n_sources,notes)
         VALUES(?,?,?,?,?,?,?,?,?)""", out)
+    n = apply_resolved_dates(db)
+    if n:
+        print(f"  resolve: {n} projected volume date(s) replaced by a resolved real date")
     db.commit()
     return stats
 
 
 if __name__ == "__main__":
-    p = sys.argv[1] if len(sys.argv) > 1 else _build("opentome.db")
+    p = next((a for a in sys.argv[1:] if not a.startswith("--")), _build("opentome.db"))
     db = sqlite3.connect(p)
+    if "--dates" in sys.argv:       # after stage 7b's claim moves: convert again, resolve nothing
+        print(f"  resolve --dates: {apply_resolved_dates(db)} projected volume date(s) replaced")
+        db.commit()
+        sys.exit(0)
     st = resolve(db)
     tot = sum(st.values())
     print(f"resolved {tot:,} fields from claims\n")
