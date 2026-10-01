@@ -77,7 +77,33 @@ def run():
         ok = got == want
         fails += not ok
         print(f"{name:<40}{want:<14}{got:<14}  {'' if ok else '<-- FAIL'}")
-    n = len(CASES) + len(VALUE_CASES)
+    # a projected date never outranks a real one (the KR/CN lift, 2026-10-01): a volume created with a projected
+    # month takes the resolved real date, even a bare year, with its precision and type 'published'
+    PROJ = [("v_projyear", "2025-12", "month", "projected", {"openlibrary": "2025"}, ("2025", "year", "published")),
+            ("v_projday", "2025-12", "month", "projected", {"openlibrary": "2025-11-04", "loc": "2025-11-04"},
+             ("2025-11-04", "day", "published")),
+            ("v_projalone", "2025-12", "month", "projected", {}, ("2025-12", "month", "projected")),
+            ("v_pubkeeps", "2024-05", "month", "published", {"openlibrary": "2024"}, ("2024-05", "month", "published"))]
+    db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_p','P','x','x')")
+    db.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at) "
+               "VALUES('rl_p','w_p','novel','EN','en','x','x')")
+    for num, (vid, d, p, t, claims, _) in enumerate(PROJ, 1):
+        db.execute("INSERT INTO volume(id,release_line_id,number,release_date,release_date_precision,release_date_type,"
+                   "created_at,updated_at) VALUES(?,?,?,?,?,?,'x','x')", (vid, "rl_p", str(num), d, p, t))
+        db.execute("""INSERT INTO claim(entity,entity_id,field,value,source,licence,retrieved_at)
+                      VALUES('volume',?,'projected_date',?,'loc','open','2026-01-01')""", (vid, d))
+        for src, val in claims.items():
+            db.execute("""INSERT INTO claim(entity,entity_id,field,value,source,licence,retrieved_at)
+                          VALUES('volume',?,'release_date',?,?,'open','2026-01-01')""", (vid, val, src))
+    db.commit()
+    resolve(db)
+    for vid, _, _, _, _, want in PROJ:
+        got = db.execute("SELECT release_date, release_date_precision, release_date_type FROM volume WHERE id=?",
+                         (vid,)).fetchone()
+        ok = got == want
+        fails += not ok
+        print(f"{'projected ' + vid:<40}{str(want):<40}{str(got):<40}  {'' if ok else '<-- FAIL'}")
+    n = len(CASES) + len(VALUE_CASES) + len(PROJ)
     print(f"{n-fails}/{n} passed")
     return fails
 

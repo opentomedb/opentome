@@ -140,6 +140,19 @@ def resolve(db, verbose=False):
         out.append((e, eid, f, best[0], conf, basis, n_agree, n_src, note))
         stats[basis] = stats.get(basis, 0) + 1
 
+    # A projected date never outranks a real one (the KR/CN lift, 2026-10-01): a volume born with a planned month
+    # (release_date_type 'projected': an announced LoC / BnF / DNB record) that has a resolved release_date claim
+    # of any source -- even a bare year -- takes that date, with its own precision, as 'published'. The audit rule
+    # "projected volumes that also have a release_date claim" (export/test_artifact.py) holds on it.
+    replaced = 0
+    for e, eid, f, val, *_ in out:
+        if e == "volume" and f == "release_date" and val and len(val) in (4, 7, 10):
+            replaced += c.execute(
+                """UPDATE volume SET release_date=?, release_date_precision=?, release_date_type='published'
+                   WHERE id=? AND release_date_type='projected'""",
+                (val, {4: "year", 7: "month", 10: "day"}[len(val)], eid)).rowcount
+    if replaced:
+        print(f"  resolve: {replaced} projected volume date(s) replaced by a resolved real date")
     c.executemany("""INSERT OR REPLACE INTO resolution
         (entity,entity_id,field,value,confidence,basis,n_agree,n_sources,notes)
         VALUES(?,?,?,?,?,?,?,?,?)""", out)
