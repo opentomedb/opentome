@@ -426,5 +426,12 @@
     "source_url": "https://d-nb.info/1362776327",
     "reason": "Delusion by Hongjacga: C Lines (Carlsen manhwa imprint), 041 $h kor, colour drawings -- the Korean manhwa already in the catalogue (writer_only review, plan C5)",
     "checked": "2026-09-29"
+  },
+  {
+    "line_key": "dnb:1269196383",
+    "link_work": "w_19039254507d",
+    "source_url": "https://d-nb.info/1269196383",
+    "reason": "Athanasia – plötzlich Prinzessin is the German edition of Who Made Me a Princess (the miss docs/krcn-design.md §9 documents: syllable-split romanised original and creator)",
+    "checked": "2026-10-01"
   }
 ]
