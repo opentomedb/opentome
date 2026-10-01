@@ -3088,7 +3088,8 @@ _t15 = tempfile.mkdtemp(prefix="krcn-t15-", dir=os.path.join(ROOT, "build"))
 _saved_fx = TA.KRCN_FIXTURES
 
 
-def krcn_fx(new_works=None, pre=(), must_link=(), must_not_link=(), taken_ok=()):
+def krcn_fx(new_works=None, pre=(), must_link=(), must_not_link=(), taken_ok=(), lift=None, verdicts=None):
+    """lift / verdicts: the text of krcn_lift_input.tsv / krcn_lift_duplicates_reviewed.tsv (absent when None)."""
     d = tempfile.mkdtemp(prefix="fx-", dir=_t15)
     for name, body in (("krcn_lines_pre.json", {"lines": list(pre)}),
                        ("krcn_linker_labels.json", {"must_link": list(must_link), "must_not_link": list(must_not_link),
@@ -3096,14 +3097,21 @@ def krcn_fx(new_works=None, pre=(), must_link=(), must_not_link=(), taken_ok=())
                        ("krcn_new_works.json", {"works": new_works or {}})):
         with open(os.path.join(d, name), "w") as f:
             json.dump(body, f)
+    for name, text in ((TA.LIFT_INPUT, lift), (TA.DUP_VERDICTS, verdicts)):
+        if text is not None:
+            with open(os.path.join(d, name), "w", encoding="utf8") as f:
+                f.write(text)
     return d
 
 
-def gate_pair(taken_weak=()):
+def gate_pair(taken_weak=(), dups=()):
     """A catalogue with 3f staging + claims + meta krcn:stats and its artifact, on which every KR/CN rule is
-    green (the licence gate included: the artifact has cover_url, the catalogue the current clean_claim)."""
+    green (the licence gate included: the artifact has cover_url, the catalogue the current clean_claim).
+    dups: rows of the catalogue's krcn-duplicates.tsv (BK.DUP_HEADER order; the header is always written)."""
     d = tempfile.mkdtemp(prefix="gate-", dir=_t15)
     catp, artp = os.path.join(d, "cat.db"), os.path.join(d, "art.sqlite")
+    with open(os.path.join(d, "krcn-duplicates.tsv"), "w", encoding="utf8") as f:
+        f.write("".join("\t".join(r) + "\n" for r in [BK.DUP_HEADER] + list(dups)))
     cat = sqlite3.connect(catp)
     cat.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
     cat.executescript(BK.STAGING_DDL)
@@ -3137,8 +3145,8 @@ def gate_pair(taken_weak=()):
 LABELLED = {"w_new": {"verdict": "must_create", "anchor_key": "loc:2023941160", "title": "New"}}
 
 
-def krcn_fails(mutate_cat=(), mutate_art=(), fx=None, carry=None, taken_weak=()):
-    artp, catp = gate_pair(taken_weak)
+def krcn_fails(mutate_cat=(), mutate_art=(), fx=None, carry=None, taken_weak=(), dups=()):
+    artp, catp = gate_pair(taken_weak, dups)
     for sql in mutate_cat:
         sqlite3.connect(catp).executescript(sql)
     for sql in mutate_art:
@@ -3176,8 +3184,8 @@ eq("a clean_claim view without us_gov_pd fails (pre-Task-13 catalogue)", has(krc
     "clean_claim misses loc claims"), True)
 eq("a held line with an id fails R6 (the licence gate's rule, called from run_krcn)", has(krcn_fails(
     ["UPDATE krcn_line SET rl_id='rl_x' WHERE key='dnb:77';"]), "non-exported krcn_line rows holding a tome_id"), True)
-eq("a created work without an English line fails R6", has(krcn_fails(
-    mutate_art=["UPDATE series SET language='de';"]), "English line"), True)
+eq("the lift: a created work without an English line passes (R6's English-line rule is retired)", krcn_fails(
+    mutate_art=["UPDATE series SET language='de';"]), [])
 eq("a created work without explicit KR/CN origin fails", has(krcn_fails(
     ["UPDATE krcn_line SET explicit=0 WHERE key='loc:2023941160';"]), "explicit KR/CN origin"), True)
 eq("a created work with a JP manga line fails", has(krcn_fails(
@@ -3964,6 +3972,81 @@ try:
        (rows[0].split("\t"), [r.split("\t")[1] for r in rows[1:]]), (BK.DUP_HEADER, ["w_b", "w_a", "w_a"]))
 finally:
     BK.BUILD = _saved_build
+
+# ---- KR/CN lift: the contract rules (lift input, flood exemption, carried titles, duplicate verdicts) ----------
+_t15 = tempfile.mkdtemp(prefix="krcn-lift-", dir=os.path.join(ROOT, "build"))    # krcn_fx / gate_pair write here
+LIFT_HEAD = ("# test lift input\ncluster\treason\tmarkets\tlines\tmembers\tvolumes\ttitle_keys\tcriteria\n"
+             "c0001\tno-english-line\tEN\tloc:2023941160\t\t1\tnew\t{}\n"
+             "c0002\tno-english-line\tDE\tdnb:77\t\t3\theld\t{}\n")
+eq("read_lift_input: the held keys and the dropped section", TA.read_lift_input(os.path.join(krcn_fx(
+    lift=LIFT_HEAD + "# dropped\nkey\treason\ndnb:77\tnot KR/CN after all\n"), TA.LIFT_INPUT)),
+   ({"loc:2023941160", "dnb:77"}, {"dnb:77": "not KR/CN after all"}))
+eq("lift input: a held key still held fails, named", has(krcn_fails(fx=krcn_fx(new_works=LABELLED, lift=LIFT_HEAD)),
+                                                        "lift input: held lines"), True)
+eq("lift input: in review passes", krcn_fails(["UPDATE krcn_line SET role='review' WHERE key='dnb:77';"],
+                                              fx=krcn_fx(new_works=LABELLED, lift=LIFT_HEAD)), [])
+eq("lift input: unlinked fails", has(krcn_fails(["UPDATE krcn_line SET role='unlinked' WHERE key='dnb:77';"],
+                                                fx=krcn_fx(new_works=LABELLED, lift=LIFT_HEAD)), "lift input"), True)
+eq("lift input: a key in the dropped section passes", krcn_fails(fx=krcn_fx(
+    new_works=LABELLED, lift=LIFT_HEAD + "# dropped\nkey\treason\ndnb:77\tnot KR/CN after all\n")), [])
+eq("lift input: a key absent from the build but deferred to the JP round passes", krcn_fails(
+    ["DELETE FROM krcn_line WHERE key='dnb:77';",
+     "UPDATE meta SET value='%s' WHERE key='krcn:stats';" % json.dumps(
+         {"gate": {"taken_weak": [], "adoption_isbn_clash": [], "deferred_to_jp_round": ["dnb:77"]}})],
+    fx=krcn_fx(new_works=LABELLED, lift=LIFT_HEAD)), [])
+eq("lift input: a key absent and not deferred fails", has(krcn_fails(["DELETE FROM krcn_line WHERE key='dnb:77';"],
+                                                                     fx=krcn_fx(new_works=LABELLED, lift=LIFT_HEAD)), "lift input"), True)
+eq("no lift fixture: the rule does not run (a held line is the build's own business)", krcn_fails(), [])
+many_l = {"works": [_id("w_", "krcn", "dnb:%d" % i) for i in range(21)],
+          "created": [_id("w_", "krcn", "dnb:%d" % i) for i in range(21)], "lines": {}}
+lift21 = "cluster\treason\tmarkets\tlines\tmembers\tvolumes\ttitle_keys\tcriteria\n" + "".join(
+    "c%04d\tno-english-line\tDE\tdnb:%d\t\t1\tx\t{}\n" % (i, i) for i in range(21))
+eq("flood gate: 21 works keyed on lift-input lines are exempt in the lift build", has(krcn_fails(
+    mutate_art=["UPDATE meta SET value='%s' WHERE key='krcn_ids';" % json.dumps(many_l)], fx=krcn_fx(lift=lift21), carry=refresh),
+    "new library works"), False)
+eq("flood gate: ... and counted again once the lift fixture is deleted", has(krcn_fails(
+    mutate_art=["UPDATE meta SET value='%s' WHERE key='krcn_ids';" % json.dumps(many_l)], fx=krcn_fx(), carry=refresh),
+    "new library works"), True)
+W_LOC = _id("w_", "krcn", "loc:2023941160")
+TITLED = ["INSERT INTO work VALUES('%s','New',NULL,NULL,NULL,NULL,'x','x');" % W_LOC,
+          "UPDATE krcn_line SET carried=1 WHERE key='loc:2023941160';"]
+EN_COMIC = ["INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at) "
+            "VALUES('rl_wloc','%s','manhwa','EN','en','x','x');" % W_LOC]
+c_same = carry_file("ctitle1", [("rl_new", W_LOC, "New", "manhwa", "en", [])], works=[W_LOC], krcn_lines={"rl_new": "loc"})
+c_diff = carry_file("ctitle2", [("rl_new", W_LOC, "Old name", "manhwa", "en", [])], works=[W_LOC], krcn_lines={"rl_new": "loc"})
+eq("carried titles: a carried library work whose anchor line's carried name is its title now passes",
+   has(krcn_fails(TITLED + EN_COMIC, carry=c_same), "title changed"), False)
+eq("carried titles: a carried library work WITH an English comic line whose title differs from the carry fails",
+   has(krcn_fails(TITLED + EN_COMIC, carry=c_diff), "title changed"), True)
+eq("carried titles: without an English comic line any more (the frozen cl[0] rule) the change is info, not a failure",
+   has(krcn_fails(TITLED, carry=c_diff), "title changed"), False)
+artp_, catp_ = gate_pair()
+for sql in TITLED:
+    sqlite3.connect(catp_).executescript(sql)
+eq("carried_title_changes: (blocking, info) -- the frozen case lists the work and both titles",
+   TA.carried_title_changes(sqlite3.connect(catp_), sqlite3.connect(c_diff), {"works": [W_LOC]}),
+   ([], [[W_LOC, "Old name", "New"]]))
+DUP_HI = ["title", "w_new", "New", "w_x", "News", "newwork", "newworks", "0.933", ""]
+DUP_LO = ["title", "w_new", "New", "w_y", "Nova", "newwork", "nowork", "0.857", ""]
+DUP_AL = ["anilist", "w_new", "New", "w_z", "Old", "", "", "", "12345"]
+eq("duplicates: a title row >= 0.9 without a verdict fails", has(krcn_fails(dups=[DUP_HI]), "duplicate candidates"), True)
+eq("duplicates: a title row below 0.9 needs no verdict", krcn_fails(dups=[DUP_LO]), [])
+eq("duplicates: an AniList-id collision without a verdict fails", has(krcn_fails(dups=[DUP_AL]), "duplicate candidates"), True)
+VERD = "# verdicts\nwork\tother\tverdict\twhy\nw_x\tw_new\tnot-a-duplicate\tdifferent series\nw_new\tw_z\tnot-a-duplicate\tsequel\n"
+eq("duplicates: a not-a-duplicate verdict (either order) settles the row", krcn_fails(
+    dups=[DUP_HI, DUP_AL], fx=krcn_fx(new_works=LABELLED, verdicts=VERD)), [])
+eq("duplicates: a verdict row without a why fails", has(krcn_fails(fx=krcn_fx(
+    new_works=LABELLED, verdicts="work\tother\tverdict\twhy\nw_x\tw_new\tnot-a-duplicate\t\n")), "not a not-a-duplicate"), True)
+artp_, catp_ = gate_pair()
+os.remove(os.path.join(os.path.dirname(catp_), "krcn-duplicates.tsv"))
+TA.KRCN_FIXTURES = krcn_fx(new_works=LABELLED)
+_n = len(TA.FAILS)
+with contextlib.redirect_stdout(io.StringIO()):
+    TA.run_krcn(artp_, catp_)
+eq("duplicates: no build/krcn-duplicates.tsv fails closed", any("krcn-duplicates.tsv missing" in f for f in TA.FAILS[_n:]), True)
+del TA.FAILS[_n:]
+TA.KRCN_FIXTURES = _saved_fx
+shutil.rmtree(_t15, ignore_errors=True)
 
 # ==== summary ====
 print()
