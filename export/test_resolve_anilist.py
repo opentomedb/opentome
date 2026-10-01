@@ -705,6 +705,19 @@ kdb.executescript("""
 kdb.execute("INSERT INTO meta VALUES ('krcn_ids', ?)", (json.dumps(
     {"works": ["w_kr", "w_cn", "w_tw", "w_r4", "w_mix", "w_en", "w_r2"],
      "created": ["w_kr", "w_cn", "w_tw", "w_r4", "w_mix", "w_en", "w_r2"], "lines": {}}),))
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "tier2"))
+import corrections as CORR  # noqa: E402
+_pins = tempfile.mkdtemp(prefix="anilist-pins-")
+with open(os.path.join(_pins, "anilist.json"), "w", encoding="utf8") as f:
+    json.dump([{"line": "rl_102", "anilist_id": None, "source_url": "https://anilist.co/", "checked": "2026-10-01"},
+               {"line": "rl_101", "anilist_id": 5, "source_url": "https://anilist.co/manga/5", "checked": "2026-10-01"}], f)
+_saved_dir, CORR.DIR = CORR.DIR, _pins
+eq("unbind_pins: the lines anilist.json pins to null, nothing else", R.unbind_pins(), {"rl_102"})
+CORR.DIR = _saved_dir
+eq("unbind pin: an unbound English line is never searched again (load_lines skips it)",
+   [ln["id"] for ln in R.load_lines(kdb, skip={"rl_601"})], [501])
+eq("unbind pin: an unbound main line leaves its KR/CN work's search set (the other line stays)",
+   [ln["id"] for ln in next(kw for kw in R.krcn_works(kdb, {"rl_102"}) if kw["work"] == "w_kr")["lines"]], [101])
 kws = R.krcn_works(kdb)
 eq("krcn_works: library works with no English comic line, one entry per work (c0292-shaped w_mix: its DE comic only)",
    [(kw["work"], [ln["id"] for ln in kw["lines"]], kw["countries"]) for kw in kws],

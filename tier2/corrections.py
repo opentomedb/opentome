@@ -75,6 +75,22 @@ EXCLUDED_KEYS = ("work", "source_url", "checked")
 # (`series.tome_id`), applied to the ARTIFACT after export/resolve_anilist.py, so
 # it overrides the resolver's pick.
 ANILIST_KEYS = ("line", "anilist_id", "source_url", "checked")
+# An UNBIND pin (the KR/CN lift, 2026-10-01): anilist_id null (or the string "none") -- the line has no AniList
+# entry and the resolver's pick was wrong. --anilist writes NULL; export/resolve_anilist.py never binds the line.
+ANILIST_REQUIRED = ("line", "source_url", "checked")
+
+
+def _pin_problem(e, i):
+    """-> why an anilist.json entry's anilist_id is invalid, or None: a positive JSON integer (not a string, not
+    a bool -- a bool is an int in Python, and `true` would pin every line to id 1), or null / "none"."""
+    if "anilist_id" not in e:
+        return "anilist.json[%d] is missing anilist_id -- a correction without a source is a guess (see corrections/README.md)" % i
+    aid = e["anilist_id"]
+    if aid is None or aid == "none":
+        return None
+    if isinstance(aid, bool) or not isinstance(aid, int) or aid <= 0:
+        return "anilist.json[%d]: anilist_id %r is not a positive integer (or null / \"none\" to unbind)" % (i, aid)
+    return None
 ARTIFACT_URL = "https://github.com/opentomedb/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite"
 
 sys.path.insert(0, os.path.join(ROOT, "schema"))
@@ -271,15 +287,15 @@ def load_exclusions(directory=None):
 
 
 def load_anilist_pins(directory=None):
-    """-> [(release_line_id, anilist_id)] after validation (corrections/anilist.json).
-    `anilist_id` must be a positive JSON integer -- not a string, not a bool (a bool is
-    an int in Python, and `true` would pin every line to id 1)."""
+    """-> [(release_line_id, anilist_id or None)] after validation (corrections/anilist.json). None is an
+    unbind pin (anilist_id null or "none", _pin_problem)."""
     out, seen = [], {}
     for i, e in enumerate(_read("anilist.json", directory or DIR)):
-        _require(e, ANILIST_KEYS, "anilist.json", i)
-        aid = e["anilist_id"]
-        if isinstance(aid, bool) or not isinstance(aid, int) or aid <= 0:
-            raise ValueError("anilist.json[%d]: anilist_id %r is not a positive integer" % (i, aid))
+        _require(e, ANILIST_REQUIRED, "anilist.json", i)
+        problem = _pin_problem(e, i)
+        if problem:
+            raise ValueError(problem)
+        aid = None if e["anilist_id"] in (None, "none") else e["anilist_id"]
         line = str(e["line"]).strip()
         if line in seen:   # two pins on one line: the later would silently win
             raise ValueError("anilist.json[%d]: line %s is already pinned by anilist.json[%d]" % (i, line, seen[line]))
@@ -291,9 +307,9 @@ def load_anilist_pins(directory=None):
 def apply_anilist_pins(db, entries=None, verbose=True):
     """Write every corrections/anilist.json pin onto the EXPORTED artifact's
     series.anilist_id (stage 8a, after export/resolve_anilist.py -- the resolver
-    only fills NULL ids, so this has to run after it to override its pick). A pin
-    whose line is not in the artifact fails the build (STALE CORRECTION) rather
-    than silently pinning nothing."""
+    only fills NULL ids, so this has to run after it to override its pick). An unbind
+    pin (None) writes NULL. A pin whose line is not in the artifact fails the build
+    (STALE CORRECTION) rather than silently pinning nothing."""
     pins = load_anilist_pins() if entries is None else entries
     for i, (line, aid) in enumerate(pins):
         if not db.execute("UPDATE series SET anilist_id=? WHERE tome_id=?", (aid, line)).rowcount:
@@ -901,10 +917,10 @@ def check(directory=DIR, artifact=None):
     except (TypeError, sqlite3.OperationalError, ValueError):
         excluded_recorded = set()
     n_anilist, pinned = 0, {}
-    for i, e in entries("anilist.json", ANILIST_KEYS):
-        aid = e["anilist_id"]
-        if isinstance(aid, bool) or not isinstance(aid, int) or aid <= 0:
-            problems.append("anilist.json[%d]: anilist_id %r is not a positive integer" % (i, aid))
+    for i, e in entries("anilist.json", ANILIST_REQUIRED):
+        problem = _pin_problem(e, i)
+        if problem:
+            problems.append(problem)
             continue
         line = str(e["line"]).strip()
         if line in pinned:

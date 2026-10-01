@@ -155,6 +155,7 @@ then up to ALIAS_LIMIT aliases. The first term that binds wins, and its id goes 
 the work still without one. Equality tiers only (primary / synonym with R1, R7) and V3; R2, R4, R5, V1, V2
 are off (a generic French or German name would otherwise bind a larger serial on its title alone: the 4x
 ceiling holds for a 1-2 volume line too, on every term); V4 needs an origin line these works do not have.
+A line an unbind pin (corrections/anilist.json, anilist_id null) keeps without an id is never searched.
 Every binding goes to build/krcn-anilist-bindings.tsv for a full read.
 `--krcn-duplicates` (after the pins) writes the AniList-id collisions of works created in this build into
 build/krcn-duplicates.tsv (the gate in export/test_artifact.py reads it).
@@ -547,9 +548,13 @@ def load_line(db, sid):
     return ln
 
 
-def load_lines(db, limit=None, only=None):
-    """English lines still without an id, most volumes first (they are the ones people add)."""
+def load_lines(db, limit=None, only=None, skip=()):
+    """English lines still without an id, most volumes first (they are the ones people add). skip: line ids
+    (tome_id) an unbind pin keeps without one (unbind_pins)."""
     where, params = "language='en' AND anilist_id IS NULL", []
+    if skip:
+        where += " AND tome_id NOT IN (%s)" % ",".join("?" * len(skip))
+        params += sorted(skip)
     if only:
         where += " AND name=? COLLATE NOCASE"
         params.append(only)
@@ -817,18 +822,25 @@ def krcn_terms(kw):
     return out
 
 
-def krcn_works(db):
+def unbind_pins():
+    """-> {tome_id} of the lines corrections/anilist.json unbinds (anilist_id null / "none"): 8a never binds them."""
+    sys.path.insert(0, os.path.join(ROOT, "tier2"))
+    import corrections
+    return {line for line, aid in corrections.load_anilist_pins() if aid is None}
+
+
+def krcn_works(db, skip=()):
     """One entry per library work (meta krcn_ids.works) with no English comic line and an is_main manhwa /
-    manhua line still without an id: those main lines, FR first, then by id; its countries (KRCN_COUNTRIES,
-    by the first line's medium); its native and romanized titles (the first of each, the anchor line's
-    first); its terms (krcn_terms)."""
+    manhua line still without an id: those main lines (minus `skip`: unbind-pinned tome_ids), FR first, then
+    by id; its countries (KRCN_COUNTRIES, by the first line's medium); its native and romanized titles (the
+    first of each, the anchor line's first); its terms (krcn_terms)."""
     out = []
     for w in sorted(_krcn_ids(db).get("works", [])):
         if db.execute("""SELECT 1 FROM series WHERE tome_work_id=? AND language='en'
                          AND medium IN ('manga','manhwa','manhua','webtoon')""", (w,)).fetchone():
             continue
-        sids = [sid for (sid,) in db.execute("""SELECT gcd_series_id FROM series WHERE tome_work_id=? AND is_main=1
-                AND medium IN ('manhwa','manhua') ORDER BY language<>'fr', gcd_series_id""", (w,))]
+        sids = [sid for sid, t in db.execute("""SELECT gcd_series_id, tome_id FROM series WHERE tome_work_id=? AND is_main=1
+                AND medium IN ('manhwa','manhua') ORDER BY language<>'fr', gcd_series_id""", (w,)) if t not in skip]
         lines = [load_line(db, sid) for sid in sids]
         if not lines or all(ln["anilist_id"] for ln in lines):
             continue
@@ -1092,7 +1104,8 @@ def main(argv):
               % ", ".join("%d via %s" % (by[v], v) for v in DISPLAY_VIAS))
         db.close()
         return
-    lines = load_lines(db, a.limit, a.only)
+    skip = unbind_pins()
+    lines = load_lines(db, a.limit, a.only, skip)
     resolve(lines)
     n = write(db, lines, a.dry_run)
     rep = os.path.join(build, "anilist-resolve-report.tsv")
@@ -1107,7 +1120,7 @@ def main(argv):
           % (tot, missing or 0, 100.0 * (missing or 0) / max(tot, 1)))
     print("anilist: report -> %s" % rep)
     if not (a.only or a.limit):
-        kws = resolve_krcn(krcn_works(db))
+        kws = resolve_krcn(krcn_works(db, skip))
         nk = write_krcn(db, kws, a.dry_run)
         kpath = os.path.join(build, "krcn-anilist-bindings.tsv")
         report_krcn(kws, kpath)
