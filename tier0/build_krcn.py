@@ -167,7 +167,8 @@ def cluster_keys(ln):
     return ks
 
 
-def clusters(pool):
+def clusters(pool, joins=()):
+    """joins: (key, key) pairs of pooled lines whose clusters are unioned (lines.json cluster_with)."""
     up = list(range(len(pool)))
 
     def find(x):
@@ -184,6 +185,11 @@ def clusters(pool):
             a, b = find(ids[0]), find(j)
             if a != b:
                 up[max(a, b)] = min(a, b)
+    pos = {ln["key"]: i for i, ln in enumerate(pool)}
+    for ka, kb in joins:
+        a, b = find(pos[ka]), find(pos[kb])
+        if a != b:
+            up[max(a, b)] = min(a, b)
     groups = collections.defaultdict(list)
     for i, ln in enumerate(pool):
         groups[find(i)].append(ln)
@@ -255,7 +261,8 @@ def _is_vol1(number):
         return False
 
 
-def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_override=None, present=None):
+def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_override=None, present=None,
+           cluster_with=(), review_lines=None, deferred=()):
     """The decision order of the module plan (Task 12), steps 1-7. Pure: no database.
     Review reasons from the line builder (controller ruling): a line with medium_why goes to review
     with reason = medium_why ('duplicate_numbers', 'both', 'writer_only', '+'-joined in that order) --
@@ -270,7 +277,14 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
     another work W was adopted by an earlier build (W's internal id was renamed to the public one): W adopts
     it again in step 7, and every published library work id resolves to the work holding it in this build
     (home: the carry's work id_redirect, then that adoption) wherever a line is placed -- a link_work
-    correction, a frozen cluster, a kept line -- so an adopted work never splits (final review)."""
+    correction, a frozen cluster, a kept line -- so an adopted work never splits (final review).
+    cluster_with: [(key, key)] (corrections load_cluster_with) -- the two pooled lines' clusters are one
+    (a DE and an FR cluster of one series); review_lines: {key: why} (load_review_lines) -- the pooled
+    line's cluster goes to review with reason 'correction: <why>'; refused when the cluster holds a
+    carried line. Both act before any work is created. A key of either that the build has but did not
+    pool (linked, attached, review) or deferred (deferred: the P25 keys) is a correction error that stops
+    the build -- except a carried line, which is skipped with a printed line (the entry did its job); a key
+    the build does not have is a printed STALE CORRECTION, as for link_work."""
     K = K or NO_K
     link_work, line_medium, jp_override = link_work or {}, line_medium or {}, jp_override or {}
     # the carry's adoptions: {(public library work, the work now holding a line that shipped under it): lines}
@@ -350,6 +364,30 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
                 ln.update(role="review", reason=_join(ln["reason"] if ln["role"] == "review" else None, why), work=None)
         if ln["role"] is None:
             pool.append(ln)
+    by_key, pooled, review_lines = {ln["key"]: ln for ln in lines}, {ln["key"] for ln in pool}, review_lines or {}
+
+    def correctable(k, shape):
+        """lines.json cluster_with / review act on pooled lines only (the lift, 2026-10-01)."""
+        if k in pooled:
+            return True
+        if k in by_key and by_key[k]["carried"]:
+            # a published line the linker now places: the entry has done its job (the line is frozen through the
+            # carry) -- skipped, never a stop (a weekly build must not fail on it)
+            print("  CLUSTER_WITH / REVIEW SKIPPED -- lines.json %s %s: carried line now %s" % (shape, k, by_key[k]["role"]))
+            return False
+        if k in by_key or k in deferred:
+            ln = by_key.get(k)
+            what = "deferred to the German JP round" if ln is None else \
+                "%s%s" % (ln["role"], " (%s)" % ln["reason"] if ln["reason"] else "")
+            raise SystemExit("stage 3f: lines.json %s %s: the line is %s -- only a line the linker left unlinked "
+                             "can be clustered or sent to review (corrections/README.md)" % (shape, k, what))
+        print("  STALE CORRECTION -- lines.json %s %s: not a line of this build" % (shape, k))
+        return False
+    joins = []
+    for a, b in cluster_with:
+        if all([correctable(a, "cluster_with"), correctable(b, "cluster_with")]):    # both checked, both named
+            joins.append((a, b))
+    review_lines = {k: why for k, why in sorted(review_lines.items()) if correctable(k, "review")}
     # a pooled line sharing a cluster key with a line this build linked / attached to a work is that
     # work's (Penelope / Villains): its cluster goes to review with the work as the candidate
     placed = collections.defaultdict(set)
@@ -357,10 +395,22 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
         if ln["role"] in ("linked",) + ATTACHED and ln["work"]:
             for k in cluster_keys(ln):
                 placed[k].add(ln["work"])
-    for n, cl in enumerate(clusters(pool)):                           # 3-4
+    for n, cl in enumerate(clusters(pool, joins)):                    # 3-4
         cid = "c%04d" % n
         for ln in cl:
             ln["cluster"] = cid
+        why = next((review_lines[l["key"]] for l in cl if l["key"] in review_lines), None)
+        if why:
+            carried = [l["key"] for l in cl if l["carried"]]
+            if carried:
+                raise SystemExit("stage 3f: lines.json review %s (cluster %s): it holds the published line %s -- a "
+                                 "published line never goes back to review (fix: link_work)"
+                                 % (" ".join(l["key"] for l in cl if l["key"] in review_lines), cid, carried[0]))
+            print("  REVIEW CORRECTION -- lines.json review: cluster %s (%s) to review: %s"
+                  % (cid, " ".join(l["key"] for l in cl), why))
+            for ln in cl:
+                ln.update(role="review", reason="correction: " + why)
+            continue
         if len(cl) > 1:
             tier, w, cands, via = _link(idx, cl)
             if tier in ("high", "medium") and not idx.jp_guard(w):
@@ -431,8 +481,15 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
             anchor = next((l for l in cl if _id("w_", "krcn", l["key"]) == wid), None) or \
                 (min(en, key=lambda l: l["key"]) if en else cl[0])
             title = K["line_name"].get(anchor["tome_id"]) or anchor["name"]
-        plan["works"][wid] = {"anchor": anchor["key"], "created": created, "title": title,
-                              "lines": [l["key"] for l in cl], "cluster": cid, "frozen": frozen}
+        if wid in plan["works"]:
+            # a second cluster frozen to the same published work (two halves a cluster_with once joined): its
+            # lines join the work; the first cluster's anchor and title stay
+            e = plan["works"][wid]
+            e["lines"] += [l["key"] for l in cl]
+            e["frozen"] = sorted(set(e["frozen"]) | set(frozen))
+        else:
+            plan["works"][wid] = {"anchor": anchor["key"], "created": created, "title": title,
+                                  "lines": [l["key"] for l in cl], "cluster": cid, "frozen": frozen}
         for ln in cl:
             ln.update(role="new_work", work=wid)
         idx.add_krcn_work(wid, [t for l in cl for t in list(l["titles"]) + list(l["native"]) + [l["name"] or ""]])
@@ -1072,7 +1129,9 @@ def run(dbpath, carry=None):
     comic_works = {w for (w,) in db.execute("SELECT DISTINCT work_id FROM release_line WHERE medium IN (?,?,?,?)",
                                             KL.COMIC_MEDIA)}
     plan = decide(lines, idx, K, CORR.load_link_work(), comic_works, line_medium,
-                  jp_override=CORR.load_jp_guard_overrides(), present=present)
+                  jp_override=CORR.load_jp_guard_overrides(), present=present,
+                  cluster_with=CORR.load_cluster_with(), review_lines=CORR.load_review_lines(),
+                  deferred={l["key"] for l in deferred})
     fates = load(db, lines, lost, plan, K)
     # CI's reachability probe (catalogue.yml): a source read from the cache because its gateway was unreachable
     offline = {src: {"reason": "unreachable", "stale_sets": len(o.stale_queries)} for src, o in (("loc", LS.LOC), ("bnf", BS.BNF))
