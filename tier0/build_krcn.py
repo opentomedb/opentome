@@ -202,12 +202,15 @@ WHOLE_WORD_MIN = 7
 
 def _words(t):
     """A title's words, each folded: fold() strips every space and punctuation mark, so a key has no word
-    boundaries -- the unfolded title is split where fold() strips, then each word is folded."""
-    return tuple(w for w in (L.fold(p, False) for p in WORD_SPLIT.split(t or "")) if w)
+    boundaries -- the unfolded title is split where fold() strips, then each word is folded. A leading
+    'the' is dropped, as fold() drops it ('The Breaker' and 'Breaker: New Waves' share the word run)."""
+    w = tuple(w for w in (L.fold(p, False) for p in WORD_SPLIT.split(t or "")) if w)
+    return w[1:] if w[:1] == ("the",) else w
 
 
 def _whole_word(a, b):
-    """§3.4 of the lift: word sequence a appears contiguously in b, or b in a, and the shorter one's
+    """The partial-containment rule for works created in this build (KR/CN hold lifted, 2026-10-01; see
+    docs/krcn-design.md): word sequence a appears contiguously in b, or b in a, and the shorter one's
     joined length is >= WHOLE_WORD_MIN ('legend' inside 'Legend of the Sun Knight' does not count)."""
     if len(a) > len(b):
         a, b = b, a
@@ -308,11 +311,11 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
     correction, a frozen cluster, a kept line -- so an adopted work never splits (final review).
     cluster_with: [(key, key)] (corrections load_cluster_with) -- the two pooled lines' clusters are one
     (a DE and an FR cluster of one series); review_lines: {key: why} (load_review_lines) -- the pooled
-    line's cluster goes to review with reason 'correction: <why>'; refused when the cluster holds a
-    carried line. Both act before any work is created. A key of either that the build has but did not
-    pool (linked, attached, review) or deferred (deferred: the P25 keys) is a correction error that stops
-    the build -- except a carried line, which is skipped with a printed line (the entry did its job); a key
-    the build does not have is a printed STALE CORRECTION, as for link_work."""
+    line's cluster goes to review with reason 'correction: <why>'. Both act before any work is created.
+    An entry 3f cannot act on -- a key the build has but did not pool (linked, attached, review, carried),
+    a deferred key (deferred: the P25 keys), a review cluster that holds a published line -- is skipped with
+    a printed CLUSTER_WITH / REVIEW SKIPPED line and listed in plan['corrections_skipped'] (never a stop);
+    a key the build does not have is a printed STALE CORRECTION, as for link_work."""
     K = K or NO_K
     link_work, line_medium, jp_override = link_work or {}, line_medium or {}, jp_override or {}
     # the carry's adoptions: {(public library work, the work now holding a line that shipped under it): lines}
@@ -398,20 +401,20 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
         """lines.json cluster_with / review act on pooled lines only (the lift, 2026-10-01)."""
         if k in pooled:
             return True
-        if k in by_key and by_key[k]["carried"]:
-            # a published line the linker now places: the entry has done its job (the line is frozen through the
-            # carry) -- skipped, never a stop (a weekly build must not fail on it)
-            print("  CLUSTER_WITH / REVIEW SKIPPED -- lines.json %s %s: carried line now %s" % (shape, k, by_key[k]["role"]))
-            return False
         if k in by_key or k in deferred:
+            # a line the linker placed (linked, attached, review, fragment, carried...) or deferred: the entry cannot
+            # act -- skipped and listed, never a stop (F2, 2026-10-01: a weekly build must not fail on a correction)
             ln = by_key.get(k)
             what = "deferred to the German JP round" if ln is None else \
-                "%s%s" % (ln["role"], " (%s)" % ln["reason"] if ln["reason"] else "")
-            raise SystemExit("stage 3f: lines.json %s %s: the line is %s -- only a line the linker left unlinked "
-                             "can be clustered or sent to review (corrections/README.md)" % (shape, k, what))
+                "%s%s%s" % ("carried line now " if ln["carried"] else "", ln["role"],
+                            " (%s)" % ln["reason"] if ln["reason"] else "")
+            print("  CLUSTER_WITH / REVIEW SKIPPED -- lines.json %s %s: %s" % (shape, k, what))
+            skipped.append([shape, k, what])
+            return False
         print("  STALE CORRECTION -- lines.json %s %s: not a line of this build" % (shape, k))
         return False
     joins = []
+    skipped = plan["corrections_skipped"] = []
     for a, b in cluster_with:
         if all([correctable(a, "cluster_with"), correctable(b, "cluster_with")]):    # both checked, both named
             joins.append((a, b))
@@ -431,14 +434,17 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
         if why:
             carried = [l["key"] for l in cl if l["carried"]]
             if carried:
-                raise SystemExit("stage 3f: lines.json review %s (cluster %s): it holds the published line %s -- a "
-                                 "published line never goes back to review (fix: link_work)"
-                                 % (" ".join(l["key"] for l in cl if l["key"] in review_lines), cid, carried[0]))
-            print("  REVIEW CORRECTION -- lines.json review: cluster %s (%s) to review: %s"
-                  % (cid, " ".join(l["key"] for l in cl), why))
-            for ln in cl:
-                ln.update(role="review", reason="correction: " + why)
-            continue
+                # a published line never goes back to review (fix: link_work): skipped and listed, not a stop
+                for k in sorted(k for k in review_lines if k in {l["key"] for l in cl}):
+                    print("  CLUSTER_WITH / REVIEW SKIPPED -- lines.json review %s: cluster %s holds the published line %s"
+                          % (k, cid, carried[0]))
+                    skipped.append(["review", k, "cluster %s holds the published line %s" % (cid, carried[0])])
+            else:
+                print("  REVIEW CORRECTION -- lines.json review: cluster %s (%s) to review: %s"
+                      % (cid, " ".join(l["key"] for l in cl), why))
+                for ln in cl:
+                    ln.update(role="review", reason="correction: " + why)
+                continue
         if len(cl) > 1:
             tier, w, cands, via = _link(idx, cl)
             if tier in ("high", "medium") and not idx.jp_guard(w):
@@ -489,6 +495,14 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
             for ln in cl:
                 ln.update(role="unlinked", reason=entry["reason"])
             continue
+        elif any(l["carried"] and K["line_work"].get(l["tome_id"]) and home(K["line_work"][l["tome_id"]]) in idx.name
+                 and home(K["line_work"][l["tome_id"]]) not in K["works"] for l in cl):
+            # F2 (2026-10-01): a carried line published under a Wikipedia work the linker no longer reaches must not
+            # seed a new work; review, then step 5 keeps it under its published work (the pre-lift held -> kept)
+            entry["reason"] = "carried-elsewhere"
+            for ln in cl:
+                ln.update(role="review", reason="carried-elsewhere")
+            continue
         elif not comic:
             # R6 for prose (unchanged): no work is ever created from novels alone
             entry["reason"] = "novel-without-comic"
@@ -515,6 +529,8 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
             e = plan["works"][wid]
             e["lines"] += [l["key"] for l in cl]
             e["frozen"] = sorted(set(e["frozen"]) | set(frozen))
+            if _id("w_", "krcn", anchor["key"]) == wid and _id("w_", "krcn", e["anchor"]) != wid:
+                e.update(anchor=anchor["key"], title=title)     # F2: the line the id hashes anchors, whichever cluster
         else:
             plan["works"][wid] = {"anchor": anchor["key"], "created": created, "title": title,
                                   "lines": [l["key"] for l in cl], "cluster": cid, "frozen": frozen}
@@ -600,16 +616,15 @@ def _isbns(vols):
     return {i for _, i in vols if i}
 
 
-
-
-DUP_MIN_KEY = 7          # §3.3 of the lift: fuzzy duplicate candidates, keys of 7+ characters ...
-DUP_RATIO = 0.8          # ... at difflib ratio >= 0.8 are listed; >= DUP_GATE need a verdict (export/test_artifact.py)
-DUP_GATE = 0.9
+# Fuzzy duplicate candidates (KR/CN hold lifted, 2026-10-01; docs/krcn-design.md): fold keys of 7+ characters at
+# difflib ratio >= 0.8 are listed; export/test_artifact.py (DUP_GATE) needs a verdict for the rows at 0.9 or more.
+DUP_MIN_KEY = 7
+DUP_RATIO = 0.8
 DUP_HEADER = ["kind", "work", "title", "other", "other_title", "key", "other_key", "ratio", "anilist_id"]
 
 
 def duplicate_rows(lines, plan, idx):
-    """The lift (§3.3 item 2), after step 4: every work created in this build whose title / native / orig
+    """The duplicate-candidate list (KR/CN hold lifted, 2026-10-01), after step 4: every work created in this build whose title / native / orig
     keys (fold, >= DUP_MIN_KEY characters) fuzzy-match a key of another created work, of a published library
     work this build froze (only ever the `other` side), or of an existing work (idx.official / idx.alias: the
     catalogue's work titles before 3f) at difflib ratio >= DUP_RATIO.
@@ -674,6 +689,9 @@ def gate_report(lines, plan, rep, K, E=None, deferred=()):
       authors_differ       lines whose linker verdict was a title collision (authors differ; MR vs RR)
       deferred_to_jp_round P25
       jp_guard_overrides   link_work corrections that lifted the JP guard (line key, work, why)
+      corrections_skipped  review: lines.json cluster_with / review entries 3f could not act on (a key the linker
+                           placed, a deferred one, a review cluster that holds a published line) --
+                           [shape, key, why]; the build never stops on one
       containment_created  review (the lift): every cluster the containment guard sent to review because
                            of a work created in THIS build -- [cluster, its line keys, those works]; the
                            reviewer reads it (a pair of one series becomes a cluster_with)
@@ -694,6 +712,7 @@ def gate_report(lines, plan, rep, K, E=None, deferred=()):
            "carried_not_exported": [], "carried_work_changed": [], "hangul_only_authors": [],
            "authors_differ": [], "deferred_to_jp_round": sorted(ln["key"] for ln in deferred),
            "jp_guard_overrides": [list(t) for t in plan.get("jp_overrides", [])],
+           "corrections_skipped": [list(t) for t in plan.get("corrections_skipped", [])],
            "containment_created": [],
            "adoption_isbn_clash": [list(t) for t in plan.get("adoption_isbn_clash", [])]}
     renamed = dict(plan.get("adopt_works", []))
