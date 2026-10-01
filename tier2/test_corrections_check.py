@@ -479,6 +479,30 @@ class CheckTests(unittest.TestCase):
             C.apply_anilist_pins(art, entries=[("rl_999999999999", 31741)])
         self.assertIn("STALE CORRECTION -- anilist.json[0]", out.getvalue())
 
+    def test_anilist_unbind_pin(self):
+        # the KR/CN lift (2026-10-01): null or "none" -- the line has no AniList entry; --anilist writes NULL
+        for unbind in (None, "none"):
+            with self.subTest(unbind=unbind):
+                d = self.anilist(dict(self.PIN, anilist_id=unbind))
+                code, out = self.check(d)
+                self.assertEqual(code, 0, out)
+                self.assertEqual(C.load_anilist_pins(d), [("rl_aaaaaaaaaaaa", None)])
+        art = sqlite3.connect(":memory:")
+        art.execute("CREATE TABLE series (gcd_series_id INTEGER PRIMARY KEY, tome_id TEXT, anilist_id INTEGER)")
+        art.execute("INSERT INTO series VALUES (1, 'rl_aaaaaaaaaaaa', 147044)")   # the resolver's wrong pick
+        with contextlib.redirect_stdout(io.StringIO()):
+            C.apply_anilist_pins(art, entries=[("rl_aaaaaaaaaaaa", None)])
+        self.assertEqual(art.execute("SELECT anilist_id FROM series").fetchone(), (None,))
+
+    def test_anilist_pin_without_anilist_id_key_fails(self):
+        pin = dict(self.PIN)
+        del pin["anilist_id"]
+        code, out = self.check(self.anilist(pin))
+        self.assertEqual(code, 1)
+        self.assertIn("missing anilist_id", out)
+        with self.assertRaises(ValueError):
+            C.load_anilist_pins(self.anilist(pin))
+
     def test_anilist_pins_load_validates(self):
         d = self.anilist(self.PIN)
         self.assertEqual(C.load_anilist_pins(d), [("rl_aaaaaaaaaaaa", 31741)])

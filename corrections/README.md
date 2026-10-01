@@ -461,10 +461,15 @@ add, so a wrong one is worth a correction.
 
 Required: `line`, `anilist_id`, `source_url`, `checked`. Optional: `reason`.
 
+**Unbind pin (2026-10-01).** When the resolver bound a line to a wrong entry and AniList has no entry for
+the work at all, write `"anilist_id": null` (or `"none"`). `--anilist` writes NULL over the resolver's pick,
+and `export/resolve_anilist.py` reads the pins first and never searches that line again. `source_url` is the
+AniList search or page you checked; say in `reason` why no entry fits.
+
 `line` is an OpenTome release-line id (`series.tome_id` in the published
 artifact), the same key `aliases.json` and the `lines.json` overrides use: it is
 stable across rebuilds and names exactly one line, where a series name does not
-(many lines share one). `anilist_id` is a JSON integer (not a string); `source_url`
+(many lines share one). `anilist_id` is a JSON integer (not a string), or null / `"none"` for an unbind pin; `source_url`
 is the AniList entry that was checked. Put the evidence in `reason` — which
 catalogue fact the entry matches (volume count of the origin line, author, dates).
 
