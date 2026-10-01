@@ -4155,6 +4155,24 @@ eq("F2.3: the gate list corrections_skipped carries plan['corrections_skipped']"
    BK.gate_report([], {"works": {}, "corrections_skipped": [["review", "dnb:1", "linked"]]}, {}, None)["corrections_skipped"],
    [["review", "dnb:1", "linked"]])
 
+# ---- F4 (2026-10-01): corrections_skipped blocks the lift build only -----------------------------------------
+_t15 = tempfile.mkdtemp(prefix="krcn-f4-", dir=os.path.join(ROOT, "build"))
+SKIPPED_GATE = "UPDATE meta SET value='%s' WHERE key='krcn:stats';" % json.dumps(
+    {"gate": {"taken_weak": [], "adoption_isbn_clash": [], "corrections_skipped": [["review", "dnb:1", "linked"]]}})
+eq("corrections_skipped (lift build): a non-empty list is a blocking rule", has(krcn_fails(
+    [SKIPPED_GATE], fx=krcn_fx(new_works=LABELLED, lift=LIFT_EMPTY)), "corrections_skipped"), True)
+_buf = io.StringIO()
+artp_, catp_ = gate_pair()
+sqlite3.connect(catp_).executescript(SKIPPED_GATE)
+TA.KRCN_FIXTURES = krcn_fx(new_works=LABELLED)
+with contextlib.redirect_stdout(_buf):
+    TA.run_krcn(artp_, catp_)
+_nfail = [f for f in TA.FAILS if "corrections_skipped" in f]
+del TA.FAILS[:]
+eq("corrections_skipped (no lift fixture): info only", (_nfail, "info  gate list corrections_skipped" in _buf.getvalue()),
+   ([], True))
+shutil.rmtree(_t15, ignore_errors=True)
+
 # ==== summary ====
 print()
 if FAILS:

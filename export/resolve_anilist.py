@@ -878,10 +878,10 @@ def resolve_krcn(works):
                 if not kw["pick"]:
                     a = kw["lines"][0]
                     # V3 ranks each page against the volume count of the line its term came from (F2, 2026-10-01),
-                    # not always the anchor's: one call per distinct count, in term order, the first hit wins
-                    for vc in dict.fromkeys(v for v, _ in pages):
+                    # not always the anchor's: one call per page, in term order, the first hit wins
+                    for vc, p in pages:
                         m, via, t = post_walk_pick({"name": a["name"], "volume_count": vc, "orig_vc": None},
-                                                   [p for v, p in pages if v == vc], tiers=("amp",))
+                                                   [p], tiers=("amp",))
                         if m:
                             kw.update(pick=m, via=via, term=t, country=country)
                             break

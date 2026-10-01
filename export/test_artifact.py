@@ -987,8 +987,11 @@ def run_krcn(path, catalogue, carry=None):
         weak = [t for t in gate["taken_weak"] if (t[1], t[0]) not in ok]
         rule("step-2 takes of a carried id without a strict ISBN majority (taken_weak), not confirmed in "
              "krcn_linker_labels.json taken_ok", len(weak), str(weak[:5]))
+        if lift is not None:            # F4 (2026-10-01): an entry 3f could not act on blocks the lift build only
+            rule("lines.json cluster_with / review entries stage 3f skipped (gate list corrections_skipped)",
+                 len(gate.get("corrections_skipped", [])), str(gate.get("corrections_skipped", [])[:5]))
         for k in sorted(gate):
-            if gate[k] and k != "taken_weak":
+            if gate[k] and k != "taken_weak" and not (k == "corrections_skipped" and lift is not None):
                 print("  info  gate list %s (review, not failed): %d %s" % (k, len(gate[k]), json.dumps(gate[k][:3])))
     if lift is not None:
         keys, dropped = lift
