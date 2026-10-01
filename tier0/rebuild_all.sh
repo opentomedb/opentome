@@ -50,8 +50,10 @@
 #                      (tier0/carried_ids.py; docs/carried-ids.md); the export collapses chains
 #                      and 8c fails on any carried id left without a present target
 #   8. export          Mangarr-shaped artifact (+ curated aliases, + id carry)
-#   8a. anilist ids   series.anilist_id for English lines (export/resolve_anilist.py, cached), then
-#                      corrections/anilist.json's hand-checked ids over the resolver's pick, then
+#   8a. anilist ids   series.anilist_id for English lines and for the KR/CN works without an English
+#                      comic line (export/resolve_anilist.py, cached; build/krcn-anilist-bindings.tsv), then
+#                      corrections/anilist.json's hand-checked ids over the resolver's pick, then the
+#                      AniList-id collisions of works created in this build (build/krcn-duplicates.tsv), then
 #                      the DISPLAY-ONLY fallback (display_anilist_id -- never a binding) for lines
 #                      still NULL, then build/anilist-covers.json for the final ids (pinned and
 #                      display ids included)
@@ -164,6 +166,7 @@ fi
 echo "== 8. export ==";            python3 export/to_mangarr.py "$FINAL" "$ART.new" "$ID_CARRY"
 echo "== 8a. anilist ids ==";      python3 export/resolve_anilist.py "$ART.new"
                                    python3 tier2/corrections.py --anilist "$ART.new"
+                                   python3 export/resolve_anilist.py "$ART.new" --krcn-duplicates
                                    python3 export/resolve_anilist.py "$ART.new" --display
                                    python3 export/resolve_anilist.py "$ART.new" --covers-only
 # Carry curated aliases forward from the previous artifact. Measured: this is
