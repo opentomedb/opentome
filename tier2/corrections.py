@@ -190,11 +190,33 @@ def _pre_creation_problem(e, i):
     return None
 
 
+def _corrected_twice(entries):
+    """-> [(index, key)] for the lines.json keys corrected twice (F2, 2026-10-01). A link_work or review line_key
+    is exclusive: no second link_work / review entry and no cluster_with entry (either side) may name it. A key
+    may appear in several cluster_with entries (a three-way union is two entries sharing a line)."""
+    exclusive, joined, out = set(), set(), []
+    for i, e in entries:
+        if not isinstance(e, dict):
+            continue
+        if "cluster_with" in e:
+            ks = [str(e.get("line_key")), str(e["cluster_with"])]
+            out += [(i, k) for k in ks if k in exclusive]
+            joined |= set(ks)
+        elif "link_work" in e or "review" in e:
+            k = e.get("line_key")
+            if k:
+                if str(k) in exclusive or str(k) in joined:
+                    out.append((i, str(k)))
+                exclusive.add(str(k))
+    return out
+
+
 def _pre_creation(directory=None):
-    """lines.json's cluster_with / review entries, validated; a line_key that link_work, cluster_with or
-    review entries name twice is refused (load_link_work refuses a link_work key twice the same way)."""
-    seen, out = set(), []
-    for i, e in enumerate(_read("lines.json", directory or DIR)):
+    """lines.json's cluster_with / review entries, validated; a key that link_work, cluster_with or
+    review entries name twice is refused, a cluster_with TARGET included, except that cluster_with entries may
+    share a key (_corrected_twice; load_link_work refuses a link_work key twice the same way)."""
+    data, out = _read("lines.json", directory or DIR), []
+    for i, e in enumerate(data):
         if not isinstance(e, dict) or not any(k in e for k in PRE_CREATION):
             continue
         if "cluster_with" in e or "review" in e:
@@ -202,10 +224,8 @@ def _pre_creation(directory=None):
             if problem:
                 raise ValueError(problem)
             out.append(e)
-        k = e.get("line_key")
-        if k and k in seen:
-            raise ValueError("lines.json[%d]: line_key %s corrected twice" % (i, k))
-        seen.add(k)
+    for i, k in _corrected_twice(enumerate(data)):
+        raise ValueError("lines.json[%d]: line_key %s corrected twice" % (i, k))
     return out
 
 
@@ -217,8 +237,6 @@ def load_cluster_with(directory=None):
 def load_review_lines(directory=None):
     """-> {library line key: reason} from lines.json's review entries (validated)."""
     return {e["line_key"]: e["review"].strip() for e in _pre_creation(directory) if "review" in e}
-
-
 
 
 def _override_problem(e, i):
@@ -764,7 +782,8 @@ def check(directory=DIR, artifact=None):
     except ValueError as err:            # json.JSONDecodeError is a ValueError
         problems.append("lines.json: %s" % err)
         line_data = []
-    link_keys = set()
+    # the build refuses a key corrected twice too: a PR that passes must not fail the build
+    problems += ["lines.json[%d]: line_key %s corrected twice" % (i, k) for i, k in _corrected_twice(enumerate(line_data))]
     for i, e in enumerate(line_data):
         if not isinstance(e, dict):
             problems.append("lines.json[%d]: not an object" % i)
@@ -779,9 +798,6 @@ def check(directory=DIR, artifact=None):
             if problem:
                 problems.append(problem)
                 continue
-            if str(e["line_key"]) in link_keys:
-                problems.append("lines.json[%d]: line_key %s corrected twice" % (i, e["line_key"]))
-            link_keys.add(str(e["line_key"]))
             if "cluster_with" in e:
                 n_cluster += 1
             else:
@@ -798,10 +814,6 @@ def check(directory=DIR, artifact=None):
             if extra:
                 problems.append("lines.json[%d]: a link_work entry also carries %s -- one entry, one "
                                 "correction shape (see corrections/README.md)" % (i, ", ".join(extra)))
-            # the build's load_link_work refuses these too: a PR that passes must not fail the build
-            if str(e["line_key"]) in link_keys:
-                problems.append("lines.json[%d]: line_key %s corrected twice" % (i, e["line_key"]))
-            link_keys.add(str(e["line_key"]))
             if not LIBRARY_KEY.match(str(e["line_key"])):
                 problems.append("lines.json[%d]: line_key %r is not a library line key" % (i, e["line_key"]))
             elif not WORK_ID.match(str(e["link_work"])):
