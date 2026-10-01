@@ -196,25 +196,53 @@ def clusters(pool, joins=()):
     return sorted((sorted(g, key=lambda l: l["key"]) for g in groups.values()), key=lambda g: g[0]["key"])
 
 
+WORD_SPLIT = re.compile(r"[\W_]+")
+WHOLE_WORD_MIN = 7
+
+
+def _words(t):
+    """A title's words, each folded: fold() strips every space and punctuation mark, so a key has no word
+    boundaries -- the unfolded title is split where fold() strips, then each word is folded."""
+    return tuple(w for w in (L.fold(p, False) for p in WORD_SPLIT.split(t or "")) if w)
+
+
+def _whole_word(a, b):
+    """§3.4 of the lift: word sequence a appears contiguously in b, or b in a, and the shorter one's
+    joined length is >= WHOLE_WORD_MIN ('legend' inside 'Legend of the Sun Knight' does not count)."""
+    if len(a) > len(b):
+        a, b = b, a
+    return len("".join(a)) >= WHOLE_WORD_MIN and any(b[i:i + len(a)] == a for i in range(len(b) - len(a) + 1))
+
+
 def containment_hits(cluster, idx):
     """§9 criterion 4: existing KR/CN works whose official title key contains, or is contained in, a
     key of the cluster (both 5+ characters), and any existing work whose official key equals one of the
     cluster's original / native title keys. Catches DE 'Raeliana' (= Why Raeliana Ended Up at the
     Duke's Mansion); not Athanasia (syllable-split romanisation -- the review file's job). Works created
-    earlier in this build (Index.add_krcn_work's title keys) count as existing KR/CN works: clusters
-    are decided in key order, so the outcome is deterministic."""
-    kr = [(k, w) for table in (idx.official, idx.created) for k, ws in table.items() for w in ws
-          if w in idx.krcn_works and len(k) >= LATIN_MIN]
+    earlier in this build (Index.add_krcn_work: title and orig keys) count as existing KR/CN works:
+    clusters are decided in key order, so the outcome is deterministic. Against a work created by the
+    library (the lift, 2026-10-01): an exact key always counts; a partial one only as a whole-word match
+    (_whole_word); and the cluster's own orig keys count by equality against the created works' orig
+    keys, whatever library either came from (a DE work and a LoC EN cluster of one series)."""
+    wiki = [(k, w) for k, ws in idx.official.items() for w in ws if w in idx.krcn_works and len(k) >= LATIN_MIN]
+    made = [(k, w) for k, ws in idx.created.items() for w in ws if w in idx.krcn_works and len(k) >= LATIN_MIN]
     hits = set()
     for ln in cluster:
         for t in list(ln["titles"]) + list(ln["native"]) + [ln["name"] or ""]:
             k = L.fold(t, False)
-            if len(k) >= LATIN_MIN:
-                hits |= {w for ok, w in kr if ok in k or k in ok}
+            if len(k) < LATIN_MIN:
+                continue
+            hits |= {w for ok, w in wiki if ok in k or k in ok}
+            hits |= {w for ok, w in made if ok == k or ((ok in k or k in ok) and any(
+                _whole_word(_words(c), _words(t)) for c in idx.created_titles[ok]))}
         for t in list(ln["orig"]) + list(ln["native"]):
             k = L.fold(t, False)
             if L.key_ok(k):
                 hits |= idx.official.get(k, set())
+        for t in ln["orig"]:
+            k = L.fold(t, False)
+            if L.key_ok(k):
+                hits |= idx.created_orig.get(k, set())
     return hits
 
 
@@ -492,7 +520,8 @@ def decide(lines, idx, K, link_work=None, comic_works=(), line_medium=None, jp_o
                                   "lines": [l["key"] for l in cl], "cluster": cid, "frozen": frozen}
         for ln in cl:
             ln.update(role="new_work", work=wid)
-        idx.add_krcn_work(wid, [t for l in cl for t in list(l["titles"]) + list(l["native"]) + [l["name"] or ""]])
+        idx.add_krcn_work(wid, [t for l in cl for t in list(l["titles"]) + list(l["native"]) + [l["name"] or ""]],
+                          [t for l in cl for t in l["orig"]])
     # a fragment (export fixes E1, 2026-09-28): a NEW library line linked by title (not a hand-checked link_work
     # correction) or an ISBN sibling (attach_roles merges exactly one line per target; a second line sharing its
     # ISBNs is a sibling with its own id), with no vol 1, in a work and market that already has a carried line,

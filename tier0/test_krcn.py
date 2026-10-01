@@ -3895,6 +3895,41 @@ eq("two clusters frozen to one published work (a cluster_with dropped): one plan
                                        plan["works"][W_P]["title"], [l["work"] for l in ls]),
    (sorted([DE_P, FR_P]), FR_P, "Qui définit la popularité", [W_P, W_P]))
 
+# ---- KR/CN lift: orig keys of created works (both directions) and whole-word containment ------------------------
+eq("_words: split where fold() strips, each word folded", BK._words("How to Hide the Emperor's Child"),
+   ("how", "to", "hide", "the", "emperor", "s", "child"))
+eq("_whole_word: a contiguous word run of >= 7 letters", BK._whole_word(("demon", "diary"), ("demon", "diary", "tome", "1")), True)
+eq("_whole_word: 'legend' (6 letters) never counts as a partial", BK._whole_word(("legend",), ("legend", "of", "the", "sun", "knight")), False)
+eq("_whole_word: letters inside a word are no match", BK._whole_word(("demondiary",), ("demon", "diary", "x")), False)
+ls = [mkline("bnf:ark:/12148/cb42000001x", "FR", "Le Phénix noir", orig=["Heukbong"]),
+      mkline("dnb:920", "DE", "Der schwarze Phönix", orig=["Heukbong"])]
+plan = BK.decide(ls, L.Index(schema_db()), None)
+wF = _id("w_", "krcn", "bnf:ark:/12148/cb42000001x")
+eq("orig keys: a DE cluster whose romanised original equals a work created from FR earlier -> review (containment)",
+   (ls[0]["role"], ls[1]["role"], ls[1]["reason"], ls[1]["candidates"]), ("new_work", "review", "containment", [wF]))
+ls = [mkline("dnb:921", "DE", "Die Mondprinzessin", orig=["Dal-ui gongju"]),
+      mkline("loc:2025000201", "EN", "The Moon Princess Saga", orig=["Dal-ui gongju"])]
+plan = BK.decide(ls, L.Index(schema_db()), None)
+wM = _id("w_", "krcn", "dnb:921")
+eq("orig keys: a LoC EN cluster with the same romanised original as a created DE work and another title -> review",
+   (ls[0]["role"], ls[1]["role"], ls[1]["reason"], ls[1]["candidates"]), ("new_work", "review", "containment", [wM]))
+ls = [mkline("bnf:ark:/12148/cb42000002x", "FR", "Legend"), mkline("dnb:922", "DE", "Legend of the Sun Knight")]
+plan = BK.decide(ls, L.Index(schema_db()), None)
+eq("whole-word: 'Legend of the Sun Knight' is not contained by a created 'Legend' (6 letters) -> its own work",
+   [l["role"] for l in ls], ["new_work", "new_work"])
+ls = [mkline("bnf:ark:/12148/cb42000003x", "FR", "Demon Diary"), mkline("dnb:923", "DE", "Demon Diary Sammelband")]
+plan = BK.decide(ls, L.Index(schema_db()), None)
+eq("whole-word: 'Demon Diary Sammelband' contains a created 'Demon Diary' as whole words -> review",
+   (ls[1]["role"], ls[1]["reason"]), ("review", "containment"))
+ls = [mkline("bnf:ark:/12148/cb42000004x", "FR", "Tiara"), mkline("dnb:924", "DE", "Tiara")]
+plan = BK.decide(ls, L.Index(schema_db()), None)
+eq("an exact key always counts: a DE 'Tiara' and an FR 'Tiara' share a title key -> one cluster, one work",
+   len({l["work"] for l in ls}), 1)
+idxE = L.Index(schema_db())
+idxE.add_krcn_work("w_tiara", ["Tiara"])
+eq("an exact short key against a created work counts (Tiara = Tiara, 5 letters)",
+   BK.containment_hits([mkline("loc:2025000202", "EN", "Tiara")], idxE), {"w_tiara"})
+
 # ==== summary ====
 print()
 if FAILS:
