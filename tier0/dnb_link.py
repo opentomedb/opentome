@@ -163,7 +163,9 @@ class Index:
                                     AND c.field='line_name' AND c.source='wikipedia'"""):
             self._add(self.official, LIST_PREFIX.sub("", v), wid)
         self.official_keys = sorted(self.official)
-        self.created = collections.defaultdict(set)     # add_krcn_work's title keys (3f only)
+        self.created = collections.defaultdict(set)     # add_krcn_work's title and orig keys (3f only)
+        self.created_orig = collections.defaultdict(set)    # ... its orig keys alone (equality, any library)
+        self.created_titles = collections.defaultdict(set)  # key -> the unfolded titles (whole-word matching)
         # The KR/CN work set (docs/krcn-design.md §10): a manhwa / manhua / webtoon line, or a
         # KR / CN / TW market line (King of Hell, I Love Amy: Korean works tagged 'manga');
         # tier0/build_krcn.py adds the works it creates (add_krcn_work). A JAPANESE work has a
@@ -190,13 +192,19 @@ class Index:
             "SELECT DISTINCT work_id FROM release_line WHERE medium IN (?,?,?) AND " + NON_LIBRARY_LINE, KRCN_MEDIA)}
         self.out_of_scope = krcn_media - self.jp_works
 
-    def add_krcn_work(self, w, titles=()):
+    def add_krcn_work(self, w, titles=(), orig=()):
         """A work build_krcn creates joins the KR/CN work set (the KR/CN linker's guards). Its title
-        keys go to `created` -- read only by build_krcn's containment guard, so works created in one
-        build guard each other; never linked to (official / alias are untouched)."""
+        and romanised original (`orig`) keys go to `created`, the orig keys also to `created_orig`, and
+        each key's unfolded titles to `created_titles` -- read only by build_krcn's containment guard, so
+        works created in one build guard each other; never linked to (official / alias are untouched)."""
         self.krcn_works.add(w)
-        for t in titles:
+        for t in list(titles) + list(orig):
             self._add(self.created, t, w)
+            k = fold(t, False)
+            if key_ok(k):
+                self.created_titles[k].add(t)
+        for t in orig:
+            self._add(self.created_orig, t, w)
 
     def jp_guard(self, w):
         """A KR/CN line's best candidate is a Japanese work with no KR/CN line: review, never a
