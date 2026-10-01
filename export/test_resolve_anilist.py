@@ -780,6 +780,29 @@ try:
 finally:
     R.CACHE = _saved_cache
 
+# ---- F2 (2026-10-01): V3 ranks each page against the volume count of the line its term came from ----------------
+_saved_cache, R.CACHE = R.CACHE, tempfile.mkdtemp(prefix="anilist-krcn-v3-")
+try:
+    big = {"id": 8101, "format": "MANGA", "volumes": 12, "popularity": 5, "status": "FINISHED",
+           "title": {"english": "Kiss and Fly"}, "synonyms": []}
+    small = dict(big, id=8102, volumes=2)
+    for t, page in (("Lame Royale", []), ("Kiss & Fly", [big])):
+        R._cache_put(R._cache_path("search", "krcn-KR", t), page)
+    mk = lambda: {"work": "w_v3", "countries": ("KR",), "pick": None,
+                  "lines": [{"name": "Lame Royale", "volume_count": 10}, {"name": "Kiss & Fly", "volume_count": 2}],
+                  "terms": [("Lame Royale", 10, True), ("Kiss & Fly", 2, True)]}
+    got = R.resolve_krcn([mk()])[0]
+    eq("V3 for a KR/CN work: the DE line's 2-volume term does not bind a 12-volume entry (the anchor's 10 would let it)",
+       got["pick"], None)
+    R._cache_put(R._cache_path("search", "krcn-KR", "Kiss & Fly"), [small])
+    got = R.resolve_krcn([mk()])[0]
+    eq("V3 for a KR/CN work: a 2-volume entry for the 2-volume line's term binds", (got["pick"] or {}).get("id"), 8102)
+finally:
+    R.CACHE = _saved_cache
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "tier0"))
+import build_krcn as BK_  # noqa: E402
+eq("DUP_HEADER is the same list as build_krcn.DUP_HEADER", R.DUP_HEADER, BK_.DUP_HEADER)
+
 ART = os.environ.get("OPENTOME_ART", os.path.join(os.path.dirname(HERE), "build", "manga-metadata.sqlite"))
 if os.path.exists(ART):
     db = sqlite3.connect("file:%s?mode=ro" % ART, uri=True)
