@@ -499,10 +499,13 @@ def run_ids(path, carry):
 
 
 # a projected volume that also has a release_date claim: projected outranked a real date. A claim dated after today
-# (at its own precision) is a plan too -- Open Library imports retailer pre-order dates -- and does not count (F5, 2026-10-01)
+# (at its own precision) is a plan too -- Open Library imports retailer pre-order dates -- and does not count; a bare
+# year of THIS year counts only once the volume's planned month is past (F5 / F6, 2026-10-01; tier2/resolve.py dated_by_now)
 PROJECTED_OUTRANKED = """SELECT COUNT(*) FROM volume v WHERE v.release_date_type='projected' AND EXISTS
     (SELECT 1 FROM claim x WHERE x.entity='volume' AND x.entity_id=v.id AND x.field='release_date'
-     AND x.value <= SUBSTR(DATE('now'), 1, LENGTH(x.value)))"""
+     AND CASE WHEN LENGTH(x.value) = 4
+              THEN x.value < STRFTIME('%Y', 'now') OR (x.value = STRFTIME('%Y', 'now') AND v.release_date <= STRFTIME('%Y-%m', 'now'))
+              ELSE x.value <= SUBSTR(DATE('now'), 1, LENGTH(x.value)) END)"""
 
 
 def run_dnb(path, catalogue):
