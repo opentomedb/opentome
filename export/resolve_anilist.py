@@ -787,7 +787,7 @@ def report(lines, path):
 
 KRCN_COUNTRIES = {"manhwa": ("KR",), "manhua": ("CN", "TW")}
 KRCN_BINDINGS_HEADER = ["work", "lines", "anilist_id", "title", "country", "via", "term"]
-DUP_HEADER = ["kind", "work", "title", "other", "other_title", "key", "other_key", "ratio", "anilist_id"]  # build_krcn's
+DUP_HEADER = ["kind", "work", "title", "other", "other_title", "key", "other_key", "ratio", "anilist_id"]  # = build_krcn.DUP_HEADER (asserted in test_resolve_anilist.py)
 
 
 def _krcn_ids(db):
@@ -868,19 +868,23 @@ def resolve_krcn(works):
             group = [kw for kw in todo if kw["countries"][i] == country]
             results = search([t for kw in group for t, _, _ in kw["terms"]], False, country=country)
             for kw in group:
-                pages = []
+                pages = []                                  # [(vc, (term, page, own))], vc = the term's own line's
                 for t, vc, own in kw["terms"]:
-                    pages.append((t, results[t], False))    # R2 off: V3's volume rule keeps the ceiling too
+                    pages.append((vc, (t, results[t], False)))   # R2 off: V3's volume rule keeps the ceiling too
                     m, via, _ = pick(results[t], t, vc, own_name=own, fallback=False)
                     if m:
                         kw.update(pick=m, via=via, term=t, country=country)
                         break
                 if not kw["pick"]:
                     a = kw["lines"][0]
-                    m, via, t = post_walk_pick({"name": a["name"], "volume_count": a["volume_count"], "orig_vc": None},
-                                               pages, tiers=("amp",))
-                    if m:
-                        kw.update(pick=m, via=via, term=t, country=country)
+                    # V3 ranks each page against the volume count of the line its term came from (F2, 2026-10-01),
+                    # not always the anchor's: one call per distinct count, in term order, the first hit wins
+                    for vc in dict.fromkeys(v for v, _ in pages):
+                        m, via, t = post_walk_pick({"name": a["name"], "volume_count": vc, "orig_vc": None},
+                                                   [p for v, p in pages if v == vc], tiers=("amp",))
+                        if m:
+                            kw.update(pick=m, via=via, term=t, country=country)
+                            break
     return works
 
 
