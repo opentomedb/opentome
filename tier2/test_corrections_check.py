@@ -208,6 +208,25 @@ class CheckTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     C.load_review_lines(self.corrections(lines=list(pair)))
 
+    def test_cluster_with_target_is_checked_and_a_union_may_share_a_key(self):
+        # F2 (2026-10-01): a cluster_with TARGET may not also be a link_work / review key; two cluster_with entries
+        # may share a key (a three-way union)
+        tgt = self.CW["cluster_with"]
+        for pair in ((self.CW, dict(self.RV, line_key=tgt)), (dict(self.LW, line_key=tgt), self.CW),
+                     (dict(self.RV, line_key=tgt), self.CW)):
+            with self.subTest(pair=pair):
+                code, out = self.check(self.corrections(lines=list(pair)))
+                self.assertEqual(code, 1)
+                self.assertIn("corrected twice", out)
+                with self.assertRaises(ValueError):
+                    C.load_cluster_with(self.corrections(lines=list(pair)))
+        third = dict(self.CW, cluster_with="dnb:1393101850")
+        d = self.corrections(lines=[self.CW, third])
+        code, out = self.check(d)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(C.load_cluster_with(d), [("dnb:1393101849", "bnf:ark:/12148/cb46807564x"),
+                                                  ("dnb:1393101849", "dnb:1393101850")])
+
     def test_pre_creation_shapes_are_exclusive(self):
         for e, extra in ((dict(self.CW, review="x"), "review"), (dict(self.RV, link_work="w_aaaaaaaaaaaa"), "link_work"),
                          (dict(self.CW, medium="manhwa"), "medium"), (dict(self.RV, volumes=[]), "volumes")):
