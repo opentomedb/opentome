@@ -27,13 +27,14 @@ A rename that trips a guard keeps its pipeline name, and the line is listed with
 - **ISBN:** an M retag is held when a line of the target medium in the same work and market shares most of its ISBNs, because a heading is not proof of medium (`held-isbn`).
 - **Medium:** an M retag is also held when it would break the origin line, the main line or a parent link (`held-medium`).
 - **Lookup:** Mangarr's title ranking is replayed for the new name and the base title in both libraries. A rename that would make a library pick the other library's line, or another work, is held (`held-lookup`).
+- **Origin:** a licensed line pairs with an origin-market line (Japanese, Korean or Chinese) by name. A rename is held when the new name equals the name of a same-work, same-medium origin-market line that is not the line's own origin, because the pair would be false (`held-origin`). This runs last, in the lookup guard's loop, so a revert that creates such a clash is caught.
 
 A merge needs the target to be the work's own line and no arc split out of the candidate. The verdict is `extend` when the candidate's volumes all follow the target's, `duplicate` when every candidate volume is already on the target with the same ISBN-13, otherwise `kept`.
 
 ## How merges retire ids
 
 - Stage 4c2 (`tier0/round_c_merge.py`) merges the candidate into the target with `carried_ids.merge_line` and records every decision in the build database as `roundc:merged`.
-- Stage 7b writes a redirect for each retired line and volume, so a client holding an old id follows it to the surviving one.
+- Stage 7b writes a redirect for each retired line and volume, so a client holding an old id follows it to the surviving one. It reads `roundc:merged` before any ISBN vote: the candidate line goes to its target, and each volume to the target's volume of the same number. Lines without ISBNs would otherwise tie or retire.
 - The artifact meta carries `round_c_merges` (applied merges) and `round_c_conflicts` (carried merges the data now refuses). The next build re-applies each carried merge by id.
 - The re-ship gate fails the build if a carried merge candidate is still shipped, except the ids listed in `round_c_conflicts`.
 - The moved-id gate excludes exactly the ids of this build's recorded merges and their volumes, and prints both counts.
