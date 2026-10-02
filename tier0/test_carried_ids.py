@@ -643,6 +643,58 @@ eq("gate: a carried integer that is neither a series nor an old_series_id fails"
        tiny("g6", [(7, "rl_fr", "w_a", "fr"), (2, "rl_ja", "w_a", "ja")],
             [(7, "v_fr%03d" % i) for i in range(150)] + [(2, "v_ja1")], excluded=["w_x"]), gate_carry), True)
 
+# ---- round C gates: merges excluded from the moved cap, re-ship, name collisions ------------------
+import json as _json
+def rcart(name, series, volumes=(), redirects=(), meta=None):
+    """series: (int, tome_id, work, language, medium, name)"""
+    path = os.path.join(TMP, "rc-" + name + ".sqlite")
+    A = sqlite3.connect(path)
+    A.executescript("""CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+        CREATE TABLE series (gcd_series_id INTEGER, tome_id TEXT, tome_work_id TEXT, language TEXT, medium TEXT, name TEXT);
+        CREATE TABLE volumes (gcd_series_id INTEGER, tome_id TEXT);
+        CREATE TABLE id_redirect (old_tome_id TEXT, new_tome_id TEXT, reason TEXT, old_series_id INTEGER);""")
+    A.executemany("INSERT INTO series VALUES(?,?,?,?,?,?)", series)
+    A.executemany("INSERT INTO volumes VALUES(?,?)", volumes)
+    A.executemany("INSERT INTO id_redirect VALUES(?,?,?,?)", redirects)
+    for k, v in (meta or {}).items():
+        A.execute("INSERT INTO meta VALUES(?,?)", (k, _json.dumps(v)))
+    A.commit()
+    return path
+
+MAIN, TAILL = (1, "rl_main", "w_bb", "fr", "manga", "Black Butler"), (2, "rl_tail", "w_bb", "fr", "manga", "Black Butler 31+")
+MV = "more than %d carried ids moved (re-keyed or merged) in one build" % TA.MAX_MOVED_IDS
+rc_merge = {"round_c_merges": [["rl_tail", "rl_main", "extend", "T"]]}
+# a small carry (the merge was recorded) and a big one (600 tail volumes) for the moved cap
+small = [(1, "v_m%d" % i) for i in range(3)] + [(2, "v_t%d" % i) for i in range(3)]
+big = [(1, "v_m%03d" % i) for i in range(30)] + [(2, "v_t%03d" % i) for i in range(600)]
+sc_merged, sc_plain = rcart("sc1", [MAIN, TAILL], small, meta=rc_merge), rcart("sc0", [MAIN, TAILL], small)
+bc_plain = rcart("bc0", [MAIN, TAILL], big)
+rc_redir = [("rl_tail", "rl_main", "duplicate_merge", 2)] + [
+    ("v_t%03d" % i, "v_m%03d" % (i % 30), "duplicate_merge", None) for i in range(600)]
+eq("round C: 600 volumes merged away, recorded in meta.round_c_merges, pass the moved cap",
+   ids_ok(rcart("a1", [MAIN], big[:30], rc_redir, rc_merge), bc_plain), [])
+eq("round C: the same merge without the meta fails the moved cap",
+   ids_ok(rcart("a2", [MAIN], big[:30], rc_redir), bc_plain), [MV])
+eq("round C: a candidate the carry's meta merged and this artifact ships again fails",
+   ids_ok(rcart("a3", [MAIN, TAILL], small), sc_merged), ["round C merged line shipped again (carry meta.round_c_merges)"])
+eq("round C: ... unless this artifact lists it in round_c_conflicts",
+   ids_ok(rcart("a4", [MAIN, TAILL], small, meta={"round_c_conflicts": [["rl_tail", "rl_main", "arc"]]}),
+          sc_merged), [])
+eq("round C: two lines of one work, language and medium with the same name fail",
+   ids_ok(rcart("a5", [MAIN, TAILL, (3, "rl_x", "w_bb", "fr", "manga", "BLACK butler")], small), sc_plain),
+   ["lines of one work, language and medium sharing a name"])
+other = (9, "rl_o", "w_other", "fr", "manhwa", "black butler")
+eq("round C: a name newly shared by two works in one language and comic family fails",
+   ids_ok(rcart("a6", [MAIN, TAILL, other], small), sc_plain),
+   ["a name newly shared by two works (language, comic/medium family)"])
+eq("round C: ... a novel with that name is another family",
+   ids_ok(rcart("a7", [MAIN, TAILL, other[:4] + ("light_novel", "Black Butler")], small), sc_plain), [])
+eq("round C: a pair the carry already shared passes",
+   ids_ok(rcart("a8", [MAIN, TAILL, other], small), rcart("pc", [MAIN, TAILL, other], small)), [])
+nc = tiny("nc", [(1, "rl_main", "w_bb", "fr"), (2, "rl_tail", "w_bb", "fr")], [(1, "v_m0")])
+eq("round C: a carry without the name columns skips the cross-work rule (and a clean artifact passes)",
+   ids_ok(rcart("a9", [MAIN, TAILL, other], [(1, "v_m0")]), nc), [])
+
 # ---- heading cleanup (2026-09-29): a fixture line id may resolve through a merge / correction redirect ----
 # Five krcn_lines_pre.json ids were heading lines ("Wind Breaker (Médias)", "Solo Leveling (Roman web)", ...)
 # that this round folds into the real line; a retirement, or no redirect at all, still counts as missing.
