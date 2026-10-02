@@ -145,19 +145,32 @@ def _norm_q(s):
     return re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
 
+# Same tuple as measure_library.MANGA_FAMILY. Not imported: measure_library imports to_mangarr,
+# which imports this module (circular). test_display_names.py asserts the two rankings agree.
+MANGA_FAMILY = ("manga", "manhwa", "manhua", "webtoon", None)
+
+
+def _rank(cands, prefer_novel=False):
+    """Private copy of measure_library.rank_new's ranking rule (keep in sync with it)."""
+    en = [c for c in cands if c["language"] == "en"]
+    if prefer_novel:
+        en = [c for c in en if c["medium"] not in MANGA_FAMILY]
+    if not en:
+        return None
+    return sorted(en, key=lambda c: (not c["exact"], c["medium"] not in MANGA_FAMILY,
+                                     c["is_omnibus"], -c["dated_count"],
+                                     -c["volume_count"], c["gcd_series_id"]))[0]
+
+
 def _lookup_pick(lines, key, query, prefer_novel):
-    """Mangarr's pick for `query` among `lines` (name read from `key`), via measure_library.rank_new."""
-    from measure_library import rank_new  # same directory; import has no side effects
     nq = _norm_q(query)
-    cands = [dict(l, exact=_norm_q(l[key]) == nq) for l in lines]
-    return rank_new(cands, query, prefer_novel)
+    return _rank([dict(l, exact=_norm_q(l[key]) == nq) for l in lines], prefer_novel)
 
 
 def lookup_holds(before, after):
     """tome_id -> "held-lookup" for renamed EN lines whose rename would change which line Mangarr's
     title lookup picks (rank_new replay): a different work wins, or the pick crosses comic/novel class
     for the library being queried. `before`/`after`: candidate dicts with `name` = old/new display name."""
-    from measure_library import MANGA_FAMILY
     cls = lambda c: "comic" if c["medium"] in MANGA_FAMILY else "novel"
     old = {l["tome_id"]: l for l in before}
     new = {l["tome_id"]: l for l in after}

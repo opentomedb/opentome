@@ -102,10 +102,25 @@ def run_lookup():
     eq("lookup: a rename with no competing line is not held",
        dn.lookup_holds([C("a", "w", "Gate (novel series)", "light_novel")], [C("a", "w", "Gate", "light_novel")]), {})
 
+def run_rank_agrees():
+    import measure_library as ml
+    for pn in (False, True):
+        for q in ("The Water Magician", "The Water Magician (Part 1)"):
+            for side, key in (("before", "b"), ("after", "a")):
+                names = {"b": ["The Water Magician (novel series)", "The Water Magician (novel series) (Part 1)"],
+                         "a": ["The Water Magician", "The Water Magician (Part 1)"]}[key]
+                ls = [C("ln", "w", names[0], "light_novel", sid=1), C("mg", "w", names[1], "manga", sid=2)]
+                cs = [dict(l, exact=dn._norm_q(l["name"]) == dn._norm_q(q)) for l in ls]
+                got, want = dn._rank(cs, pn), ml.rank_new(cs, q, pn)
+                eq("rank agrees with measure_library (%s, %s, novel=%s)" % (q, side, pn),
+                   got and got["tome_id"], want and want["tome_id"])
+    eq("MANGA_FAMILY agrees", dn.MANGA_FAMILY, ml.MANGA_FAMILY)
+
 if __name__ == "__main__":
     run_d()
     run_sw()
     run_guards()
     run_lookup()
+    run_rank_agrees()
     print("FAILED: %d" % len(FAILS) if FAILS else "all passed")
     sys.exit(1 if FAILS else 0)
