@@ -1098,9 +1098,9 @@ def export(src_path, out_path, carry_ids_from=None):
     # the next build merges the same duplicate the same way (not a consumer field)
     merged_lines = json.dumps(sorted([d[2], d[3]] for d in json.loads(
         (src.execute("SELECT value FROM meta WHERE key='carried:merged'").fetchone() or ["[]"])[0])))
-    # tier0/round_c_merge.py (stage 4c2): [candidate line, target line, verdict] for the merges it
-    # applied (not the kept candidates), carried so the next build re-applies them by id (spec §3.2)
-    round_c_merges = json.dumps(sorted([d[0], d[1], d[3]] for d in json.loads(
+    # tier0/round_c_merge.py (stage 4c2): [candidate line, target line, verdict, kind] for the merges
+    # it applied (not kept / carry-conflict), carried so the next build re-applies them by id (spec §3.2)
+    round_c_merges = json.dumps(sorted([d[0], d[1], d[3], d[2]] for d in json.loads(
         (src.execute("SELECT value FROM meta WHERE key='roundc:merged'").fetchone() or ["[]"])[0])
         if d[3] in ("extend", "duplicate")))
     # KR/CN (stage 3f): a degraded LoC / BnF refresh (publish.sh refuses it, like dnb_degraded), and the
