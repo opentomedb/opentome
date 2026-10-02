@@ -829,6 +829,26 @@ if os.path.exists(ART):
 else:
     print("  info  44-line replay skipped: no artifact at %s" % ART)
 
+# ---- round C: the AniList before/after diff against the carry (round_c_diff) ----------------
+import tempfile
+_t = tempfile.mkdtemp(prefix="opentome-rcanilist-")
+_carry = os.path.join(_t, "carry.sqlite")
+_c = sqlite3.connect(_carry)
+_c.execute("CREATE TABLE series (tome_id TEXT, name TEXT, anilist_id INTEGER)")
+_c.executemany("INSERT INTO series VALUES (?,?,?)", [("rl_a", "Foo (novel series)", 11), ("rl_b", "Bar", 22),
+                                                      ("rl_gone", "Old", 33)])
+_c.commit(); _c.close()
+_n = sqlite3.connect(":memory:")
+_n.execute("CREATE TABLE series (tome_id TEXT, name TEXT, anilist_id INTEGER)")
+_n.executemany("INSERT INTO series VALUES (?,?,?)", [("rl_a", "Foo", 11), ("rl_b", "Bar", 22), ("rl_new", "New", 1)])
+eq("round C diff: only lines in both whose name changed, with the id before and after",
+   R.round_c_diff(_n, _carry), [("rl_a", "Foo", 11, 11)])
+eq("round C diff: no carry -> nothing", R.round_c_diff(_n, None), [])
+_p = os.path.join(_t, "round-c-anilist.tsv")
+R.write_round_c_diff(_p, [("rl_a", "Foo", None, 11)])
+eq("round C diff: TSV header and a NULL before", open(_p).read(),
+   "tome_id\tname\tanilist_before\tanilist_after\nrl_a\tFoo\t\t11\n")
+
 print()
 if FAILS:
     print(f"{len(FAILS)} FAILED: {FAILS}")

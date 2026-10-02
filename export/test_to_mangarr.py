@@ -321,6 +321,19 @@ def run():
        (rep["rl_ln"]["name_after"], rep["rl_ln"]["rules"], rep["rl_ln"]["held"]),
        ("The Water Magician (novel series)", "", "held-lookup"))
     eq("round C report: W row", (rep["rl_ww"]["name_after"], rep["rl_ww"]["rules"]), ("Whispered Words", "W"))
+    mr = rc_export(True, [("w_wm", "The Water Magician (novel series)")],
+                   [("rl_mg", "w_wm", "manga", "EN", "The Water Magician (novel series) (Part 1)", 3)],
+                   carry_rows=[("The Water Magician (Tomes 4-6)", "manga", "en", "EN", "w_wm", "rl_gone")],
+                   merged=[["rl_gone", "rl_mg", "T", "extend", 3, 0, "rule"]])
+    mrep = {r["tome_id"]: r for r in mr["report"]}
+    eq("round C report: a D row and a T-extend row",
+       sorted((t, r["rules"]) for t, r in mrep.items()), [("rl_gone", "T-extend"), ("rl_mg", "D")])
+    eq("round C report: T-extend row = the candidate's carried name, the target's written name and work",
+       {k: mrep["rl_gone"][k] for k in ("work_id", "market", "medium_before", "medium_after", "name_before",
+                                        "name_after", "held")},
+       {"work_id": "w_wm", "market": "EN", "medium_before": "manga", "medium_after": "manga",
+        "name_before": "The Water Magician (Tomes 4-6)", "name_after": "The Water Magician (Part 1)", "held": ""})
+    eq("round C meta: merge rows do not count as renames", mr["meta"]["renamed"], 1)
     eq("round C meta", on["meta"], {"renamed": 3, "retagged": 0, "held": {"held-lookup": 1}})
 
     # ---- round C medium guard (fix I2): an M retag that breaks origin / is_main / parents is held ----------
@@ -735,11 +748,12 @@ def fixture_heading_alias():
     return rows
 
 
-def rc_export(display, works, lines, titles=(), dnb_born=(), carry_rows=None, carry_country=True):
+def rc_export(display, works, lines, titles=(), dnb_born=(), carry_rows=None, carry_country=True, merged=None):
     """Round C export harness. works: [(wid, primary_title)]; lines: [(rid, wid, medium, market, name, n_vols)];
     titles: [(wid, lang, title, kind)]; dnb_born: rids given a DNB staging row (tier0/build_dnb.py);
     carry_rows: [(name, medium, language, market, tome_work_id)] for a minimal carry artifact (with or without
-    series.country). Exported with to_mangarr.DISPLAY_NAMES = `display`.
+    series.country; an optional 6th element sets the carry row's tome_id); merged: the roundc:merged meta rows
+    (tier0/round_c_merge.py). Exported with to_mangarr.DISPLAY_NAMES = `display`.
     -> {"series": {tome_id: row}, "aliases": {(tome_id, alias): (language, kind)}, "report": [row] | None,
         "meta": dict | None, "path": artifact path}"""
     import to_mangarr
@@ -765,6 +779,8 @@ def rc_export(display, works, lines, titles=(), dnb_born=(), carry_rows=None, ca
         for i, rid in enumerate(dnb_born):
             db.execute("""INSERT INTO dnb_line(key,rl_id,role,exported) VALUES(?,?,'linked',1)""",
                        ("dnb:%d" % (1000 + i), rid))
+    if merged is not None:
+        db.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('roundc:merged',?)", (json.dumps(merged),))
     db.commit(); db.close()
     carry = None
     if carry_rows is not None:
@@ -772,8 +788,11 @@ def rc_export(display, works, lines, titles=(), dnb_born=(), carry_rows=None, ca
         c = sqlite3.connect(carry)
         c.execute("CREATE TABLE series (tome_id TEXT, status TEXT, name TEXT, medium TEXT, language TEXT%s, "
                   "tome_work_id TEXT)" % (", country TEXT" if carry_country else ""))
-        for i, (name, medium, language, market, cwid) in enumerate(carry_rows):
-            if carry_country:
+        for i, (name, medium, language, market, cwid, *tid) in enumerate(carry_rows):
+            if tid:
+                c.execute("INSERT INTO series(tome_id,name,medium,language,tome_work_id) VALUES(?,?,?,?,?)",
+                          (tid[0], name, medium, language, cwid))
+            elif carry_country:
                 c.execute("INSERT INTO series(tome_id,name,medium,language,country,tome_work_id) VALUES(?,?,?,?,?,?)",
                           ("rl_old%d" % i, name, medium, language, market, cwid))
             else:

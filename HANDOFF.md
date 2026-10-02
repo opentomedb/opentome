@@ -2,6 +2,26 @@
 
 _Last updated: 2026-10-01 (KR/CN lift published as opentome-2026-10-02)_
 
+## Branch `round-c` (2026-10-02, NOT merged, NOT published) — line names
+
+Spec/plan: docs/superpowers/specs|plans/2026-10-02-round-c* (local, gitignored); reader doc `docs/round-c.md`.
+Ledger: .superpowers/sdd/2026-10-02-round-c/.
+
+- Export-time names (`export/display_names.py`, called from `export/to_mangarr.py`): classes D, S, W, M with guards
+  (within-work, cross-work, ISBN, medium, lookup replay). Ids hash the pipeline name, so nothing moves.
+- Stage 4c2 (`tier0/round_c_merge.py`): T continuation tails and W2 duplicate sections merge into the work's own
+  line (verdicts extend / duplicate / kept); decisions in DB meta `roundc:merged`, artifact meta `round_c_merges`
+  and `round_c_conflicts`; carried merges re-apply by id. 7b redirects the retired ids; the re-ship and moved-id
+  gates in `export/test_artifact.py` know about them.
+- Reports in `build/`, uploaded by `.github/workflows/catalogue.yml`: `round-c-report.tsv` (now with one row per
+  merge decision; a merged candidate's name before comes from the carry) and `round-c-anilist.tsv`
+  (`resolve_anilist.py --carry "$ID_CARRY"`, first call in `tier0/rebuild_all.sh`; before = the carry's id, after =
+  the id the first resolve pass leaves, so pins applied later by `corrections.py --anilist` are not in it).
+- Tests: export/test_to_mangarr.py (D row + T-extend row), export/test_display_names.py,
+  tier0/test_round_c_merge.py, tier0/test_carried_ids.py, export/test_resolve_anilist.py.
+- Next: local build + before/after diff (controller), reviews, Nick merges, CI, publish, Mangarr MetadataUpdate,
+  /fixed 1.
+
 ## 2026-10-01 — branch `krcn-lift`: the KR/CN hold (R6) lifted
 
 Spec/plan: docs/superpowers/specs|plans/2026-10-01-krcn-lift* (local, gitignored). Ledger:

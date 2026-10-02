@@ -444,6 +444,7 @@ def export(src_path, out_path, carry_ids_from=None):
 
     # reuse existing id assignments if a prior artifact is supplied
     mapping, taken, prev_status = {}, set(), {}
+    carry_names = {}        # round C report: the name a merged-away line shipped with (its claims are gone)
     carry_pairs = set()     # round C: (market, family, lower(name)) that two works' lines share in the carry
     # meta.carried_from: which published artifact this build's ids were carried from.
     # export/publish.sh refuses an artifact without it (unless OPENTOME_COLD_START=1).
@@ -468,6 +469,7 @@ def export(src_path, out_path, carry_ids_from=None):
             pass
         try:
             prev_status = dict(old.execute("SELECT tome_id, status FROM series"))
+            carry_names = dict(old.execute("SELECT tome_id, name FROM series"))
         except sqlite3.OperationalError:
             pass
         # round C cross-work guard: a carry predating series.country maps its language back to the market
@@ -1091,6 +1093,25 @@ def export(src_path, out_path, carry_ids_from=None):
         "renamed": sum(1 for r in rc_rows if r[5] != r[6]),
         "retagged": sum(1 for r in rc_rows if r[3] != r[4]),
         "held": dict(sorted(collections.Counter(r[8] for r in rc_rows if r[8]).items()))}, sort_keys=True)
+    # ... plus one row per stage-4c2 decision (tier0/round_c_merge.py roundc:merged): merged lines are gone from
+    # the catalogue, so a candidate's own name comes from the carry; medium/work/market are the target's
+    if DISPLAY_NAMES:
+        for d in sorted(json.loads((src.execute("SELECT value FROM meta WHERE key='roundc:merged'").fetchone()
+                                    or ["[]"])[0]), key=lambda d: (d[0], d[1])):
+            cand, target, kind, verdict_ = d[0], d[1], d[2], d[3]
+            rule = "carry-conflict" if verdict_ == "carry-conflict" else (
+                "kept" if verdict_ == "kept" else "%s-%s" % (kind or "T", verdict_))
+            merged_in = verdict_ in ("extend", "duplicate")
+            home = target if merged_in else cand
+            if home not in pipe and target in pipe:
+                home = target
+            if home not in pipe:
+                continue
+            before = pipe[cand][0] if cand in pipe else carry_names.get(cand, "")
+            after = (planned.get(home) or {"name": pipe[home][0]})["name"]
+            medium = (planned.get(home) or {"medium": pipe[home][1]})["medium"]
+            rc_rows.append((cand, line_of[home][0], line_of[home][1], medium, medium, before, after,
+                            rule, (d[7] if len(d) > 7 else "") or ""))
 
     src_counts = dict(src.execute("SELECT source, COUNT(*) FROM claim GROUP BY source"))
     dnb_degraded = (src.execute("SELECT value FROM meta WHERE key='dnb:degraded'").fetchone() or [None])[0]

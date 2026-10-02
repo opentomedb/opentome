@@ -173,7 +173,7 @@ if [ "$DB" != "$FINAL" ]; then
   echo "   catalogue -> $FINAL"
 fi
 echo "== 8. export ==";            python3 export/to_mangarr.py "$FINAL" "$ART.new" "$ID_CARRY"
-echo "== 8a. anilist ids ==";      python3 export/resolve_anilist.py "$ART.new"
+echo "== 8a. anilist ids ==";      python3 export/resolve_anilist.py "$ART.new" ${ID_CARRY:+--carry "$ID_CARRY"}
                                    python3 tier2/corrections.py --anilist "$ART.new"
                                    python3 export/resolve_anilist.py "$ART.new" --krcn-duplicates
                                    python3 export/resolve_anilist.py "$ART.new" --display

@@ -784,6 +784,36 @@ def report(lines, path):
                                "; ".join(ln["rejected"])]) + "\n")
 
 
+ROUND_C_HEADER = ["tome_id", "name", "anilist_before", "anilist_after"]
+
+
+def round_c_diff(db, carry_path):
+    """Round C: the lines present in both the carry (the previous artifact) and this one whose written name
+    differs from the carry's -> [(tome_id, name, anilist_before, anilist_after)], by tome_id. No network.
+    [] when the carry is missing or predates series.anilist_id."""
+    if not carry_path or not os.path.exists(carry_path):
+        return []
+    old = sqlite3.connect(carry_path)
+    try:
+        before = {t: (n, a) for t, n, a in old.execute("SELECT tome_id, name, anilist_id FROM series")}
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        old.close()
+    rows = []
+    for t, n, a in db.execute("SELECT tome_id, name, anilist_id FROM series ORDER BY tome_id"):
+        if t in before and before[t][0] != n:
+            rows.append((t, n, before[t][1], a))
+    return rows
+
+
+def write_round_c_diff(path, rows):
+    with open(path, "w", encoding="utf8") as f:
+        f.write("\t".join(ROUND_C_HEADER) + "\n")
+        for r in rows:
+            f.write("\t".join("" if x is None else str(x) for x in r) + "\n")
+
+
 # ---------------------------------------------------------------- KR/CN works without an English comic line
 
 KRCN_COUNTRIES = {"manhwa": ("KR",), "manhua": ("CN", "TW")}
@@ -1087,6 +1117,9 @@ def main(argv):
     ap.add_argument("--krcn-duplicates", action="store_true",
                     help="resolve nothing, only write the AniList-id collisions of works created in this build "
                          "into <build>/krcn-duplicates.tsv -- stage 8a runs it after the pins")
+    ap.add_argument("--carry", help="the previous artifact (stage 8's ID_CARRY): also write "
+                                    "<build>/round-c-anilist.tsv, tome_id / name / AniList id before and after for "
+                                    "every line whose name changed since it (round C; no network)")
     a = ap.parse_args(argv)
     build = os.path.dirname(os.path.abspath(a.artifact))
     db = sqlite3.connect(a.artifact)
@@ -1131,6 +1164,11 @@ def main(argv):
         report_krcn(kws, kpath)
         print("anilist: KR/CN works without an English comic line: %d considered, %d bound (%d line(s) written) -> %s"
               % (len(kws), sum(1 for kw in kws if kw["pick"]), nk, kpath))
+    if a.carry and not a.dry_run:
+        rows = round_c_diff(db, a.carry)
+        rcpath = os.path.join(build, "round-c-anilist.tsv")
+        write_round_c_diff(rcpath, rows)
+        print("anilist: %d renamed line(s) vs the carry -> %s" % (len(rows), rcpath))
     if a.covers and not a.dry_run:
         cpath = os.path.join(build, "anilist-covers.json")
         have, fetched = covers(db, cpath)
