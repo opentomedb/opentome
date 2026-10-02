@@ -40,6 +40,10 @@
 #                      enrichment: openBD caches whole 80-ISBN batches of the sorted JP ISBNs,
 #                      so a merge that drops one ISBN before it re-keys every later batch
 #                      (measured: 363 of 755 batch URLs) -- a request burst, or dates lost offline
+#   4c2. round C merges a continuation tail ("X (Tomes 31 à aujourd'hui)") or a duplicate section
+#                      line ("X (Mangas)") folds into the work's own line when its volumes extend or
+#                      repeat it (tier0/round_c_merge.py; meta roundc:merged; the carry's
+#                      round_c_merges are re-applied by id; 7b redirects the retired ids)
 #   5. clean           date_type, Jan-1 precision, malformed ISBNs
 #   5b. corrections    hand-checked values (corrections/), applied after clean
 #                      so clean cannot undo them and before resolve so the
@@ -157,6 +161,7 @@ echo "== 4. enrichment ==";        python3 tier1/enrich.py "$DB"
 echo "== 4b. covers ==";           python3 tier1/covers.py "$DB"
 echo "== 4b2. comic medium (KR/CN) =="; python3 tier0/comic_medium.py "$DB"
 echo "== 4c. merged works ==";     python3 tier0/carried_ids.py merge "$DB" "$ID_CARRY"
+echo "== 4c2. round C merges =="; python3 tier0/round_c_merge.py "$DB" "$ID_CARRY"
 echo "== 5. clean ==";             python3 tier2/clean.py "$DB"
 echo "== 5b. corrections ==";      python3 tier2/corrections.py "$DB"
 echo "== 6. resolve ==";           python3 tier2/resolve.py "$DB"
