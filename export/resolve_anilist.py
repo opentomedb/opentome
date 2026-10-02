@@ -1,6 +1,7 @@
-"""Bind OpenTome's English lines to AniList ids (series.anilist_id).
+"""Bind OpenTome's English lines, and the KR/CN works without an English comic line, to AniList ids
+(series.anilist_id).
 
-    python3 export/resolve_anilist.py [build/manga-metadata.sqlite] [--dry-run] [--limit N] [--only NAME] [--covers | --covers-only | --display]
+    python3 export/resolve_anilist.py [build/manga-metadata.sqlite] [--dry-run] [--limit N] [--only NAME] [--covers | --covers-only | --display | --krcn-duplicates]
 
 Mangarr resolves a series' poster / description / aliases from AniList by title, and the
 2026-09-15 audit (mangarr: docs/superpowers/specs/2026-09-15-manga-metadata-audit.md) found

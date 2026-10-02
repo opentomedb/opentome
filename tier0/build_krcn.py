@@ -13,14 +13,15 @@ before the enrichment:
   4. ids         krcn_identity.line_ids(reserved=the JP round's ids) -- "continuity first": a line
                  whose own-key id shipped keeps it; the carry lookup only for the others; no absorption
   5. attach      krcn_identity.attach_roles -- ISBN majority with an existing line, in any direction
-  6. decide      link (full-name authors, JP guard, link_work), cluster the unlinked lines of all
-                 markets, create works that pass §9's four criteria AND have an English COMIC line
-                 (manhwa / manhua; the anchor), hold the rest (R6: no id, no integer, a NULL rl_id in
-                 krcn_line, build/krcn-held.tsv; reason no-english-line | no-english-comic-line),
-                 keep published lines, adopt ids (R1)
+  6. decide      link (full-name authors, JP guard, link_work), apply lines.json cluster_with / review to
+                 the pooled lines, cluster the unlinked lines of all markets, create works that pass §9's
+                 four criteria AND have a COMIC line (manhwa / manhua; the anchor: the English one with the
+                 lowest key, else -- the lift, 2026-10-01 -- the lowest key in any market), hold a cluster of
+                 novels only (R6: no id, no integer, a NULL rl_id in krcn_line, build/krcn-held.tsv; reason
+                 novel-without-comic), keep published lines, adopt ids (R1)
   7. load        works, lines, volumes, claims (source dnb / loc / bnf, their licences, record urls),
                  staging krcn_line / krcn_member / loc_member, adoption renames -- all BEFORE 4c / 7b
-  8. files       build/krcn-review.tsv, krcn-held.tsv, krcn-new-works.tsv, krcn-report.json
+  8. files       build/krcn-review.tsv, krcn-held.tsv, krcn-new-works.tsv, krcn-duplicates.tsv, krcn-report.json
                  (gate_report: the Task 15 publish-gate lists); catalogue meta krcn:ids and
                  loc:degraded / bnf:degraded (record_meta; the export and publish.sh read them)
 

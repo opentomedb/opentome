@@ -74,14 +74,14 @@ published line.
   romanised original title keys only within one library — DNB syllable-splits, LoC uses
   ALA-LC, BnF usually carries none.
 
-## The R6 hold
+## The R6 hold (lifted 2026-10-01)
 
-A cluster that would otherwise qualify to create a new library work but has no English line is
-built, gated and written to `build/krcn-held.tsv` — it is not exported, and gets no `tome_id`,
-`tome_work_id` or `id_map` integer anywhere. Cross-market joins across DE/FR alone are not
-reliable enough for a permanent id (romanisation mismatch, no shared title), so held clusters
-wait for the Mangarr consumer round plus AniList binding for non-English-only works. A
-published line or work is never demoted to held.
+From 2026-09-27 to 2026-10-01 a cluster that would otherwise qualify to create a new library work but had
+no English line was built, gated and written to `build/krcn-held.tsv`, never exported. Mangarr 10.0.0.857
+adds and binds works without an English line, so the lift round creates them: the anchor is the comic line
+with the lowest key in any market (an FR+DE cluster anchors on its French line). A cluster of novels alone
+is still held (`novel-without-comic`); `build/krcn-held.tsv` is expected to be empty. A published line or
+work is never demoted to held.
 
 ## The files
 
@@ -93,6 +93,12 @@ published line or work is never demoted to held.
 - **`build/krcn-new-works.tsv`** — every new library work the build would create, for the
   fixture label pass (plan C5): `must_create`, or `must_not_create` with the existing work or
   the reason.
+- **`build/krcn-duplicates.tsv`** — every work created in the build whose title / native / original keys
+  are close (difflib ≥ 0.8) to another created or existing work's, and (from stage 8a) every created work
+  whose AniList id another work's line has. Rows at ≥ 0.9 and every AniList row need a correction or a
+  verdict in `export/fixtures/krcn_lift_duplicates_reviewed.tsv` (`export/test_artifact.py`).
+- **`build/krcn-anilist-bindings.tsv`** — every AniList id stage 8a gave a KR/CN work without an English
+  comic line, read in full before a publish.
 - **`build/krcn-report.json`** — the run's `gate` lists (blocking and informational), the
   `krcn:stats` summary, and the id ledger (kept / taken / `taken_weak` / left / deferred).
 - **`build/loc-report.json`** — per-channel LoC counts and `loc_degraded` state, so a new
@@ -248,3 +254,6 @@ every binding read (`build/krcn-anilist-bindings.tsv`); 5 new pins (38 in `corre
 
 `KRCN_MIN_WORKS` = 360 (measured 424 library works exported). Library measure 49/49; German JP round
 unchanged (meta `dnb_lines` and `build/dnb-review.tsv` equal to the carry's).
+
+Published 2026-10-02 (UTC) as `opentome-2026-10-02` (sha256 `9f6ceec7…`; build-only run 36943425972, publish run
+36945152362).

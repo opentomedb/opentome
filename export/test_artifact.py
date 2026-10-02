@@ -889,8 +889,8 @@ def run_krcn(path, catalogue, carry=None):
     us_gov_pd; anchored lccn / d-nb / ark urls with bnf line sources ark-only; no links in values; no
     library covers; no isbn13_alt; the LoC attribution; a held / review / unlinked line holds no id
     anywhere) -- and adds only what it does not cover: DLC provenance through loc_member, clean_claim,
-    the library dates, the works a build creates, never-demoted carried lines, the flood gate, novels,
-    disjoint keys, taken_weak, carried volumes' ISBNs, and the fixtures (P19 / P21). Provenance is read
+    the library dates, the works a build creates, never-demoted carried lines, the flood gate, carried library work titles, novels,
+    disjoint keys, taken_weak, carried volumes' ISBNs, the fixtures (P19 / P21) and the duplicate verdicts (build/krcn-duplicates.tsv against krcn_lift_duplicates_reviewed.tsv; the lift-input rule ran only while its fixture existed). Provenance is read
     from the catalogue (claims, krcn_line / krcn_member / loc_member, meta krcn:stats); the artifact
     carries meta.krcn_ids; the carry is opened read-only."""
     db, cat = sqlite3.connect(path), sqlite3.connect(catalogue)

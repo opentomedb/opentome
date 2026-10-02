@@ -20,7 +20,8 @@
 #   3f. krcn           Korean / Chinese print editions (docs/krcn-design.md): DNB spo=kor/chi (German),
 #                      BnF publisher channels (French), Library of Congress DLC-created records (English;
 #                      the canary first). Lines link to existing works, merge by ISBN, cluster across
-#                      markets; works are created only with an English line (the rest: build/krcn-held.tsv),
+#                      markets; works are created from a comic line in any market (novels alone:
+#                      build/krcn-held.tsv; duplicate candidates: build/krcn-duplicates.tsv),
 #                      ids adopted before 4c / 7b. Cold: DNB ~100, LoC ~110-160, BnF ~11 requests at >= 3 s;
 #                      warm: 1 (the LoC canary); CI: LOC/BNF_REFRESH_DAYS=28 (tier0/build_krcn.py)
 #   4b. covers         ISBN-keyed cover URLs from the cached openBD /
