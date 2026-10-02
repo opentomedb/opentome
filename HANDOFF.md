@@ -1,18 +1,55 @@
 # HANDOFF — OpenTome
 
-_Last updated: 2026-10-01 (KR/CN lift, in progress)_
+_Last updated: 2026-10-01 (KR/CN lift published as opentome-2026-10-02)_
 
-## 2026-10-01 — branch `krcn-lift`: the KR/CN hold (R6) lifted (IN PROGRESS, not merged)
+## 2026-10-01 — branch `krcn-lift`: the KR/CN hold (R6) lifted
 
-Spec/plan: docs/superpowers/specs|plans/2026-10-01-krcn-lift* (local, gitignored).
-- Inputs: the live artifact of catalogue run 44 (sha256 `c91484c4…`) is the carry at `build/manga-metadata.sqlite`
-  (copy kept at `build/lift-carry-44/`); its `krcn-held.tsv` is `export/fixtures/krcn_lift_input.tsv`.
-- **Gotcha: delete `export/fixtures/krcn_lift_input.tsv` in the commit after the lift's publish.** Its rule and the
-  flood-gate exemption run only while it exists.
-- **Gotcha: a successful local build moves its new artifact over `build/manga-metadata.sqlite`.** Copy
-  `build/lift-carry-44/manga-metadata.sqlite` back before the next local build, or the build carries from itself.
+Spec/plan: docs/superpowers/specs|plans/2026-10-01-krcn-lift* (local, gitignored). Ledger:
+.superpowers/sdd/2026-10-01-krcn-lift/progress.md. Design notes: `docs/krcn-design.md` §9 / §11 / §13 and the
+R6 ruling; `docs/krcn-market.md` "The R6 hold (lifted)" and "Lift build".
 
-## 2026-09-29 — branch `heading-cleanup`: section headings and KR/CN medium (cleanup round A+B, NOT merged)
+**PUBLISHED 2026-10-02 (UTC) as `opentome-2026-10-02`** (sha256 `9f6ceec7…`; publish run 36945152362; build-only
+run 36943425972 green and row-for-row identical to the gated local build). Merged to main at b8a2a6b (Nick merged
+it). Mangarr 10.0.0.857 pulled it (MetadataUpdate cmd 326970, Tower file sha `9f6ceec7`); lookups of the FR-only
+"PK" (Player Kill, `rl_317210cccfe3`), "Palais" and "Sabre et dragon" each return their line as an `fr` fallback
+under an English-only edition chain. FlightLog LEDGER 2026-10-01 19:25 (backup `before-20261001-1917-krcn-lift`).
+
+Shipped:
+- The 408 held clusters of catalogue run 44 (`krcn-held.tsv`, 444 lines) → **371 new library works**, 53 frozen
+  (published ids kept), 0 held, 91 review rows, 0 lift lines dropped. Exported: DE 327 lines / 1,399 volumes,
+  FR 176 / 986, EN 70 / 399; 424 library works. The flood gate was exempted by anchor-key id for this build only.
+- Anchor: the comic line with the lowest key in any market (`bnf:` sorts before `dnb:`, so a DE+FR cluster anchors
+  on its French line); a frozen work anchors on the line its id hashes, titled with the carried name.
+- Joins in `corrections/lines.json`: 22 `cluster_with` (the DE and FR halves of one work, e.g. Bibi) and 8
+  `link_work` (Athanasia → Who Made Me a Princess, Hanami, Chronicles of the Cursed Sword with `override_jp_guard`,
+  …); the `review` shape stops a build on a cluster until it is read. `tier2/corrections.py --check` validates all.
+- Duplicate gate: `build/krcn-duplicates.tsv` (29 rows this build) against
+  `export/fixtures/krcn_lift_duplicates_reviewed.tsv` (30 `not-a-duplicate` verdicts); rows at ≥ 0.9 and every
+  AniList-id row block without a verdict or a correction.
+- AniList 8a families `krcn-KR` / `krcn-CN` / `krcn-TW`: 369 works considered, 239 bound, 0 collisions, every
+  binding read (`build/krcn-anilist-bindings.tsv`); 5 pins (2 unbind `null`; 38 in `corrections/anilist.json`).
+  Projected dates are re-resolved after 7b (`tier2/resolve.py --dates`, `dated_by_now`).
+- Floors raised (`export/measure_library.py`): DE 278 / 1,189, FR 150 / 838, `KRCN_MIN_WORKS` 360. Measure 49/49;
+  carried ids 0 lost; German JP round unchanged.
+- Review: 20 plan tasks, each task-reviewed, whole-branch review clean; fix rounds F1a–F6 are in the ledger.
+
+Gotchas:
+- `export/fixtures/krcn_lift_input.tsv` is DELETED (this commit): its lift-input rule and the flood-gate exemption
+  ran only while it existed.
+- The `cluster_with` entries STAY — they are not cleanup. Without one, the two halves it joined are decided as
+  separate clusters again.
+- A `cluster_with` / `review` key whose line is published and now placed elsewhere prints `CLUSTER_WITH SKIPPED` /
+  `REVIEW SKIPPED` and is harmless (delete the entry when convenient).
+- A weekly build that stops on a `review` entry whose line the linker now links, or whose reviewed cluster has
+  gained a carried (published) line (`lines.json review <key> (cluster <cid>): it holds the published line …`):
+  delete that entry, or replace it with a `link_work`.
+- The duplicate gate is permanent: a new row needs a correction or a verdict in the reviewed fixture.
+- A wrong binding with no right AniList entry gets an unbind pin (`anilist_id: null`), which 8a respects in every
+  later run. The R2 ceiling is off only for the krcn-* families.
+- A successful local build moves its artifact over `build/manga-metadata.sqlite`: copy the published artifact
+  back before the next local build, or the build carries from itself.
+
+## 2026-09-29 — branch `heading-cleanup`: section headings and KR/CN medium (cleanup round A+B)
 
 Spec/plan: docs/superpowers/specs|plans/2026-09-29-heading-cleanup* (local, gitignored). Ledger:
 .superpowers/sdd/2026-09-29-heading-cleanup/progress.md.
@@ -35,8 +72,8 @@ Done:
   allowance needed — plan Task 7 skipped); 0 lost ids, 0 lost ISBNs, 0 copies; E1/E3 0; library 49/49; German JP
   round unchanged apart from King of Hell DE (a 4b2 flip).
 
-Next: Nick merges; regenerate + upload the CI seed (plan C7.3, exclude-tar keeps the 458 Google Books files out);
-build-only CI; publish; Mangarr MetadataUpdate; FlightLog.
+**PUBLISHED 2026-09-29 17:01 as `opentome-2026-09-29`** (sha256 `c91484c4…`, catalogue run 44); merged to main
+(bbc5784 was main when the lift branched). It is the carry the KR/CN lift built on.
 
 Gotchas / left for round C:
 - Held class-2 lines keep their pre-round 'manga' medium (Hyouka (Roman), Goblin Slayer / Tsukimichi (Roman

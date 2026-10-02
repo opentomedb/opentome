@@ -355,6 +355,13 @@ All measured [M]. The measure replay therefore cannot flip on these three.
    - Measured false "new" works that this catches: DE *Raeliana* (Altraverse, 9 vols) is the existing *Why Raeliana Ended Up at the Duke's Mansion*.
    - DE *Athanasia – plötzlich Prinzessin* (9 vols) is the existing *Who Made Me a Princess*. The guard does **not** catch it. It carries only a syllable-split romanised original title ("Eo neu nal gong ju ga doe eo beo lyeoss da") and syllable-split creators ("Seu pun" = Spoon) [M]. This is the class of error the review file exists for.
 
+**Lifted 2026-10-01.** Mangarr 10.0.0.857 adds and binds works without an English line, so the hold for
+comics is lifted: a cluster that meets all four bars is created when it has a comic line in any market (the
+anchor, below), and `novel-without-comic` is the only hold reason left. The paragraph below records the rule
+as it stood from 2026-09-27 to 2026-10-01; the lift added a duplicate-candidate list
+(`build/krcn-duplicates.tsv`, a permanent gate against `export/fixtures/krcn_lift_duplicates_reviewed.tsv`)
+and the `lines.json` shapes `cluster_with` / `review` (`corrections/README.md`).
+
 **The hold (R6).** A cluster that meets all four but has no English line is **held**: it is built, gated and written to `build/krcn-held.tsv`, and it is not exported. Gates:
 - No library-created work is exported without an English line. This applies to works created in the current build; a carried library work keeps exporting even when a later build loses its English line (below).
 - A held cluster never reaches `work`, `release_line` or `id_map`: no `tome_id`, no `tome_work_id`, no integer is issued for it. It lives only in the `krcn_line` / `krcn_member` staging and the hold file.
@@ -364,7 +371,14 @@ All measured [M]. The measure replay therefore cannot flip on these three.
 
 **Flood gate.** A refresh build may create at most `MAX_NEW_LIBRARY_WORKS = 20` new library works (the pattern of `MAX_MOVED_IDS` in `export/test_artifact.py`). The first build is gated instead by the new-work fixture (§13).
 
-**What the work id hashes.** `w_<hash("krcn|" + anchor line key)>`. Only exported works get an id, and every one has an English line: the anchor is its English line (lowest key if several). Library works are created **after** Wikipedia works and linking (a stage `3f`), so a work Wikipedia knows is never duplicated in the same build.
+**What the work id hashes.** `w_<hash("krcn|" + anchor line key)>`. The anchor is the cluster's English
+comic line (lowest key if several); a cluster with none (since the lift, 2026-10-01) anchors on its comic
+line with the lowest key in any market — `bnf:` sorts before `dnb:`, so a DE+FR cluster anchors on its French
+line, and a novel never anchors (c0292: the novel dnb:1362777552 has the lower key, the anchor is the comic
+dnb:1369956126). The work's title is the anchor line's name. A frozen work's anchor is the line whose key
+its id hashes, titled with that line's carried name (checked every build against the carry); only without
+such a line does the first round's rule apply (the English comic line, else the cluster's first line). Library works are created **after** Wikipedia
+works and linking (a stage `3f`), so a work Wikipedia knows is never duplicated in the same build.
 
 **Frozen through the carry.**
 - Rule: once published, a library work keeps its id. The anchor can change later (the anchor LoC line re-keys, splits, or merges into a Wikipedia line), and re-hashing would then re-key the work.
@@ -449,7 +463,12 @@ Existing practice is `export/resolve_anilist.py` stage 8a:
 - AniList `volumes` is typically null for webtoons. The volume rule skips null, so binding falls to title equality alone. The existing R1 guard (a synonym never beats a primary title) still applies.
 - `format_not: NOVEL` also admits `MANHWA`-country entries; AniList's format for manhwa is `MANGA`. Mangarr does not request `countryOfOrigin` either (§14).
 
-**Works with only DE/FR lines (~448 [E]).** Held under R6; binding follows the Mangarr consumer round (R3). Pins in `corrections/anilist.json` remain the per-work manual path for exported works.
+**Works with only DE/FR lines (lifted 2026-10-01).** Stage 8a binds them in families of their own
+(`krcn-KR`, `krcn-CN`, `krcn-TW`: AniList `countryOfOrigin` KR for manhwa, CN then TW for manhua), one search
+set per work over its main comic lines (the French and German names with their de-slug and R6 retries, the
+native and romanized titles, up to 3 aliases), equality tiers only (R1, R7, V3; R4, R5, V1, V2 off); the id
+goes to every main comic line of the work. Every binding is listed in `build/krcn-anilist-bindings.tsv` and
+read in full before a publish; a wrong one is pinned in `corrections/anilist.json`.
 
 ## 12. Dates
 
@@ -489,7 +508,7 @@ Existing practice is `export/resolve_anilist.py` stage 8a:
 - `loc`, `bnf` and `dnb` published dates are year precision; projected dates are month precision and never override published or on_sale.
 - No volume dated from a `263 1111`.
 - **Every library-created work has at least one line with explicit KR/CN origin and at least one comic line.** No library-created work has a JP-market line.
-- **R6.** No library work created in this build is exported without an English line. No held cluster has a `tome_id`, `tome_work_id` or `id_map` integer (read from the `krcn_line` staging through the catalogue path). No carried line or work is absent from the export because it was held (never demoted).
+- **R6.** (Lifted 2026-10-01: a created work no longer needs an English line; it needs a comic line.) No held cluster has a `tome_id`, `tome_work_id` or `id_map` integer (read from the `krcn_line` staging through the catalogue path). No carried line or work is absent from the export because it was held (never demoted).
 - **Flood gate.** At most `MAX_NEW_LIBRARY_WORKS` new library works in a refresh build.
 - No `novel` line in a work without a comic line.
 - `dnb_line` and `krcn_line` keys are disjoint (§10).
@@ -662,5 +681,5 @@ Exported and held under R6 [E, provisional; spike clustering, before the explici
 - **R5 French backlist.** Pre-2015 French manhwa (137 of 203 FR lines) are included.
 - **Pre-build items** (plan tasks): regenerate the CI cache seed from the full local `.cache`, built with the production clients; per-ISBN cache keys in the Open Library enrichment; the Hangul fold() change leaves every non-Hangul key byte-identical, gated by a German JP replay (0 changed keys, tiers, roles, exported flags).
 - **Sequence:** this OpenTome round (Phase A, then Phase B) → publish → Mangarr consumer round (find line by anilist_id, non-English-only works, IsCounterpart without orig_series_id, AniList countryOfOrigin, KR/CN volume tokens + Hangul, japaneseTotal naming, Collections) → AniList binding for non-English-only works.
-- **R6 Hold works with no English line (controller, 2026-09-27, after review).** ~448 candidate works without an English line (DE-only 292, FR-only 133, DE+FR 23) [E] cannot be joined across markets reliably (German vs French titles, romanisation mismatch), and ids are a public contract — a wrong split becomes a published merge + redirect. This round builds and gates them but EXPORTS only: lines linked to existing works (DE 23 / FR 21 / EN 11 [M]) and new works that have an English line (72 clusters [E]; 57 after the Ize review (§7) [E, provisional]) with their DE/FR siblings. The rest go to a hold file (`build/krcn-held.tsv`, like dnb-review.tsv) until the Mangarr consumer round + AniList binding can join them (DNB decision-1 precedent). Gates in §9 and §13: no exported work created in the build without an EN line; held clusters get no ids or integers; a published line or work is never demoted to held.
+- **R6 Hold works with no English line (controller, 2026-09-27, after review).** ~448 candidate works without an English line (DE-only 292, FR-only 133, DE+FR 23) [E] cannot be joined across markets reliably (German vs French titles, romanisation mismatch), and ids are a public contract — a wrong split becomes a published merge + redirect. This round builds and gates them but EXPORTS only: lines linked to existing works (DE 23 / FR 21 / EN 11 [M]) and new works that have an English line (72 clusters [E]; 57 after the Ize review (§7) [E, provisional]) with their DE/FR siblings. The rest go to a hold file (`build/krcn-held.tsv`, like dnb-review.tsv) until the Mangarr consumer round + AniList binding can join them (DNB decision-1 precedent). Gates in §9 and §13: no exported work created in the build without an EN line; held clusters get no ids or integers; a published line or work is never demoted to held. **Lifted 2026-10-01** for clusters with a comic line (Mangarr 10.0.0.857; HANDOFF 2026-10-01).
 - **R7 LoC paging (rewritten after review).** The 42 SRU diagnostics [M] are all diagnostic 61 "First record position out of range". The spike shows them page-size-dependent and partly transient, not a deep-position window: they fired at `startRecord=1` on sets of 63–137 records, three pages that failed 3 times at 100 per page succeeded at 50, and two failed pages later succeeded unchanged. The client pages each page through a ladder: bounded retry at the same size, then a smaller page (100 → 50 → 25), then slices (narrower ISBN prefixes, subject + year). It asserts distinct records == announced count per slice (DNB-style completeness) and caches whole sets only. Degraded mode is one rule: use the previous complete cached set, set `meta.loc_degraded`, and refuse to publish; with no cached set, the stage fails. All of this is in place before CI depends on LoC (§3).
