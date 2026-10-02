@@ -150,7 +150,7 @@ def _norm_q(s):
 MANGA_FAMILY = ("manga", "manhwa", "manhua", "webtoon", None)
 
 
-def _rank(cands, prefer_novel=False):
+def _rank(cands, query, prefer_novel=False):
     """Private copy of measure_library.rank_new's ranking rule (keep in sync with it)."""
     en = [c for c in cands if c["language"] == "en"]
     if prefer_novel:
@@ -164,7 +164,7 @@ def _rank(cands, prefer_novel=False):
 
 def _lookup_pick(lines, key, query, prefer_novel):
     nq = _norm_q(query)
-    return _rank([dict(l, exact=_norm_q(l[key]) == nq) for l in lines], prefer_novel)
+    return _rank([dict(l, exact=_norm_q(l[key]) == nq) for l in lines], query, prefer_novel)
 
 
 def lookup_holds(before, after):

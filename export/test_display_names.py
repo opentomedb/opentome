@@ -111,7 +111,7 @@ def run_rank_agrees():
                          "a": ["The Water Magician", "The Water Magician (Part 1)"]}[key]
                 ls = [C("ln", "w", names[0], "light_novel", sid=1), C("mg", "w", names[1], "manga", sid=2)]
                 cs = [dict(l, exact=dn._norm_q(l["name"]) == dn._norm_q(q)) for l in ls]
-                got, want = dn._rank(cs, pn), ml.rank_new(cs, q, pn)
+                got, want = dn._rank(cs, q, pn), ml.rank_new(cs, q, pn)
                 eq("rank agrees with measure_library (%s, %s, novel=%s)" % (q, side, pn),
                    got and got["tome_id"], want and want["tome_id"])
     eq("MANGA_FAMILY agrees", dn.MANGA_FAMILY, ml.MANGA_FAMILY)
