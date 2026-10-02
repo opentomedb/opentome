@@ -112,8 +112,9 @@ There is also a [Discord](https://discord.gg/bQVwv54KdP): `#corrections` is a fo
 9. **Export** — the consumer-shaped `manga-metadata.sqlite`, with AniList ids for the
    English lines and ids carried forward from the previous build.
 10. **Gates** — the artifact contract test, then a replay of a real library's series
-    matching against the committed fixture (`export/fixtures/library.json`); a coverage
-    failure fails the build before the new artifact replaces the old one.
+    matching against a private library fixture (not in git; CI reads it from a secret, and
+    its per-series report never leaves the build machine); a coverage failure fails the
+    build before the new artifact replaces the old one.
 
 Every source response is cached under `.cache/` (never committed — it is raw third-party
 data), so a re-run costs minutes and zero requests; a cold build re-fetches everything

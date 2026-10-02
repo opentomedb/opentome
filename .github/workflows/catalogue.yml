@@ -123,6 +123,19 @@ jobs:
             echo "BNF_OFFLINE=1" >> "$GITHUB_ENV"
             echo "BNF_UNREACHABLE=1" >> "$GITHUB_ENV"
           fi
+      # The measure gate's library fixture is a real collection, kept out of git: written from a
+      # secret, read only by the gate, whose per-series report (build/measure-library.log) is
+      # never printed or uploaded. No secret (a fork) -> the build fails at 8d by design.
+      - name: library fixture (private)
+        env:
+          LIBRARY_JSON: ${{ secrets.OPENTOME_LIBRARY_JSON }}
+        run: |
+          if [ -n "$LIBRARY_JSON" ]; then
+            printf '%s' "$LIBRARY_JSON" | base64 -d > export/fixtures/library.json
+            echo "library fixture written"
+          else
+            echo "::warning::OPENTOME_LIBRARY_JSON is not set -- the measure gate will fail"
+          fi
       # Runs every stage including the measure gate (8d, writes build/measure.log)
       # and exits non-zero on any test, audit, contract or coverage failure.
       # DNB freshness window (Nick 2026-09-24: a weekly refresh, no manual step): the build
@@ -191,14 +204,13 @@ jobs:
           label=$(python3 -c "import json; print(json.load(open('build/version.json'))['gcd_dump'])")
           series=$(sqlite3 build/manga-metadata.sqlite 'SELECT COUNT(*) FROM series')
           volumes=$(sqlite3 build/manga-metadata.sqlite 'SELECT COUNT(*) FROM volumes')
-          gate=$(grep -m1 '^matched ' build/measure.log || echo 'measure gate: see the run log')
-          body=$(python3 - "$label" "$series" "$volumes" "$gate" <<'EOF'
+          body=$(python3 - "$label" "$series" "$volumes" <<'EOF'
           import json, sys
-          label, series, volumes, gate = sys.argv[1:5]
+          label, series, volumes = sys.argv[1:4]
           print(json.dumps({"username": "OpenTome", "embeds": [{
               "title": f"Catalogue published: {label}", "color": 0x7a43b6,
               "url": "https://github.com/opentomedb/mangarr-metadata/releases/tag/" + label,
-              "description": f"{int(series):,} series, {int(volumes):,} volumes. {gate}\nMangarr picks it up on its next daily check."}]}))
+              "description": f"{int(series):,} series, {int(volumes):,} volumes.\nMangarr picks it up on its next daily check."}]}))
           EOF
           )
           curl -sS -o /dev/null -w 'discord: %{http_code}\n' -A "OpenTome-CI/1.0" -H 'Content-Type: application/json' --data "$body" "$HOOK"

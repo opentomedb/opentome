@@ -333,10 +333,20 @@ def measure_krcn(art_path, catalogue, carry=None, check_ids=True):
 
 
 if __name__ == "__main__":
-    args = [a for a in sys.argv[1:] if not a.startswith(("--catalogue=", "--carry="))]
+    args = [a for a in sys.argv[1:] if not a.startswith(("--catalogue=", "--carry=", "--private-log="))]
     cat = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--catalogue=")), None)
     carry = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--carry=")), None) or None
-    rows, fails = measure(args[0], args[1], args[2] if len(args) > 2 else None)
+    private = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--private-log=")), None)
+    if private:
+        # The library is a real person's collection: its table (series, owned volumes, picks) and
+        # every number derived from it go to this file only -- never to a public CI log, artifact
+        # or announcement. Stdout gets the verdict alone.
+        import contextlib
+        with open(private, "w", encoding="utf-8") as fh, contextlib.redirect_stdout(fh):
+            rows, fails = measure(args[0], args[1], args[2] if len(args) > 2 else None)
+        print("library gate: " + ("ok" if not fails else "FAIL -- details in " + private))
+    else:
+        rows, fails = measure(args[0], args[1], args[2] if len(args) > 2 else None)
     de_fails = measure_de(args[0], cat)
     kr_fails = measure_krcn(args[0], cat, carry) if cat else []
     sys.exit(1 if fails or de_fails or kr_fails else 0)
