@@ -14,6 +14,15 @@ it). Mangarr 10.0.0.857 pulled it (MetadataUpdate cmd 326970, Tower file sha `9f
 "PK" (Player Kill, `rl_317210cccfe3`), "Palais" and "Sabre et dragon" each return their line as an `fr` fallback
 under an English-only edition chain. FlightLog LEDGER 2026-10-01 19:25 (backup `before-20261001-1917-krcn-lift`).
 
+**The public release is the REBUILD `930e12ac…` (publish run 36945214575, 00:29 UTC), not `9f6ceec7`.** Two
+copies of the same Claude session (a terminal `--resume` and a desktop fork) ran Tasks 17–18 in parallel; the
+second publish run rebuilt the same commit b8a2a6b with `9f6ceec7` as its carry, so every series and volume row,
+every binding and the measure are identical — only `meta.carried_from` / `carried_sha256`, `krcn_ids.created`
+(empty: the 371 works are carried now), `krcn-duplicates.tsv` (empty) and `status-transitions.tsv` (no
+transitions) differ. Tower kept `9f6ceec7` until Mangarr's daily metadata check pulled `930e12ac`; both runs posted
+the same "Catalogue published" embed in Discord #catalogue. Gotcha: never run one session twice (`claude --resume`
+in a terminal while the desktop app holds the same conversation) during a publish round.
+
 Shipped:
 - The 408 held clusters of catalogue run 44 (`krcn-held.tsv`, 444 lines) → **371 new library works**, 53 frozen
   (published ids kept), 0 held, 91 review rows, 0 lift lines dropped. Exported: DE 327 lines / 1,399 volumes,

@@ -256,4 +256,6 @@ every binding read (`build/krcn-anilist-bindings.tsv`); 5 new pins (38 in `corre
 unchanged (meta `dnb_lines` and `build/dnb-review.tsv` equal to the carry's).
 
 Published 2026-10-02 (UTC) as `opentome-2026-10-02` (sha256 `9f6ceec7…`; build-only run 36943425972, publish run
-36945152362).
+36945152362), then re-published 25 minutes later by a second, parallel copy of the session (publish run
+36945214575, sha256 `930e12ac…`): a rebuild of the same commit carrying `9f6ceec7`, row-for-row identical, so the
+public release carries `930e12ac…` and reports 0 works created in its own build (the 371 are carried).
