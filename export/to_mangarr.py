@@ -919,6 +919,27 @@ def export(src_path, out_path, carry_ids_from=None):
                   for r in out.execute("SELECT %s FROM series WHERE language='en' ORDER BY tome_id" % cols)]
         before = [dict(c, name=pipe[c["tome_id"]][0], medium=pipe[c["tome_id"]][1]) for c in after0]
         written = {t: (pl["name"], pl["medium"]) for t, pl in planned.items()}
+        # Origin guard (controller ruling, round C build 1): a licensed line and an origin-market line pair by
+        # written name (the contract's status rule, Mangarr). A licensed line renamed to the name of a same-work,
+        # same-medium origin-market line that is NOT its orig_series_id line would pair falsely (the FR "A
+        # Condition Called Love (Médias)" renamed onto the JA MAIN line, not its JA Médias origin) -> held.
+        origin_langs = ("ja", "ko", "zh")
+        lang_of = {rid: MARKET_LANG.get(market, market.lower()) for rid, wid, market, *_ in lines}
+
+        def origin_holds():
+            by_name = {}
+            for o, pl in planned.items():
+                if lang_of[o] in origin_langs:
+                    by_name.setdefault((line_of[o][0], pl["medium"], pl["name"]), set()).add(o)
+            new = set()
+            for t, pl in planned.items():
+                if lang_of[t] in origin_langs or (pl["name"], pl["medium"]) == pipe[t]:
+                    continue
+                if by_name.get((line_of[t][0], pl["medium"], pl["name"]), set()) - {orid_of[t]}:
+                    hold(t, "held-origin")
+                    new.add(t)
+            return new
+
         for _ in range(5):
             after = [dict(c, name=planned[c["tome_id"]]["name"], medium=planned[c["tome_id"]]["medium"])
                      for c in after0]
@@ -926,7 +947,7 @@ def export(src_path, out_path, carry_ids_from=None):
             for t in new:
                 hold(t, "held-lookup")
             # a revert can recreate a within-work clash (fix I3): re-run that guard on the written values
-            if not (new | clash_holds()):
+            if not (new | clash_holds() | origin_holds()):
                 break
         else:
             raise AssertionError("round C lookup guard did not converge in 5 passes")

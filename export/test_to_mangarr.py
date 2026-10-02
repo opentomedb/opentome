@@ -370,6 +370,29 @@ def run():
     eq("round C I3: held labels", {r["tome_id"]: r["held"] for r in xf["report"]},
        {"rl_a": "held-lookup", "rl_b": "held-clash"})
 
+    # ---- round C held-origin (build 1): a licensed rename onto an origin-market line that is not its origin ----
+    # A Condition Called Love: JA "(Médias)" 18 (held: renaming it clashes with the JA main line) and JA main 19;
+    # the FR "(Médias)" line's origin is the JA Médias line. Rule W would write FR "X" -- the JA MAIN line's name,
+    # a false pairing for the contract's status rule and Mangarr.
+    ho = rc_export(True, [("w_x", "X")],
+                   [("rl_xjm", "w_x", "manga", "JP", "X (Médias)", 18),
+                    ("rl_xj", "w_x", "manga", "JP", "X", 19),
+                    ("rl_xfr", "w_x", "manga", "FR", "X (Médias)", 18)])
+    eq("round C held-origin: the FR line keeps its pipeline name and medium",
+       (ho["series"]["rl_xfr"]["name"], ho["series"]["rl_xfr"]["medium"]), ("X (Médias)", "manga"))
+    eq("round C held-origin: its orig_series_id is the JA Médias line",
+       ho["series"]["rl_xfr"]["orig_series_id"], ho["series"]["rl_xjm"]["gcd_series_id"])
+    rep_ho = {r["tome_id"]: r for r in ho["report"]}
+    eq("round C held-origin: reported held-origin", (rep_ho["rl_xfr"]["held"], rep_ho["rl_xfr"]["rules"]),
+       ("held-origin", ""))
+    hodb = sqlite3.connect(ho["path"])
+    eq("round C held-origin: no licensed line shares a name with an origin-market line other than its origin",
+       hodb.execute("""SELECT COUNT(*) FROM series l JOIN series o
+                       ON o.tome_work_id=l.tome_work_id AND o.medium=l.medium AND o.name=l.name
+                       AND o.language IN ('ja','ko','zh') AND l.language NOT IN ('ja','ko','zh')
+                       WHERE o.gcd_series_id IS NOT l.orig_series_id""").fetchone()[0], 0)
+    hodb.close()
+
     # ---- round C born (ruling): a DNB-born line keeps its name; a Wikipedia line of the same work does not ----
     dn = rc_export(True, [("w_g", "Gate (novel series)")],
                    [("rl_dnb", "w_g", "light_novel", "DE", "Gate (novel series)", 2),
