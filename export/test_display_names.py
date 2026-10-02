@@ -53,8 +53,35 @@ def run_sw():
        ("86: Eighty-Six - Fragmental Neoteny", "manga", ["D", "S"]))
     eq("display: untouched", dn.display("Naruto (2e partie)", "Naruto", "manga"), ("Naruto (2e partie)", "manga", []))
 
+def L(tid, wid, wt, name, medium="manga", market="JP", born=False):
+    fam = "comic" if medium in ("manga", "manhwa", "manhua") else medium
+    return {"tome_id": tid, "work_id": wid, "work_title": wt, "market": market, "medium": medium,
+            "family": fam, "name": name, "born": born}
+
+def run_guards():
+    r = dn.plan_names([L("a", "w1", "Whispered Words", "Whispered Words (Médias)")], set(), {})
+    eq("guard: alone -> renamed", (r["a"]["name"], r["a"]["held"]), ("Whispered Words", None))
+    r = dn.plan_names([L("a", "w1", "Insomniacs", "Insomniacs (Mangas)"), L("b", "w1", "Insomniacs", "Insomniacs")], set(), {})
+    eq("guard: within-work clash -> pipeline name kept", (r["a"]["name"], r["a"]["held"]), ("Insomniacs (Mangas)", "held-clash"))
+    eq("guard: the sibling is untouched", r["b"]["name"], "Insomniacs")
+    r = dn.plan_names([L("a", "w1", "Gate (novel series)", "Gate (novel series)"), L("b", "w2", "Gate", "Gate")], set(), {})
+    eq("guard: cross-work clash keeps the disambiguator", (r["a"]["name"], r["a"]["held"]), ("Gate (novel series)", "held-cross"))
+    r = dn.plan_names([L("a", "w1", "Gate (novel series)", "Gate (novel series)"), L("b", "w2", "Gate", "Gate")],
+                      {("JP", "comic", "gate")}, {})
+    eq("guard: a pair the carry already had is not new -> renamed", r["a"]["name"], "Gate")
+    r = dn.plan_names([L("a", "w1", "Solo Leveling", "Solo Leveling (Roman web)", market="KR"),
+                       L("b", "w1", "Solo Leveling", "Solo Leveling", market="KR")], set(),
+                      {"a": {"1", "2", "3"}, "b": {"1", "2", "3"}})
+    eq("guard: M retag held when the line duplicates a line by ISBN", (r["a"]["medium"], r["a"]["held"]), ("manga", "held-isbn"))
+    r = dn.plan_names([L("a", "w1", "Hyouka", "Hyouka (Roman)"), L("b", "w1", "Hyouka", "Hyouka", medium="novel")], set(), {})
+    eq("guard: retag into a medium where the name exists -> clash held", (r["a"]["name"], r["a"]["medium"], r["a"]["held"]),
+       ("Hyouka (Roman)", "manga", "held-clash"))
+    r = dn.plan_names([L("a", "w1", "X (novel series)", "X (novel series)", born=True)], set(), {})
+    eq("guard: library-born line never renamed", (r["a"]["name"], r["a"]["rules"]), ("X (novel series)", []))
+
 if __name__ == "__main__":
     run_d()
     run_sw()
+    run_guards()
     print("FAILED: %d" % len(FAILS) if FAILS else "all passed")
     sys.exit(1 if FAILS else 0)
