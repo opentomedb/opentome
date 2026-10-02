@@ -158,6 +158,8 @@ jobs:
             build/anilist-resolve-report.tsv
             build/measure.log
             build/status-transitions.tsv
+            build/round-c-report.tsv
+            build/round-c-anilist.tsv
             build/dnb-review.tsv
             build/dnb-report.json
             build/dnb-netlog.tsv
