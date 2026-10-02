@@ -201,4 +201,17 @@ eq("export: meta round_c_merges lists applied merges only",
    json.loads((A.execute("SELECT value FROM meta WHERE key='round_c_merges'").fetchone() or ["null"])[0]),
    [[tail, main, "extend", "T"]])
 A.close()
+
+# a carry-conflict ships the candidate again on purpose: the export lists it in meta round_c_conflicts
+p = catalogue("export-conflict", [(BB, "Kuroshitsuji", [("FR", "manga", "Black Butler", vols(1, 32)),
+                                                         ("FR", "manga", TAIL, vols(5, 5, 31))])])
+m.run(p, c1)
+art = p.replace(".db", ".sqlite")
+export(p, art, None)
+A = sqlite3.connect(art)
+meta = dict(A.execute("SELECT key, value FROM meta"))
+eq("export: meta round_c_conflicts lists the refused carried merge, round_c_merges stays absent",
+   (json.loads(meta.get("round_c_conflicts", "null")), "round_c_merges" in meta),
+   ([[tail, main, "verdict:kept"]], False))
+A.close()
 print("FAILED: %d" % len(FAILS) if FAILS else "all passed"); sys.exit(1 if FAILS else 0)

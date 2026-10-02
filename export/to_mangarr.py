@@ -1103,6 +1103,11 @@ def export(src_path, out_path, carry_ids_from=None):
     round_c_merges = json.dumps(sorted([d[0], d[1], d[3], d[2]] for d in json.loads(
         (src.execute("SELECT value FROM meta WHERE key='roundc:merged'").fetchone() or ["[]"])[0])
         if d[3] in ("extend", "duplicate")))
+    # carried merges this build refused (verdict carry-conflict): the candidate ships again on purpose, so
+    # export/test_artifact.py's re-ship gate exempts exactly these ids -- [candidate, target, reason]
+    round_c_conflicts = json.dumps(sorted([d[0], d[1], d[7] if len(d) > 7 else ""] for d in json.loads(
+        (src.execute("SELECT value FROM meta WHERE key='roundc:merged'").fetchone() or ["[]"])[0])
+        if d[3] == "carry-conflict"))
     # KR/CN (stage 3f): a degraded LoC / BnF refresh (publish.sh refuses it, like dnb_degraded), and the
     # library-born works and lines, listed for the next build's carry lookup (krcn_identity.read_carry,
     # plan P3) -- only ids this artifact actually ships (R6: a held line's id never reaches it)
@@ -1183,6 +1188,7 @@ def export(src_path, out_path, carry_ids_from=None):
       + ([("carried_sha256", carried_sha256)] if carried_sha256 else []) \
       + ([("merged_lines", merged_lines)] if merged_lines != "[]" else []) \
       + ([("round_c_merges", round_c_merges)] if round_c_merges != "[]" else []) \
+      + ([("round_c_conflicts", round_c_conflicts)] if round_c_conflicts != "[]" else []) \
       + ([("round_c_names", round_c_names)] if DISPLAY_NAMES else []):
         # dnb_degraded / loc_degraded / bnf_degraded: the source failed during this build's refresh --
         # export/publish.sh refuses it

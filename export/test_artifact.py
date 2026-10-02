@@ -386,6 +386,39 @@ MAX_RETIRED_LINES = 10
 # found a successor; the count is always printed.
 MAX_MOVED_IDS = 500
 
+NAME_FAMILY = {"manga": "comic", "manhwa": "comic", "manhua": "comic", "webtoon": "comic"}
+
+
+def name_collisions(db, C):
+    """Round C name rules (spec §5), on the exported names: one work never has two lines of one
+    (language, medium) with the same lower(name); and two different works never share a
+    (language, comic-or-medium family, lower(name)) unless the carry already shared it."""
+    need = {"tome_work_id", "language", "medium", "name"}
+    def pairs(d):
+        have = {r[1] for r in d.execute("PRAGMA table_info(series)")}
+        if not need <= have:
+            return None
+        return d.execute("SELECT tome_work_id, language, medium, lower(name) FROM series "
+                         "WHERE name IS NOT NULL AND tome_work_id IS NOT NULL").fetchall()
+    now, before = pairs(db), pairs(C)
+    if now is None:
+        print("  note  round C name rules skipped: this artifact's series lacks " + ", ".join(sorted(need)))
+        return
+    dup = [k for k, n in collections.Counter(now).items() if n > 1]
+    rule("lines of one work, language and medium sharing a name", len(dup), str(dup[:3]))
+    def shared(rows):
+        by = collections.defaultdict(set)
+        for w, lang, med, nm in rows:
+            by[(lang, NAME_FAMILY.get(med, med), nm)].add(w)
+        return {k: v for k, v in by.items() if len(v) > 1}
+    if before is None:
+        print("  note  round C cross-work name rule skipped: the carry's series lacks " + ", ".join(sorted(need)))
+        return
+    had = shared(before)
+    new = [k for k, ws in shared(now).items() if not ws <= had.get(k, set())]
+    rule("a name newly shared by two works (language, comic/medium family)", len(new), str(new[:3]))
+
+
 def run_ids(path, carry):
     """IDs are a public contract: every work, line and volume id of the carried (last published)
     artifact, in every market -- and every id its own id_redirect already resolved -- is still
@@ -453,10 +486,29 @@ def run_ids(path, carry):
          0 if len(retired_lines) <= MAX_RETIRED_LINES else len(retired_lines), str(retired_lines[:5]))
     # moved in THIS build: an id the carry had already redirected is not a new move (else the
     # cap would count every redirect ever written, and trip once history passed 500)
-    moved_ids = [t for t in old if t not in present and t not in exempt and t not in carried_red
+    moved_all = [t for t in old if t not in present and t not in exempt and t not in carried_red
                  and red.get(t) in present]
+    # Round C (spec §5): a candidate line THIS artifact records as merged (meta.round_c_merges), and every
+    # volume the carry held on it, moved on purpose and does not count toward the cap
+    def meta_json(d, key):
+        try:
+            return json.loads(d.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()[0])
+        except (sqlite3.OperationalError, TypeError, ValueError):
+            return []
+    rc_cands = {r[0] for r in meta_json(db, "round_c_merges") if r}
+    merged_ok = rc_cands | {v for v, (s, _) in vols.items() if s in rc_cands}
+    moved_ids = [t for t in moved_all if t not in merged_ok]
+    print("  moved: %s (round C merges: %s excluded)" % (format(len(moved_ids), ","),
+                                                         format(len(moved_all) - len(moved_ids), ",")))
     rule("more than %d carried ids moved (re-keyed or merged) in one build" % MAX_MOVED_IDS,
          0 if len(moved_ids) <= MAX_MOVED_IDS else len(moved_ids), str(moved_ids[:5]))
+    # A candidate the carry's round C record merged must not ship again under its own id, unless this
+    # build's export listed it as a carry-conflict (a merge it refused, on purpose).
+    conflicts = {r[0] for r in meta_json(db, "round_c_conflicts") if r}
+    reshipped = [r[0] for r in meta_json(C, "round_c_merges") if r and r[0] in line_now
+                 and r[0] not in conflicts]
+    rule("round C merged line shipped again (carry meta.round_c_merges)", len(reshipped), str(reshipped[:5]))
+    name_collisions(db, C)
     rule("id_redirect rows whose target is not in the artifact",
          sum(1 for t in red.values() if t not in present))
     # Integers are a contract too (Mangarr stores gcd_series_id): every carried integer is still a
