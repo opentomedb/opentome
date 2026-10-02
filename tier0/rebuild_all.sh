@@ -190,7 +190,12 @@ python3 export/test_artifact.py "$ART.new" "$FINAL" "$ID_CARRY"
 # 8d measures the NEW artifact before it replaces the old one, like 8c: a failed
 # gate leaves the last good artifact in place.
 echo "== 8d. measure gate =="
-python3 export/measure_library.py "$ART.new" export/fixtures/library.json --catalogue="$FINAL" --carry="$ID_CARRY" | tee build/measure.log
+# The library fixture is private (a real collection): it is not in git. Locally it is the
+# ignored file below; CI writes it from the OPENTOME_LIBRARY_JSON secret. Its per-series
+# report goes to build/measure-library.log, which is never uploaded or printed.
+LIBRARY_FIXTURE="${LIBRARY_FIXTURE:-export/fixtures/library.json}"
+[ -s "$LIBRARY_FIXTURE" ] || { echo "measure gate: library fixture $LIBRARY_FIXTURE missing (CI: secret OPENTOME_LIBRARY_JSON)" >&2; exit 1; }
+python3 export/measure_library.py "$ART.new" "$LIBRARY_FIXTURE" --catalogue="$FINAL" --carry="$ID_CARRY" --private-log=build/measure-library.log | tee build/measure.log
 mv -f "$ART.new" "$ART"
 echo "   artifact -> $ART"
 
