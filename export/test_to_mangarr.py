@@ -289,6 +289,39 @@ def run():
     eq("a heading generic before the round still gives no alias (Liste des tomes)",
        sorted(a for a in ha["rl_lt"] if a.lower().startswith("liste")), [])
 
+    # ---- round C display names (spec 2026-10-02 §2, §3.1): names change, ids and decisions do not ------
+    off, on = fixture_round_c(False), fixture_round_c(True)
+    eq("round C: tome_ids identical with display names off and on", sorted(off["series"]), sorted(on["series"]))
+    eq("round C: is_main identical", {t: r["is_main"] for t, r in off["series"].items()},
+       {t: r["is_main"] for t, r in on["series"].items()})
+    eq("round C off: names are the pipeline names", off["series"]["rl_mg"]["name"],
+       "The Water Magician (novel series) (Part 1)")
+    eq("round C off: no report, no meta", (off["report"], off["meta"]), (None, None))
+    eq("round C D: the manga line drops the work's disambiguator", on["series"]["rl_mg"]["name"],
+       "The Water Magician (Part 1)")
+    eq("round C lookup: the LN line keeps its pipeline name (held-lookup)", on["series"]["rl_ln"]["name"],
+       "The Water Magician (novel series)")
+    eq("round C W: a section word alone in its group is dropped", on["series"]["rl_ww"]["name"], "Whispered Words")
+    eq("round C: mediums unchanged here", {t: r["medium"] for t, r in on["series"].items()},
+       {t: r["medium"] for t, r in off["series"].items()})
+    eq("round C alias: the manga line keeps its pipeline name as an alias",
+       "The Water Magician (novel series) (Part 1)" in on["aliases"]["rl_mg"], True)
+    eq("round C alias: the manga line's display name is an alias",
+       "The Water Magician (Part 1)" in on["aliases"]["rl_mg"], True)
+    eq("round C alias: every alias of the off run survives",
+       {t: sorted(set(a) - set(on["aliases"][t])) for t, a in off["aliases"].items()},
+       {t: [] for t in off["aliases"]})
+    rep = {r["tome_id"]: r for r in on["report"]}
+    eq("round C report: manga row", {k: rep["rl_mg"][k] for k in ("work_id", "market", "name_before", "name_after",
+                                                                  "rules", "held")},
+       {"work_id": "w_wm", "market": "EN", "name_before": "The Water Magician (novel series) (Part 1)",
+        "name_after": "The Water Magician (Part 1)", "rules": "D", "held": ""})
+    eq("round C report: LN row is held-lookup, name unchanged",
+       (rep["rl_ln"]["name_after"], rep["rl_ln"]["rules"], rep["rl_ln"]["held"]),
+       ("The Water Magician (novel series)", "", "held-lookup"))
+    eq("round C report: W row", (rep["rl_ww"]["name_after"], rep["rl_ww"]["rules"]), ("Whispered Words", "W"))
+    eq("round C meta", on["meta"], {"renamed": 2, "retagged": 0, "held": {"held-lookup": 1}})
+
     if FAILS:
         print("FAILED: " + ", ".join(FAILS))
         sys.exit(1)
@@ -643,6 +676,54 @@ def fixture_heading_alias():
         rows.setdefault(tid, []).append(alias)
     out.close()
     return rows
+
+
+def fixture_round_c(display):
+    """The Water Magician (MangarrBot request #1): EN light-novel line named after the work and an EN manga
+    line '<work title> (Part 1)', plus 'Whispered Words (Médias)', the only JP manga line of its work. Exported
+    with to_mangarr.DISPLAY_NAMES = `display`. -> {"series": {tome_id: row}, "aliases": {tome_id: [alias]},
+    "report": [row] | None, "meta": dict | None}"""
+    import to_mangarr
+    tmp = tempfile.mkdtemp(prefix="opentome-roundc-")
+    src_path, out_path = (os.path.join(tmp, n) for n in ("pipeline.db", "artifact.sqlite"))
+    db = sqlite3.connect(src_path)
+    db.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+    for wid, title in (("w_wm", "The Water Magician (novel series)"), ("w_ww", "Whispered Words")):
+        db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES(?,?,'x','x')", (wid, title))
+    for rid, wid, medium, market, name, n in (
+            ("rl_ln", "w_wm", "light_novel", "EN", "The Water Magician (novel series)", 4),
+            ("rl_mg", "w_wm", "manga", "EN", "The Water Magician (novel series) (Part 1)", 3),
+            ("rl_ww", "w_ww", "manga", "JP", "Whispered Words (Médias)", 2)):
+        db.execute("""INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at)
+                      VALUES(?,?,?,?,?,'x','x')""", (rid, wid, medium, market, market.lower()))
+        db.execute("""INSERT INTO claim(entity,entity_id,field,value,source,licence,retrieved_at)
+                      VALUES('release_line',?,'line_name',?,'wikipedia','facts_only','x')""", (rid, name))
+        for k in range(1, n + 1):
+            db.execute("""INSERT INTO volume(id,release_line_id,number,created_at,updated_at)
+                          VALUES(?,?,?,'x','x')""", ("v_%s_%d" % (rid, k), rid, str(k)))
+    db.commit(); db.close()
+    real_dir, corr.DIR = corr.DIR, tempfile.mkdtemp(prefix="opentome-nocorr-")
+    real_flag, to_mangarr.DISPLAY_NAMES = to_mangarr.DISPLAY_NAMES, display
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            export(src_path, out_path)
+    finally:
+        corr.DIR, to_mangarr.DISPLAY_NAMES = real_dir, real_flag
+    out = sqlite3.connect(out_path)
+    out.row_factory = sqlite3.Row
+    series = {r["tome_id"]: dict(r) for r in out.execute("SELECT * FROM series")}
+    aliases = {}
+    for r in out.execute("SELECT s.tome_id, a.alias FROM series_alias a JOIN series s USING(gcd_series_id)"):
+        aliases.setdefault(r["tome_id"], []).append(r["alias"])
+    meta = out.execute("SELECT value FROM meta WHERE key='round_c_names'").fetchone()
+    out.close()
+    rp = os.path.join(tmp, "round-c-report.tsv")
+    report = None
+    if os.path.exists(rp):
+        with open(rp, encoding="utf8") as fh:
+            head, *body = fh.read().splitlines()
+        report = [dict(zip(head.split("\t"), l.split("\t"))) for l in body]
+    return {"series": series, "aliases": aliases, "report": report, "meta": json.loads(meta[0]) if meta else None}
 
 
 FIX_META = {}

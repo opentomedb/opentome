@@ -45,6 +45,12 @@ from build_corpus import work_title, FR_LIST_ARTICLE, CONTRACTED_ARTICLE
 from release_lines import GENERIC, HELD
 from corrections import load_aliases, load_alias_removals, load_exclusions
 from line_status import line_status
+sys.path.insert(0, os.path.join(ROOT, "export"))
+from display_names import plan_names, lookup_holds, _family
+
+# Round C (spec 2026-10-02 §2): write display names for lines (ids and every name-based decision keep the
+# pipeline name). False reproduces an export without round C.
+DISPLAY_NAMES = True
 
 
 def _build(name):
@@ -438,6 +444,7 @@ def export(src_path, out_path, carry_ids_from=None):
 
     # reuse existing id assignments if a prior artifact is supplied
     mapping, taken, prev_status = {}, set(), {}
+    carry_pairs = set()     # round C: (market, family, lower(name)) that two works' lines share in the carry
     # meta.carried_from: which published artifact this build's ids were carried from.
     # export/publish.sh refuses an artifact without it (unless OPENTOME_COLD_START=1).
     carried_from = "cold-start" if os.environ.get("OPENTOME_COLD_START") == "1" else None
@@ -461,6 +468,21 @@ def export(src_path, out_path, carry_ids_from=None):
             pass
         try:
             prev_status = dict(old.execute("SELECT tome_id, status FROM series"))
+        except sqlite3.OperationalError:
+            pass
+        # round C cross-work guard: a carry predating series.country maps its language back to the market
+        lang_market = {v: k for k, v in MARKET_LANG.items()}
+        try:
+            try:
+                crows = old.execute("SELECT country, language, medium, name, tome_work_id FROM series").fetchall()
+            except sqlite3.OperationalError:
+                crows = [(None,) + r for r in old.execute(
+                    "SELECT language, medium, name, tome_work_id FROM series")]
+            works_of = {}
+            for country, language, medium, name, cwid in crows:
+                market = country or lang_market.get(language, (language or "").upper())
+                works_of.setdefault((market, _family(medium), (name or "").lower()), set()).add(cwid)
+            carry_pairs = {k for k, v in works_of.items() if len(v) > 1}
         except sqlite3.OperationalError:
             pass
 
@@ -696,8 +718,24 @@ def export(src_path, out_path, carry_ids_from=None):
                 continue        # E1: never the parent of a carried line's group
             named_line.setdefault((wid, market, medium), rid)
 
+    # Round C (spec 2026-10-02 §3.1): the name and medium each line is WRITTEN with. Planned from pipeline
+    # values; everything above and below that reads lname / medium for a decision keeps the pipeline value.
+    pipe = {rid: (lname or wtitle, medium) for rid, wid, market, medium, *_rest, wtitle, lname in lines}
+    planned = {}
+    if DISPLAY_NAMES:
+        isbns = {}
+        for vrid, i13 in src.execute("SELECT release_line_id, isbn13 FROM volume WHERE isbn13 IS NOT NULL"):
+            i13 = re.sub(r"[^0-9X]", "", i13.upper())
+            if i13:
+                isbns.setdefault(vrid, set()).add(i13)
+        planned = plan_names([{"tome_id": rid, "work_id": wid, "work_title": wtitle, "market": market,
+                               "medium": medium, "family": _family(medium), "name": lname or wtitle,
+                               "born": rid in born}
+                              for rid, wid, market, medium, *_rest, wtitle, lname in lines], carry_pairs, isbns)
+
     transitions, newly_stalled = collections.Counter(), []
     title_drops, n_title_kept = collections.Counter(), 0
+    alias_rows = []
     for rid, wid, market, medium, publisher, status, parent_rl, wtitle, lname in lines:
         sid = mapping[rid]
         is_main = 1 if main_of.get((wid, market, medium)) == rid else 0
@@ -800,20 +838,47 @@ def export(src_path, out_path, carry_ids_from=None):
                                   max(reach) if reach else None, int_max.get(orid),
                                   last_dated_of.get(rid), last_dated_of.get(orid)))
         lang = MARKET_LANG.get(market, market.lower())
+        out_name, out_medium = ((planned[rid]["name"], planned[rid]["medium"]) if rid in planned
+                                else (lname or wtitle, medium))
         out.execute("""INSERT OR REPLACE INTO series
             (gcd_series_id,name,year_began,publisher,language,is_omnibus,volume_count,status,
              orig_series_id,medium,dated_count,is_main,tome_id,tome_work_id,parent_series_id,author,
              country,local_name)
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (sid, lname or wtitle, min(years) if years else w_year, publisher,
+            (sid, out_name, min(years) if years else w_year, publisher,
              lang, is_omni, len(ints_written), mangarr_status,
-             orig_sid, medium, dated, is_main, rid, wid, parent_sid, work_authors.get(wid),
+             orig_sid, out_medium, dated, is_main, rid, wid, parent_sid, work_authors.get(wid),
              market, local_name_for(market, is_main, dnb_line_name.get(rid),
                                     official_titles.get((wid, lang)),
                                     bnf_line_name.get(rid) if rid in born else None)))
         out.execute("INSERT OR REPLACE INTO id_map VALUES(?,?, 'release_line')", (rid, sid))
         n_series += 1
+        alias_rows.append((sid, rid, wid, is_main, lname, wtitle))
 
+    # Round C lookup guard (spec §3.1): replay Mangarr's title Rank over the EN lines as written; a rename that
+    # moves a lookup to another work or across the comic/novel class is held. To a fixpoint: reverting a held
+    # line changes the field for the others.
+    if DISPLAY_NAMES:
+        cols = "tome_id, tome_work_id, name, language, medium, is_omnibus, dated_count, volume_count, gcd_series_id"
+        after0 = [dict(zip(("tome_id", "work_id", "name", "language", "medium", "is_omnibus", "dated_count",
+                            "volume_count", "gcd_series_id"), r))
+                  for r in out.execute("SELECT %s FROM series WHERE language='en' ORDER BY tome_id" % cols)]
+        before = [dict(c, name=pipe[c["tome_id"]][0], medium=pipe[c["tome_id"]][1]) for c in after0]
+        held_lookup = set()
+        for _ in range(5):
+            after = [dict(c, name=pipe[c["tome_id"]][0], medium=pipe[c["tome_id"]][1])
+                     if c["tome_id"] in held_lookup else c for c in after0]
+            new = set(lookup_holds(before, after)) - held_lookup
+            if not new:
+                break
+            held_lookup |= new
+        else:
+            raise AssertionError("round C lookup guard did not converge in 5 passes: %s" % sorted(held_lookup))
+        for t in sorted(held_lookup):
+            planned[t] = {"name": pipe[t][0], "medium": pipe[t][1], "rules": [], "held": "held-lookup"}
+            out.execute("UPDATE series SET name=?, medium=? WHERE tome_id=?", (pipe[t][0], pipe[t][1], t))
+
+    for sid, rid, wid, is_main, lname, wtitle in alias_rows:
         # ---- aliases -------------------------------------------------------
         # Main line: the work's titles in every language (raw article names AND
         # the cleaned work title -- raw names like "Liste des chapitres de X"
@@ -832,6 +897,9 @@ def export(src_path, out_path, carry_ids_from=None):
         # only name a folder ever uses -- Re:Zero's "The Sanctuary and the Witch
         # of Greed" resolved to nothing at all.
         cands = [(lname or wtitle, False, None, "line")]
+        # round C: the written display name first; the pipeline name above stays an alias
+        if rid in planned and planned[rid]["name"] != (lname or wtitle):
+            cands.insert(0, (planned[rid]["name"], False, None, "line"))
         raw = _line_raw(lname, wtitle)
         # GENERIC as before the heading cleanup (HELD = what the round added): a heading group the
         # collision guard holds keeps its heading-word alias, as it shipped before the round (fix F1)
@@ -955,6 +1023,20 @@ def export(src_path, out_path, carry_ids_from=None):
     markets = dict(out.execute("""SELECT language, COUNT(*) FROM series
                                   WHERE language IS NOT NULL GROUP BY language ORDER BY language"""))
 
+    # Round C report (spec §3.3): every line whose written name or medium differs from the pipeline's, or held
+    rc_rows = []
+    if DISPLAY_NAMES:
+        line_of = {rid: (wid, market) for rid, wid, market, *_ in lines}
+        for rid in sorted(planned):
+            p = planned[rid]
+            if (p["name"], p["medium"]) != pipe[rid] or p["held"]:
+                rc_rows.append((rid, line_of[rid][0], line_of[rid][1], pipe[rid][1], p["medium"], pipe[rid][0],
+                                p["name"], ",".join(p["rules"]), p["held"] or ""))
+    round_c_names = json.dumps({
+        "renamed": sum(1 for r in rc_rows if r[5] != r[6]),
+        "retagged": sum(1 for r in rc_rows if r[3] != r[4]),
+        "held": dict(sorted(collections.Counter(r[8] for r in rc_rows if r[8]).items()))}, sort_keys=True)
+
     src_counts = dict(src.execute("SELECT source, COUNT(*) FROM claim GROUP BY source"))
     dnb_degraded = (src.execute("SELECT value FROM meta WHERE key='dnb:degraded'").fetchone() or [None])[0]
     # tier0/carried_ids.py merge (stage 4c): [duplicate line id, surviving line] pairs, carried so
@@ -1039,7 +1121,8 @@ def export(src_path, out_path, carry_ids_from=None):
       + ([("bnf_degraded", bnf_degraded)] if bnf_degraded else []) \
       + ([("carried_from", carried_from)] if carried_from else []) \
       + ([("carried_sha256", carried_sha256)] if carried_sha256 else []) \
-      + ([("merged_lines", merged_lines)] if merged_lines != "[]" else []):
+      + ([("merged_lines", merged_lines)] if merged_lines != "[]" else []) \
+      + ([("round_c_names", round_c_names)] if DISPLAY_NAMES else []):
         # dnb_degraded / loc_degraded / bnf_degraded: the source failed during this build's refresh --
         # export/publish.sh refuses it
         out.execute("INSERT OR REPLACE INTO meta VALUES(?,?)", (k, v))
@@ -1071,6 +1154,13 @@ def export(src_path, out_path, carry_ids_from=None):
         fh.write("\nnewly_stalled\tlanguage\tmax_vol\torigin_max\tlast_dated\torigin_last_dated\n")
         for row in sorted(newly_stalled, key=_stalled_key):
             fh.write("\t".join("" if x is None else str(x) for x in row) + "\n")
+    if DISPLAY_NAMES:
+        print("  round C names: %s" % round_c_names)
+        with open(os.path.join(os.path.dirname(os.path.abspath(out_path)), "round-c-report.tsv"), "w",
+                  encoding="utf8") as fh:
+            fh.write("tome_id\twork_id\tmarket\tmedium_before\tmedium_after\tname_before\tname_after\trules\theld\n")
+            for row in rc_rows:
+                fh.write("\t".join(row) + "\n")
     out.commit()
     return dict(series=n_series, volumes=n_vol, specials=n_special, aliases=n_alias,
                 omnibus_lines=n_omni)
