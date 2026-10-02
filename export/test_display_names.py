@@ -88,9 +88,24 @@ def run_guards():
     eq("guard: cross-work revert never retags", (r["a"]["name"], r["a"]["medium"], r["a"]["held"]),
        ("Hyouka (novel series) (Roman)", "manga", "held-cross"))
 
+def C(tid, wid, name, medium, vols=7, sid=1):
+    return {"tome_id": tid, "work_id": wid, "name": name, "language": "en", "medium": medium, "is_omnibus": 0,
+            "dated_count": vols, "volume_count": vols, "gcd_series_id": sid}
+
+def run_lookup():
+    before = [C("ln", "w", "The Water Magician (novel series)", "light_novel", sid=1),
+              C("mg", "w", "The Water Magician (novel series) (Part 1)", "manga", sid=2)]
+    after = [C("ln", "w", "The Water Magician", "light_novel", sid=1),
+             C("mg", "w", "The Water Magician (Part 1)", "manga", sid=2)]
+    eq("lookup: the LN rename that would win the manga library's bare-title lookup is held",
+       dn.lookup_holds(before, after), {"ln": "held-lookup"})
+    eq("lookup: a rename with no competing line is not held",
+       dn.lookup_holds([C("a", "w", "Gate (novel series)", "light_novel")], [C("a", "w", "Gate", "light_novel")]), {})
+
 if __name__ == "__main__":
     run_d()
     run_sw()
     run_guards()
+    run_lookup()
     print("FAILED: %d" % len(FAILS) if FAILS else "all passed")
     sys.exit(1 if FAILS else 0)

@@ -139,3 +139,48 @@ def plan_names(lines, carry_pairs, isbns):
     _cross_work_guard(lines, res, carry_pairs)
     _within_work_guard(lines, res)  # a cross-work revert can create a within-work clash
     return res
+
+
+def _norm_q(s):
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def _lookup_pick(lines, key, query, prefer_novel):
+    """Mangarr's pick for `query` among `lines` (name read from `key`), via measure_library.rank_new."""
+    from measure_library import rank_new  # same directory; import has no side effects
+    nq = _norm_q(query)
+    cands = [dict(l, exact=_norm_q(l[key]) == nq) for l in lines]
+    return rank_new(cands, query, prefer_novel)
+
+
+def lookup_holds(before, after):
+    """tome_id -> "held-lookup" for renamed EN lines whose rename would change which line Mangarr's
+    title lookup picks (rank_new replay): a different work wins, or the pick crosses comic/novel class
+    for the library being queried. `before`/`after`: candidate dicts with `name` = old/new display name."""
+    from measure_library import MANGA_FAMILY
+    cls = lambda c: "comic" if c["medium"] in MANGA_FAMILY else "novel"
+    old = {l["tome_id"]: l for l in before}
+    new = {l["tome_id"]: l for l in after}
+    renamed = [t for t in sorted(new) if t in old and new[t]["language"] == "en" and new[t]["name"] != old[t]["name"]]
+    held = {}
+    for t in renamed:
+        base = _TRAIL.sub(lambda m: m.group("b"), new[t]["name"])
+        queries = [new[t]["name"]] + ([base] if base != new[t]["name"] else [])
+        for q in queries:
+            nq = _norm_q(q)
+            # candidates: the renamed line's work plus any line (any work) whose own name equals the query
+            sb = [l for l in before if l["work_id"] == new[t]["work_id"] or _norm_q(l["name"]) == nq]
+            sa = [l for l in after if l["work_id"] == new[t]["work_id"] or _norm_q(l["name"]) == nq]
+            for prefer_novel in (False, True):
+                b = _lookup_pick(sb, "name", q, prefer_novel)
+                a = _lookup_pick(sa, "name", q, prefer_novel)
+                if a is None or (b is not None and a["tome_id"] == b["tome_id"]):
+                    continue
+                want = "novel" if prefer_novel else "comic"
+                if b is None:
+                    bad = cls(a) != want
+                else:
+                    bad = a["work_id"] != b["work_id"] or (cls(a) != want and cls(b) == want)
+                if bad:
+                    held[a["tome_id"] if a["tome_id"] in renamed else t] = "held-lookup"
+    return held
