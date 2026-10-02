@@ -78,6 +78,15 @@ def run_guards():
        ("Hyouka (Roman)", "manga", "held-clash"))
     r = dn.plan_names([L("a", "w1", "X (novel series)", "X (novel series)", born=True)], set(), {})
     eq("guard: library-born line never renamed", (r["a"]["name"], r["a"]["rules"]), ("X (novel series)", []))
+    la = L("a", "w1", "Solo", "Solo (Roman)", market="KR")
+    lb = L("b", "w1", "Solo", "Solo: Side (Roman)", market="KR")
+    isb = {"a": {"1", "2", "3"}, "b": {"1", "2", "4"}}
+    r1, r2 = dn.plan_names([la, lb], set(), isb), dn.plan_names([lb, la], set(), isb)
+    eq("guard: ISBN guard is order-independent", r1, r2)
+    eq("guard: ISBN guard holds both lines", (r1["a"]["held"], r1["b"]["held"]), ("held-isbn", "held-isbn"))
+    r = dn.plan_names([L("a", "w1", "Hyouka (novel series)", "Hyouka (novel series) (Roman)"), L("b", "w2", "Hyouka", "Hyouka", medium="novel")], set(), {})
+    eq("guard: cross-work revert never retags", (r["a"]["name"], r["a"]["medium"], r["a"]["held"]),
+       ("Hyouka (novel series) (Roman)", "manga", "held-cross"))
 
 if __name__ == "__main__":
     run_d()

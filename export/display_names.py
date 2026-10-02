@@ -80,18 +80,22 @@ def _changed(l, r):
 
 
 def _isbn_guard(lines, res, isbns):
+    proposed = {t: r["medium"] for t, r in res.items()}  # snapshot: the result must not depend on input order
+    held = []
     for l in lines:
-        r, a = res[l["tome_id"]], isbns.get(l["tome_id"]) or set()
-        if "M" not in r["rules"] or not a:
+        a = isbns.get(l["tome_id"]) or set()
+        if "M" not in res[l["tome_id"]]["rules"] or not a:
             continue
         for o in lines:
             if o is l or (o["work_id"], o["market"]) != (l["work_id"], l["market"]):
                 continue
             b = isbns.get(o["tome_id"]) or set()
-            if (res[o["tome_id"]]["medium"] == r["medium"] and len(a & b) * 2 > len(a)) or \
+            if (proposed[o["tome_id"]] == proposed[l["tome_id"]] and len(a & b) * 2 > len(a)) or \
                (o["medium"] == l["medium"] and a == b):
-                res[l["tome_id"]] = _hold(l, "held-isbn")
+                held.append(l)
                 break
+    for l in held:
+        res[l["tome_id"]] = _hold(l, "held-isbn")
 
 
 def _within_work_guard(lines, res):
@@ -116,6 +120,8 @@ def _cross_work_guard(lines, res, carry_pairs):
         key = (l["market"], _family(r["medium"]), r["name"].lower())
         if "D" in r["rules"] and len(works[key]) > 1 and key not in carry_pairs:
             name, medium, rw = strip_round_a_word(l["name"], l["medium"])
+            if rw == "M":  # never retag here: this path has no ISBN check, so keep the pipeline name and medium
+                name, medium, rw = l["name"], l["medium"], None
             res[l["tome_id"]] = {"name": name, "medium": medium, "rules": [rw] if rw else [], "held": "held-cross"}
 
 
