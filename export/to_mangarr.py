@@ -580,6 +580,12 @@ def export(src_path, out_path, carry_ids_from=None):
     # line. No krcn_line table: nothing changes.
     born = set(json.loads((src.execute("SELECT value FROM meta WHERE key='krcn:ids'").fetchone()
                            or ["{}"])[0]).get("lines", {}))
+    # Round C (ruling 'born'): every line whose natural key is a library key is never renamed -- the KR/CN set
+    # above and the DNB-born lines (tier0/build_dnb.py: 'dnb:' keys; the same set its made_lines reads).
+    try:
+        dnb_born = {r for (r,) in src.execute("SELECT rl_id FROM dnb_line WHERE exported=1 AND role<>'merged'")}
+    except sqlite3.OperationalError:
+        dnb_born = set()
     try:
         lib_line = {r: (n, p) for r, n, p in src.execute(
             """SELECT rl_id, name, publisher FROM krcn_line
@@ -730,8 +736,54 @@ def export(src_path, out_path, carry_ids_from=None):
                 isbns.setdefault(vrid, set()).add(i13)
         planned = plan_names([{"tome_id": rid, "work_id": wid, "work_title": wtitle, "market": market,
                                "medium": medium, "family": _family(medium), "name": lname or wtitle,
-                               "born": rid in born}
-                              for rid, wid, market, medium, *_rest, wtitle, lname in lines], carry_pairs, isbns)
+                               "born": rid in born or rid in dnb_born}
+                              for rid, wid, market, medium, *_rest, wtitle, lname in lines
+                              ], carry_pairs, isbns)
+        line_of = {rid: (wid, market) for rid, wid, market, *_ in lines}
+
+        def hold(t, label):
+            planned[t] = {"name": pipe[t][0], "medium": pipe[t][1], "rules": [], "held": label}
+
+        def clash_holds():
+            """Within-work guard re-run on the written values (a revert can recreate a clash): every changed
+            line of a (work, market, medium, name) group with two lines is held. -> the newly held ids."""
+            groups = {}
+            for t, pl in planned.items():
+                groups.setdefault(line_of[t] + (pl["medium"], pl["name"].lower()), []).append(t)
+            new = {t for g in groups.values() if len(g) > 1 for t in g
+                   if (planned[t]["name"], planned[t]["medium"]) != pipe[t]}
+            for t in new:
+                hold(t, "held-clash")
+            return new
+
+        # Medium guard (controller ruling I2): an M retag moves the line between Mangarr libraries, so it is
+        # held unless (a) its origin line is absent or of the target medium, (b) no other line of the target
+        # (work, market, medium) is main, (c) no line hangs under it (parent), and (d) no line names it as
+        # its origin (the orig_mismatches contract rule). To a fixpoint with the clash guard.
+        parents, origins = set(), set()
+        for rid, wid, market, medium, publisher, status, parent_rl, wtitle, lname in lines:
+            is_named = (not lname) or normalize(lname) == normalize(wtitle)
+            par = parent_rl or (None if is_named else named_line.get((wid, market, medium)))
+            if par and par != rid:
+                parents.add(par)
+            if orid_of[rid]:
+                origins.add(orid_of[rid])
+        for _ in range(5):
+            new = set()
+            for rid, wid, market, *_ in lines:
+                pl = planned[rid]
+                if "M" not in pl["rules"]:
+                    continue
+                target, orid = pl["medium"], orid_of[rid]
+                if ((orid and planned[orid]["medium"] != target)
+                        or main_of.get((wid, market, target), rid) != rid
+                        or rid in parents or rid in origins):
+                    hold(rid, "held-medium")
+                    new.add(rid)
+            if not (new | clash_holds()):
+                break
+        else:
+            raise AssertionError("round C medium guard did not converge in 5 passes")
 
     transitions, newly_stalled = collections.Counter(), []
     title_drops, n_title_kept = collections.Counter(), 0
@@ -864,19 +916,22 @@ def export(src_path, out_path, carry_ids_from=None):
                             "volume_count", "gcd_series_id"), r))
                   for r in out.execute("SELECT %s FROM series WHERE language='en' ORDER BY tome_id" % cols)]
         before = [dict(c, name=pipe[c["tome_id"]][0], medium=pipe[c["tome_id"]][1]) for c in after0]
-        held_lookup = set()
+        written = {t: (pl["name"], pl["medium"]) for t, pl in planned.items()}
         for _ in range(5):
-            after = [dict(c, name=pipe[c["tome_id"]][0], medium=pipe[c["tome_id"]][1])
-                     if c["tome_id"] in held_lookup else c for c in after0]
-            new = set(lookup_holds(before, after)) - held_lookup
-            if not new:
+            after = [dict(c, name=planned[c["tome_id"]]["name"], medium=planned[c["tome_id"]]["medium"])
+                     for c in after0]
+            new = {t for t in lookup_holds(before, after) if planned[t]["held"] != "held-lookup"}
+            for t in new:
+                hold(t, "held-lookup")
+            # a revert can recreate a within-work clash (fix I3): re-run that guard on the written values
+            if not (new | clash_holds()):
                 break
-            held_lookup |= new
         else:
-            raise AssertionError("round C lookup guard did not converge in 5 passes: %s" % sorted(held_lookup))
-        for t in sorted(held_lookup):
-            planned[t] = {"name": pipe[t][0], "medium": pipe[t][1], "rules": [], "held": "held-lookup"}
-            out.execute("UPDATE series SET name=?, medium=? WHERE tome_id=?", (pipe[t][0], pipe[t][1], t))
+            raise AssertionError("round C lookup guard did not converge in 5 passes")
+        for t in sorted(planned):
+            if (planned[t]["name"], planned[t]["medium"]) != written[t]:
+                out.execute("UPDATE series SET name=?, medium=? WHERE tome_id=?",
+                            (planned[t]["name"], planned[t]["medium"], t))
 
     for sid, rid, wid, is_main, lname, wtitle in alias_rows:
         # ---- aliases -------------------------------------------------------
@@ -897,9 +952,6 @@ def export(src_path, out_path, carry_ids_from=None):
         # only name a folder ever uses -- Re:Zero's "The Sanctuary and the Witch
         # of Greed" resolved to nothing at all.
         cands = [(lname or wtitle, False, None, "line")]
-        # round C: the written display name first; the pipeline name above stays an alias
-        if rid in planned and planned[rid]["name"] != (lname or wtitle):
-            cands.insert(0, (planned[rid]["name"], False, None, "line"))
         raw = _line_raw(lname, wtitle)
         # GENERIC as before the heading cleanup (HELD = what the round added): a heading group the
         # collision guard holds keeps its heading-word alias, as it shipped before the round (fix F1)
@@ -913,6 +965,10 @@ def export(src_path, out_path, carry_ids_from=None):
                     cands.append((alias, True, alang, akind))
                     cands.append((work_title(alias), True, alang, akind))
             cands.append((wtitle, True, None, "line"))
+        # round C: the written display name LAST, so it only adds a row no existing candidate already owns
+        # (series_alias keeps the first insert: prepending it took a work title's language/kind, fix I1)
+        if rid in planned and planned[rid]["name"] != (lname or wtitle):
+            cands.append((planned[rid]["name"], False, None, "line"))
 
         def owned_by_another_work(text):
             """True when this string is some OTHER work's own title -- the
@@ -1026,7 +1082,6 @@ def export(src_path, out_path, carry_ids_from=None):
     # Round C report (spec §3.3): every line whose written name or medium differs from the pipeline's, or held
     rc_rows = []
     if DISPLAY_NAMES:
-        line_of = {rid: (wid, market) for rid, wid, market, *_ in lines}
         for rid in sorted(planned):
             p = planned[rid]
             if (p["name"], p["medium"]) != pipe[rid] or p["held"]:
