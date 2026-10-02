@@ -28,7 +28,33 @@ def run_d():
     eq("D: full-width parentheses are part of the title",
        dn.strip_work_disambiguator("オトメン（乙男）", "オトメン（乙男）"), "オトメン（乙男）")
 
+def run_sw():
+    eq("S: subtitle that names the work", dn.self_named("86 (86: Eighty-Six - Fragmental Neoteny)", "86"),
+       "86: Eighty-Six - Fragmental Neoteny")
+    eq("S: K Days of Blue", dn.self_named("K (K: Days of Blue)", "K"), "K: Days of Blue")
+    eq("S: word boundary -- Gate never matches Gatekeeper", dn.self_named("Gate (Gatekeeper Saga)", "Gate"),
+       "Gate (Gatekeeper Saga)")
+    eq("S: an edition qualifier is not a spin-off title", dn.self_named("Gate (New Edition)", "Gate"), "Gate (New Edition)")
+    eq("S: case-insensitive", dn.self_named("Re:Zero (re:zero ex)", "Re:Zero"), "re:zero ex")
+    eq("W: section word dropped", dn.strip_round_a_word("Whispered Words (Médias)", "manga"), ("Whispered Words", "manga", "W"))
+    eq("W: Mangas", dn.strip_round_a_word("Kaina of the Great Snow Sea (Mangas)", "manga"),
+       ("Kaina of the Great Snow Sea", "manga", "W"))
+    eq("M: class-2 word retags a manga line", dn.strip_round_a_word("Hyouka (Roman)", "manga"), ("Hyouka", "novel", "M"))
+    eq("M: roman illustré -> light_novel", dn.strip_round_a_word("Goblin Slayer (Roman illustré)", "manga"),
+       ("Goblin Slayer", "light_novel", "M"))
+    eq("M: an already-novel line keeps its medium (only the word goes)",
+       dn.strip_round_a_word("Princess Lover! (Liste des romans)", "light_novel"), ("Princess Lover!", "light_novel", "W"))
+    eq("W: open-ended pagination is T, not W", dn.strip_round_a_word("Black Butler (Tomes 31 à aujourd'hui)", "manga"),
+       ("Black Butler (Tomes 31 à aujourd'hui)", "manga", None))
+    eq("W: a real qualifier stays", dn.strip_round_a_word("Gate (Édition deluxe)", "manga"), ("Gate (Édition deluxe)", "manga", None))
+    W = "The Water Magician (novel series)"
+    eq("display: D then nothing", dn.display(W + " (Part 1)", W, "manga"), ("The Water Magician (Part 1)", "manga", ["D"]))
+    eq("display: D then S", dn.display("86 (novel series) (86: Eighty-Six - Fragmental Neoteny)", "86 (novel series)", "manga"),
+       ("86: Eighty-Six - Fragmental Neoteny", "manga", ["D", "S"]))
+    eq("display: untouched", dn.display("Naruto (2e partie)", "Naruto", "manga"), ("Naruto (2e partie)", "manga", []))
+
 if __name__ == "__main__":
     run_d()
+    run_sw()
     print("FAILED: %d" % len(FAILS) if FAILS else "all passed")
     sys.exit(1 if FAILS else 0)
