@@ -160,6 +160,8 @@ jobs:
             build/status-transitions.tsv
             build/round-c-report.tsv
             build/round-c-anilist.tsv
+            build/round-c-unmatched-disambiguators.tsv
+            build/round-c-mainless.tsv
             build/dnb-review.tsv
             build/dnb-report.json
             build/dnb-netlog.tsv

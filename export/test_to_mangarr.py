@@ -335,6 +335,54 @@ def run():
         "name_before": "The Water Magician (Tomes 4-6)", "name_after": "The Water Magician (Part 1)", "held": ""})
     eq("round C meta: merge rows do not count as renames", mr["meta"]["renamed"], 1)
     eq("round C meta", on["meta"], {"renamed": 3, "retagged": 0, "held": {"held-lookup": 1}})
+    eq("round C report: lookup column = the replay for a renamed EN line, empty otherwise",
+       (rep["rl_mg"]["lookup"], rep["rl_ln"]["lookup"], rep["rl_ww"]["lookup"]), ("unchanged", "", ""))
+    ga = rc_export(True, [("w_g", "Gate (novel series)")],
+                   [("rl_a", "w_g", "manga", "EN", "Gate (novel series)", 4),
+                    ("rl_b", "w_g", "manga", "EN", "Gate (novel series) (Part 2)", 9)])
+    eq("round C report: a pick the rename moves (same work, same class) is shown per query",
+       {r["tome_id"]: r["lookup"] for r in ga["report"]},
+       {"rl_a": "comic:rl_b\u2192rl_a; novel:-\u2192-",
+        "rl_b": '"Gate (Part 2)" comic:rl_b\u2192rl_b; novel:-\u2192- | "Gate" comic:rl_b\u2192rl_a; novel:-\u2192-'})
+    eq("round C artifact meta round_c_merges: [cand, target, verdict, kind, the candidate's name]",
+       json.loads(sqlite3.connect(mr["path"]).execute(
+           "SELECT value FROM meta WHERE key='round_c_merges'").fetchone()[0]),
+       [["rl_gone", "rl_mg", "extend", "T", "The Water Magician (Tomes 4-6)"]])
+    # build 2: the candidate is gone from the carry's series; its name comes from the carry's round_c_merges
+    m2 = rc_export(True, [("w_wm", "The Water Magician (novel series)")],
+                   [("rl_mg", "w_wm", "manga", "EN", "The Water Magician (novel series) (Part 1)", 6)],
+                   carry_rows=[], merged=[["rl_gone", "rl_mg", "T", "extend", 3, 0, "carry"]],
+                   carry_merges=[["rl_gone", "rl_mg", "extend", "T", "The Water Magician (Tomes 4-6)"]])
+    eq("round C report (build 2): a merge row names the candidate from the carry's round_c_merges",
+       {r["tome_id"]: r["name_before"] for r in m2["report"]}["rl_gone"], "The Water Magician (Tomes 4-6)")
+    # a kept candidate with its own name/medium row folds into it (one row per tome_id); a kept row alone keeps
+    # the pipeline medium on both sides; held carries the full reason
+    kb = rc_export(True, [("w_a", "Anna"), ("w_f", "Foo (Bar Baz)")],
+                   [("rl_a", "w_a", "manga", "FR", "Anna", 3), ("rl_ar", "w_a", "manga", "FR", "Anna (Roman)", 2),
+                    ("rl_f", "w_f", "manga", "FR", "Foo (Bar Baz)", 1)],
+                   merged=[["rl_ar", "rl_a", "W2", "kept", 0, 0, "rule", "verdict"],
+                           ["rl_f", "rl_a", "T", "kept", 0, 0, "rule", "gap"]])
+    eq("round C report: one row per tome_id", sorted(r["tome_id"] for r in kb["report"]), ["rl_ar", "rl_f"])
+    kr = {r["tome_id"]: r for r in kb["report"]}
+    eq("round C report: an M row and a kept row fold (rules and held joined)",
+       {k: kr["rl_ar"][k] for k in ("medium_before", "medium_after", "name_after", "rules", "held")},
+       {"medium_before": "manga", "medium_after": "novel", "name_after": "Anna", "rules": "M,kept",
+        "held": "verdict:kept"})
+    eq("round C report: a kept/gap row keeps the pipeline medium and name",
+       {k: kr["rl_f"][k] for k in ("medium_before", "medium_after", "name_before", "name_after", "rules", "held")},
+       {"medium_before": "manga", "medium_after": "manga", "name_before": "Foo (Bar Baz)",
+        "name_after": "Foo (Bar Baz)", "rules": "kept", "held": "gap"})
+    kdir = os.path.dirname(kb["path"])
+    with open(os.path.join(kdir, "round-c-unmatched-disambiguators.tsv"), encoding="utf8") as fh:
+        eq("round C unmatched disambiguators: a work title's ' (...)' that DISAMBIG does not match",
+           fh.read().splitlines(), ["work_id\twork_title\tparenthetical\tlines", "w_f\tFoo (Bar Baz)\tBar Baz\t1"])
+    with open(os.path.join(kdir, "round-c-mainless.tsv"), encoding="utf8") as fh:
+        eq("round C mainless: an M retag that leaves a (work, language, medium) group without a main line",
+           fh.read().splitlines(), ["work_id\tlanguage\tmedium\ttome_ids", "w_a\tfr\tnovel\trl_ar"])
+    eq("round C mainless: is_main is not changed",
+       {t: r["is_main"] for t, r in kb["series"].items()}, {"rl_a": 1, "rl_ar": 0, "rl_f": 1})
+    with open(os.path.join(os.path.dirname(on["path"]), "round-c-unmatched-disambiguators.tsv"), encoding="utf8") as fh:
+        eq("round C unmatched disambiguators: '(novel series)' is matched -> header only", len(fh.read().splitlines()), 1)
 
     # ---- round C medium guard (fix I2): an M retag that breaks origin / is_main / parents is held ----------
     hy = rc_export(True, [("w_hy", "Hyouka"), ("w_lb", "Lonely Book")],
@@ -771,12 +819,14 @@ def fixture_heading_alias():
     return rows
 
 
-def rc_export(display, works, lines, titles=(), dnb_born=(), carry_rows=None, carry_country=True, merged=None):
+def rc_export(display, works, lines, titles=(), dnb_born=(), carry_rows=None, carry_country=True, merged=None,
+              carry_merges=None):
     """Round C export harness. works: [(wid, primary_title)]; lines: [(rid, wid, medium, market, name, n_vols)];
     titles: [(wid, lang, title, kind)]; dnb_born: rids given a DNB staging row (tier0/build_dnb.py);
     carry_rows: [(name, medium, language, market, tome_work_id)] for a minimal carry artifact (with or without
     series.country; an optional 6th element sets the carry row's tome_id); merged: the roundc:merged meta rows
-    (tier0/round_c_merge.py). Exported with to_mangarr.DISPLAY_NAMES = `display`.
+    (tier0/round_c_merge.py); carry_merges: the carry's meta round_c_merges rows. Exported with
+    to_mangarr.DISPLAY_NAMES = `display`.
     -> {"series": {tome_id: row}, "aliases": {(tome_id, alias): (language, kind)}, "report": [row] | None,
         "meta": dict | None, "path": artifact path}"""
     import to_mangarr
@@ -821,6 +871,9 @@ def rc_export(display, works, lines, titles=(), dnb_born=(), carry_rows=None, ca
             else:
                 c.execute("INSERT INTO series(tome_id,name,medium,language,tome_work_id) VALUES(?,?,?,?,?)",
                           ("rl_old%d" % i, name, medium, language, cwid))
+        if carry_merges is not None:
+            c.execute("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT)")
+            c.execute("INSERT INTO meta VALUES('round_c_merges', ?)", (json.dumps(carry_merges),))
         c.commit(); c.close()
     real_dir, corr.DIR = corr.DIR, tempfile.mkdtemp(prefix="opentome-nocorr-")
     real_flag, to_mangarr.DISPLAY_NAMES = to_mangarr.DISPLAY_NAMES, display

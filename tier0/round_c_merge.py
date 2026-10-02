@@ -5,10 +5,14 @@
 A continuation tail ("Black Butler (Tomes 31 à aujourd'hui)", kind T) or a duplicate section line
 ("X (Mangas)" beside "X", kind W2) of the work's own line folds into it with carried_ids.merge_line
 when its volumes say so (verdict: extend / duplicate; anything else is kept and listed). Meta
-`roundc:merged` records [cand, target, kind, verdict, moved, dropped] for every merge and every kept
-candidate; the export writes the applied ones as artifact meta `round_c_merges`, and the next build
-re-applies those by id (kind 'carry') when both ids exist -- a rename can stop the rule matching, the
-decision stays. No redirect rows here: 7b redirects every retired line and volume.
+`roundc:merged` records [cand, target, kind, verdict, moved, dropped, source, reason?] for every merge
+and every kept candidate (source 'rule' or 'carry'; reason only on kept / carry-conflict rows: 'verdict',
+'gap', 'arc', 'not-own-line', or 'verdict:<v>' / 'gap' / 'arc' for a carry-conflict); `roundc:names`
+maps each candidate to its pipeline name. extend needs contiguity (the candidate starts at the target's
+last number + 1); a candidate wholly above the target with a gap is kept ('gap'). The export writes
+the applied ones as artifact meta `round_c_merges` ([cand, target, verdict, kind, name]), and the next
+build re-applies those by id (source 'carry') when both ids exist -- a rename can stop the rule
+matching, the decision stays. No redirect rows here: 7b redirects every retired line and volume.
 """
 import json, os, re, sqlite3, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -31,19 +35,27 @@ def _norm(vols):
 
 def verdict(cand_vols, target_vols):
     """'extend' | 'duplicate' | 'kept' for a candidate line against its target line."""
+    return verdict_why(cand_vols, target_vols)[0]
+
+
+def verdict_why(cand_vols, target_vols):
+    """(verdict, reason): reason None when it merges; 'gap' when the candidate's numbers all lie above
+    the target's but do not continue them (Gamaran 1-22 and a "(Tomes 31 à aujourd'hui)" tail that
+    continues the sequel); 'verdict' for any other kept. extend needs contiguity: the candidate's
+    first number is the target's last + 1."""
     if not cand_vols:
-        return "kept"
+        return "kept", "verdict"
     c, t = _norm(cand_vols), _norm(target_vols)
     common = set(c) & set(t)
     if not common and t:
         cn, tn = list(c), list(t)
         if all(isinstance(x, int) for x in cn + tn) and min(cn) > max(tn):
-            return "extend"
+            return ("extend", None) if min(cn) == max(tn) + 1 else ("kept", "gap")
     if not common:
-        return "kept"
+        return "kept", "verdict"
     if all(n in t and (c[n] is None or c[n] == t[n]) for n in c):
-        return "duplicate"
-    return "kept"
+        return "duplicate", None
+    return "kept", "verdict"
 
 
 def candidates(lines):
@@ -109,7 +121,7 @@ def _lines(c):
 
 def read_carry(carry):
     """The carried artifact's meta round_c_merges: [(cand, target, verdict, kind or None)] -- an
-    older 3-element row has no kind -- [] when none."""
+    older 3-element row has no kind; a 5th element (the candidate's name) is ignored here -- [] when none."""
     if not carry or not os.path.exists(carry):
         return []
     A = sqlite3.connect(carry)
@@ -145,13 +157,13 @@ def run(db_path, carry_path=None):
             done.append([cand, target, kind, "kept", 0, 0, "rule", why])
             continue
         # volumes read now, not up front: an earlier merge into the same target changed them
-        v = verdict(_vols(c, cand), _vols(c, target))
+        v, why = verdict_why(_vols(c, cand), _vols(c, target))
         if v in ("extend", "duplicate"):
             moved, dropped = merge_line(c, cand, target)
             merged.add(cand)
             done.append([cand, target, kind, v, moved, dropped, "rule"])
         else:
-            done.append([cand, target, kind, v, 0, 0, "rule", "verdict"])
+            done.append([cand, target, kind, v, 0, 0, "rule", why])
     key = lambda rid: c.execute("SELECT work_id, market, medium FROM release_line WHERE id=?", (rid,)).fetchone()
     for cand, target, cv, ckind in read_carry(carry_path):
         # an earlier build's decision, by id: both ids are here (the ids hash work, medium, market and
@@ -165,14 +177,19 @@ def run(db_path, carry_path=None):
         if cand in arc:
             done.append([cand, target, kind, "carry-conflict", 0, 0, "carry", "arc"])
             continue
-        v = verdict(_vols(c, cand), _vols(c, target))
+        v, why = verdict_why(_vols(c, cand), _vols(c, target))
         if v not in ("extend", "duplicate"):
-            done.append([cand, target, kind, "carry-conflict", 0, 0, "carry", "verdict:" + v])
+            done.append([cand, target, kind, "carry-conflict", 0, 0, "carry", "gap" if why == "gap" else "verdict:" + v])
             continue
         moved, dropped = merge_line(c, cand, target)
         merged.add(cand)
         done.append([cand, target, kind, v, moved, dropped, "carry"])
     c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('roundc:merged',?)", (json.dumps(done),))
+    # each candidate's pipeline name (read before any merge): the export's report and its
+    # round_c_merges rows name a merged-away line by it
+    name_of = {l["id"]: l["name"] for l in lines}
+    c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('roundc:names',?)",
+              (json.dumps({d[0]: name_of[d[0]] for d in done if d[0] in name_of}, sort_keys=True),))
     db.commit()
     db.close()
     n = lambda f: sum(1 for d in done if f(d))

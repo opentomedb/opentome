@@ -101,6 +101,10 @@ def run_lookup():
        dn.lookup_holds(before, after), {"ln": "held-lookup"})
     eq("lookup: a rename with no competing line is not held",
        dn.lookup_holds([C("a", "w", "Gate (novel series)", "light_novel")], [C("a", "w", "Gate", "light_novel")]), {})
+    picks = {}
+    held = dn.lookup_holds([C("a", "w", "Gate (novel series)", "light_novel")], [C("a", "w", "Gate", "light_novel")], picks)
+    eq("lookup: picks lists the replay per query and class, return unchanged",
+       (held, picks), ({}, {"a": [("Gate", "comic", "a", "a"), ("Gate", "novel", "a", "a")]}))
 
 def run_rank_agrees():
     import measure_library as ml
