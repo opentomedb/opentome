@@ -682,7 +682,16 @@ eq("round C: ... unless this artifact lists it in round_c_conflicts",
           sc_merged), [])
 eq("round C: two lines of one work, language and medium with the same name fail",
    ids_ok(rcart("a5", [MAIN, TAILL, (3, "rl_x", "w_bb", "fr", "manga", "BLACK butler")], small), sc_plain),
-   ["lines of one work, language and medium sharing a name"])
+   ["lines of one work, language and medium sharing a name (new or grown)"])
+dupx = (3, "rl_x", "w_bb", "fr", "manga", "BLACK butler")
+eq("round C: a within-work duplicate name the carry already had passes",
+   ids_ok(rcart("a5b", [MAIN, TAILL, dupx], small + [(3, "v_x0")]), rcart("a5c", [MAIN, TAILL, dupx], small + [(3, "v_x0")])), [])
+eq("round C: ... but one whose count grew fails",
+   ids_ok(rcart("a5d", [MAIN, TAILL, dupx, (4, "rl_y", "w_bb", "fr", "manga", "black Butler")], small + [(3, "v_x0")]),
+          rcart("a5e", [MAIN, TAILL, dupx], small + [(3, "v_x0")])),
+   ["lines of one work, language and medium sharing a name (new or grown)"])
+eq("round C: a recorded merge whose id_redirect does not map to the target is not excluded",
+   ids_ok(rcart("a2b", [MAIN], big[:30], rc_redir, {"round_c_merges": [["rl_tail", "rl_zzz", "extend", "T"]]}), bc_plain), [MV])
 other = (9, "rl_o", "w_other", "fr", "manhwa", "black butler")
 eq("round C: a name newly shared by two works in one language and comic family fails",
    ids_ok(rcart("a6", [MAIN, TAILL, other], small), sc_plain),
