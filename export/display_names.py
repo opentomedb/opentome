@@ -167,10 +167,12 @@ def _lookup_pick(lines, key, query, prefer_novel):
     return _rank([dict(l, exact=_norm_q(l[key]) == nq) for l in lines], query, prefer_novel)
 
 
-def lookup_holds(before, after):
+def lookup_holds(before, after, picks=None):
     """tome_id -> "held-lookup" for renamed EN lines whose rename would change which line Mangarr's
     title lookup picks (rank_new replay): a different work wins, or the pick crosses comic/novel class
-    for the library being queried. `before`/`after`: candidate dicts with `name` = old/new display name."""
+    for the library being queried. `before`/`after`: candidate dicts with `name` = old/new display name.
+    picks: an optional dict, filled with tome_id -> [(query, "comic"|"novel", before pick, after pick)]
+    (tome_ids or None) for every renamed EN line -- the replay the round C report shows."""
     cls = lambda c: "comic" if c["medium"] in MANGA_FAMILY else "novel"
     old = {l["tome_id"]: l for l in before}
     new = {l["tome_id"]: l for l in after}
@@ -187,6 +189,9 @@ def lookup_holds(before, after):
             for prefer_novel in (False, True):
                 b = _lookup_pick(sb, "name", q, prefer_novel)
                 a = _lookup_pick(sa, "name", q, prefer_novel)
+                if picks is not None:
+                    picks.setdefault(t, []).append((q, "novel" if prefer_novel else "comic",
+                                                    b and b["tome_id"], a and a["tome_id"]))
                 if a is None or (b is not None and a["tome_id"] == b["tome_id"]):
                     continue
                 want = "novel" if prefer_novel else "comic"

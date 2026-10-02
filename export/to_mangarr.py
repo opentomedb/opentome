@@ -46,7 +46,7 @@ from release_lines import GENERIC, HELD
 from corrections import load_aliases, load_alias_removals, load_exclusions
 from line_status import line_status
 sys.path.insert(0, os.path.join(ROOT, "export"))
-from display_names import plan_names, lookup_holds, _family
+from display_names import plan_names, lookup_holds, _family, DISAMBIG
 
 # Round C (spec 2026-10-02 §2): write display names for lines (ids and every name-based decision keep the
 # pipeline name). False reproduces an export without round C.
@@ -445,6 +445,7 @@ def export(src_path, out_path, carry_ids_from=None):
     # reuse existing id assignments if a prior artifact is supplied
     mapping, taken, prev_status = {}, set(), {}
     carry_names = {}        # round C report: the name a merged-away line shipped with (its claims are gone)
+    carry_rc_names = {}     # ... or the name the carry's round_c_merges recorded for it (5th element)
     carry_pairs = set()     # round C: (market, family, lower(name)) that two works' lines share in the carry
     # meta.carried_from: which published artifact this build's ids were carried from.
     # export/publish.sh refuses an artifact without it (unless OPENTOME_COLD_START=1).
@@ -471,6 +472,12 @@ def export(src_path, out_path, carry_ids_from=None):
             prev_status = dict(old.execute("SELECT tome_id, status FROM series"))
             carry_names = dict(old.execute("SELECT tome_id, name FROM series"))
         except sqlite3.OperationalError:
+            pass
+        try:
+            row = old.execute("SELECT value FROM meta WHERE key='round_c_merges'").fetchone()
+            carry_rc_names = {r[0]: r[4] for r in (json.loads(row[0]) if row else [])
+                              if isinstance(r, list) and len(r) > 4 and r[4]}
+        except (sqlite3.OperationalError, TypeError, ValueError):
             pass
         # round C cross-work guard: a carry predating series.country maps its language back to the market
         lang_market = {v: k for k, v in MARKET_LANG.items()}
@@ -943,7 +950,8 @@ def export(src_path, out_path, carry_ids_from=None):
         for _ in range(5):
             after = [dict(c, name=planned[c["tome_id"]]["name"], medium=planned[c["tome_id"]]["medium"])
                      for c in after0]
-            new = {t for t in lookup_holds(before, after) if planned[t]["held"] != "held-lookup"}
+            rc_picks = {}       # the last pass's replay (the written values): the report's lookup column
+            new = {t for t in lookup_holds(before, after, rc_picks) if planned[t]["held"] != "held-lookup"}
             for t in new:
                 hold(t, "held-lookup")
             # a revert can recreate a within-work clash (fix I3): re-run that guard on the written values
@@ -1102,37 +1110,94 @@ def export(src_path, out_path, carry_ids_from=None):
     markets = dict(out.execute("""SELECT language, COUNT(*) FROM series
                                   WHERE language IS NOT NULL GROUP BY language ORDER BY language"""))
 
-    # Round C report (spec §3.3): every line whose written name or medium differs from the pipeline's, or held
+    # Round C report (spec §3.3): every line whose written name or medium differs from the pipeline's, or held.
+    # lookup: for a renamed EN line, the lookup guard's replay of the written values ("unchanged" when every
+    # pick stays put), per query: comic:<before pick>-><after pick>; novel:...
+    def lookup_col(t):
+        q_order, by_q = [], {}
+        for q, cls, b, a in rc_picks.get(t, []):
+            if q not in by_q:
+                q_order.append(q)
+            by_q.setdefault(q, []).append("%s:%s\u2192%s" % (cls, b or "-", a or "-"))
+        if all(b == a for _, _, b, a in rc_picks.get(t, [])):
+            return "unchanged"
+        return " | ".join(("%s " % json.dumps(q, ensure_ascii=False) if len(q_order) > 1 else "")
+                          + "; ".join(by_q[q]) for q in q_order)
+
     rc_rows = []
     if DISPLAY_NAMES:
         for rid in sorted(planned):
             p = planned[rid]
             if (p["name"], p["medium"]) != pipe[rid] or p["held"]:
-                rc_rows.append((rid, line_of[rid][0], line_of[rid][1], pipe[rid][1], p["medium"], pipe[rid][0],
-                                p["name"], ",".join(p["rules"]), p["held"] or ""))
+                renamed_en = lang_of[rid] == "en" and p["name"] != pipe[rid][0]
+                rc_rows.append([rid, line_of[rid][0], line_of[rid][1], pipe[rid][1], p["medium"], pipe[rid][0],
+                                p["name"], ",".join(p["rules"]), p["held"] or "",
+                                lookup_col(rid) if renamed_en else ""])
     round_c_names = json.dumps({
         "renamed": sum(1 for r in rc_rows if r[5] != r[6]),
         "retagged": sum(1 for r in rc_rows if r[3] != r[4]),
         "held": dict(sorted(collections.Counter(r[8] for r in rc_rows if r[8]).items()))}, sort_keys=True)
-    # ... plus one row per stage-4c2 decision (tier0/round_c_merge.py roundc:merged): merged lines are gone from
-    # the catalogue, so a candidate's own name comes from the carry; medium/work/market are the target's
+    # ... plus one row per stage-4c2 decision (tier0/round_c_merge.py roundc:merged). One row per tome_id: a
+    # kept candidate that also has a name/medium row above folds into it (rules and held joined with ",").
+    # A merged line is gone from the catalogue: its name comes from stage 4c2 (meta roundc:names), else the
+    # carry (its series row, else its round_c_merges row); medium/work/market and the new name are the
+    # target's. A kept / carry-conflict row is the candidate's own line, with its pipeline medium.
+    rc_names = json.loads((src.execute("SELECT value FROM meta WHERE key='roundc:names'").fetchone() or ["{}"])[0])
+    cand_name = lambda cand: (pipe[cand][0] if cand in pipe else rc_names.get(cand)
+                              or carry_names.get(cand) or carry_rc_names.get(cand) or "")
     if DISPLAY_NAMES:
+        row_of = {r[0]: r for r in rc_rows}
         for d in sorted(json.loads((src.execute("SELECT value FROM meta WHERE key='roundc:merged'").fetchone()
                                     or ["[]"])[0]), key=lambda d: (d[0], d[1])):
             cand, target, kind, verdict_ = d[0], d[1], d[2], d[3]
             rule = "carry-conflict" if verdict_ == "carry-conflict" else (
                 "kept" if verdict_ == "kept" else "%s-%s" % (kind or "T", verdict_))
             merged_in = verdict_ in ("extend", "duplicate")
+            reason = (d[7] if len(d) > 7 else "") or ""
+            held = "verdict:" + verdict_ if reason == "verdict" else reason
             home = target if merged_in else cand
             if home not in pipe and target in pipe:
                 home = target
             if home not in pipe:
                 continue
-            before = pipe[cand][0] if cand in pipe else carry_names.get(cand, "")
+            if cand in row_of:
+                r = row_of[cand]
+                r[7] = ",".join(x for x in (r[7], rule) if x)
+                r[8] = ",".join(x for x in (r[8], held) if x)
+                continue
             after = (planned.get(home) or {"name": pipe[home][0]})["name"]
-            medium = (planned.get(home) or {"medium": pipe[home][1]})["medium"]
-            rc_rows.append((cand, line_of[home][0], line_of[home][1], medium, medium, before, after,
-                            rule, (d[7] if len(d) > 7 else "") or ""))
+            medium = pipe[home][1] if home == cand else (planned.get(home) or {"medium": pipe[home][1]})["medium"]
+            row_of[cand] = [cand, line_of[home][0], line_of[home][1], medium, medium, cand_name(cand), after,
+                            rule, held, ""]
+            rc_rows.append(row_of[cand])
+    # Unmatched disambiguators (spec §3.1 rule 1): a work's primary title ending in an ASCII " (...)" that
+    # DISAMBIG does not strip -- the candidates for a new disambiguator word, with the work's line count
+    rc_unmatched = []
+    if DISPLAY_NAMES:
+        nlines, wt = collections.Counter(), {}
+        for rid, wid, *_rest, wtitle, lname in lines:
+            nlines[wid] += 1
+            wt[wid] = wtitle
+        for wid in sorted(wt):
+            m = re.search(r" \(([^()]*)\)$", wt[wid] or "")
+            if m and not DISAMBIG.search(wt[wid]):
+                rc_unmatched.append([wid, wt[wid], m.group(1), str(nlines[wid])])
+    # Mainless groups (finding 5 of the round C final review): a medium retag (rule M) can leave a (work,
+    # language, medium) group of the written series without its main line. is_main is not changed; the groups
+    # are listed in build/round-c-mainless.tsv (a separate file keeps round-c-report.tsv one row per tome_id)
+    rc_mainless = []
+    if DISPLAY_NAMES:
+        groups, had_main = {}, set()
+        for t, wid, lang, medium, is_main in out.execute(
+                "SELECT tome_id, tome_work_id, language, medium, is_main FROM series ORDER BY tome_id"):
+            groups.setdefault((wid, lang, medium), []).append((t, is_main))
+            if is_main and t in pipe:
+                had_main.add((wid, lang, pipe[t][1]))
+        for (wid, lang, medium), g in sorted(groups.items(), key=lambda kv: tuple(x or "" for x in kv[0])):
+            retagged = any(t in planned and planned[t]["medium"] != pipe[t][1] for t, _ in g)
+            lost = (wid, lang, medium) in had_main
+            if not any(m for _, m in g) and (retagged or lost):
+                rc_mainless.append([wid or "", lang or "", medium or "", ",".join(t for t, _ in g)])
 
     src_counts = dict(src.execute("SELECT source, COUNT(*) FROM claim GROUP BY source"))
     dnb_degraded = (src.execute("SELECT value FROM meta WHERE key='dnb:degraded'").fetchone() or [None])[0]
@@ -1140,9 +1205,10 @@ def export(src_path, out_path, carry_ids_from=None):
     # the next build merges the same duplicate the same way (not a consumer field)
     merged_lines = json.dumps(sorted([d[2], d[3]] for d in json.loads(
         (src.execute("SELECT value FROM meta WHERE key='carried:merged'").fetchone() or ["[]"])[0])))
-    # tier0/round_c_merge.py (stage 4c2): [candidate line, target line, verdict, kind] for the merges
-    # it applied (not kept / carry-conflict), carried so the next build re-applies them by id (spec §3.2)
-    round_c_merges = json.dumps(sorted([d[0], d[1], d[3], d[2]] for d in json.loads(
+    # tier0/round_c_merge.py (stage 4c2): [candidate line, target line, verdict, kind, candidate name] for
+    # the merges it applied (not kept / carry-conflict), carried so the next build re-applies them by id
+    # (spec §3.2); the name only names the line in the next build's report (readers accept 3-5 elements)
+    round_c_merges = json.dumps(sorted([d[0], d[1], d[3], d[2], cand_name(d[0])] for d in json.loads(
         (src.execute("SELECT value FROM meta WHERE key='roundc:merged'").fetchone() or ["[]"])[0])
         if d[3] in ("extend", "duplicate")))
     # carried merges this build refused (verdict carry-conflict): the candidate ships again on purpose, so
@@ -1267,8 +1333,19 @@ def export(src_path, out_path, carry_ids_from=None):
         print("  round C names: %s" % round_c_names)
         with open(os.path.join(os.path.dirname(os.path.abspath(out_path)), "round-c-report.tsv"), "w",
                   encoding="utf8") as fh:
-            fh.write("tome_id\twork_id\tmarket\tmedium_before\tmedium_after\tname_before\tname_after\trules\theld\n")
+            fh.write("tome_id\twork_id\tmarket\tmedium_before\tmedium_after\tname_before\tname_after\trules\theld"
+                     "\tlookup\n")
             for row in rc_rows:
+                fh.write("\t".join(row) + "\n")
+        with open(os.path.join(os.path.dirname(os.path.abspath(out_path)), "round-c-unmatched-disambiguators.tsv"),
+                  "w", encoding="utf8") as fh:
+            fh.write("work_id\twork_title\tparenthetical\tlines\n")
+            for row in rc_unmatched:
+                fh.write("\t".join(row) + "\n")
+        with open(os.path.join(os.path.dirname(os.path.abspath(out_path)), "round-c-mainless.tsv"), "w",
+                  encoding="utf8") as fh:
+            fh.write("work_id\tlanguage\tmedium\ttome_ids\n")
+            for row in rc_mainless:
                 fh.write("\t".join(row) + "\n")
     out.commit()
     return dict(series=n_series, volumes=n_vol, specials=n_special, aliases=n_alias,

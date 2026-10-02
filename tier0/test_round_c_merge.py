@@ -18,6 +18,10 @@ eq("kept: a gap below the target's top", m.verdict(V(range(5, 8)), {1: None, 2: 
 eq("kept: empty candidate", m.verdict({}, V(range(1, 4))), "kept")
 eq("kept: non-int candidate number", m.verdict({"A": None}, V(range(1, 4))), "kept")
 eq("duplicate: string numbers", m.verdict({"1": None}, {"1": "x"}), "duplicate")
+eq("kept/gap: Gamaran 31-35 after 1-22 (the tail continues the sequel)",
+   m.verdict_why(V(range(31, 36)), V(range(1, 23))), ("kept", "gap"))
+eq("extend/no reason: 31-35 after 1-30", m.verdict_why(V(range(31, 36)), V(range(1, 31))), ("extend", None))
+eq("kept/verdict: same number, different ISBN", m.verdict_why({1: "9780000000099"}, V(range(1, 10))), ("kept", "verdict"))
 def L(i, name, wt="Black Butler", arc=False, medium="manga", market="FR"):
     return {"id": i, "work_id": "w", "work_title": wt, "market": market, "medium": medium, "name": name, "arc_split": arc}
 eq("T candidate", m.candidates([L("t", "Black Butler (Tomes 31 à aujourd'hui)"), L("b", "Black Butler")]), [("t", "b", "T")])
@@ -106,6 +110,27 @@ have, nums, meta = state(p, tail)
 eq("extend: the tail line is gone", have, False)
 eq("extend: the main line holds 35 numbers", state(p, main)[1], list(range(1, 36)))
 eq("extend: meta lists the merge", meta, [[tail, main, "T", "extend", 5, 0, "rule"]])
+D = sqlite3.connect(p)
+eq("extend: meta roundc:names records the candidate's pipeline name",
+   json.loads(D.execute("SELECT value FROM meta WHERE key='roundc:names'").fetchone()[0]), {tail: TAIL})
+D.close()
+
+# gap: Gamaran 1-22 + a "(Tomes 31 à aujourd'hui)" tail 31-35 that continues the sequel -> kept/gap
+GA = "fr:Gamaran"
+GTAIL = "Gamaran (Tomes 31 à aujourd'hui)"
+gmain, gtail = rl(GA, "FR", "Gamaran"), rl(GA, "FR", GTAIL)
+p = catalogue("gap", [(GA, "Gamaran", [("FR", "manga", "Gamaran", vols(1, 22)),
+                                       ("FR", "manga", GTAIL, vols(1, 5, 31))])])
+m.run(p)
+eq("gap: the tail stays with 31-35, main keeps 1-22, meta lists kept/gap",
+   (state(p, gtail), state(p, gmain)[1]),
+   ((True, list(range(31, 36)), [[gtail, gmain, "T", "kept", 0, 0, "rule", "gap"]]), list(range(1, 23))))
+# ... and a carried merge of that pair (an older build's extend) is refused: carry-conflict/gap
+p = catalogue("gap-carry", [(GA, "Gamaran", [("FR", "manga", "Gamaran", vols(1, 22)),
+                                             ("FR", "manga", GTAIL, vols(1, 5, 31))])])
+m.run(p, carry_with([[gtail, gmain, "extend", "T"]]))
+eq("gap: a carried extend of a gap pair is carry-conflict/gap",
+   state(p, gtail), (True, list(range(31, 36)), [[gtail, gmain, "T", "carry-conflict", 0, 0, "carry", "gap"]]))
 
 # duplicate: the tail repeats 31-35 with the main line's ISBNs
 p = catalogue("dup", [(BB, "Black Butler", [("FR", "manga", "Black Butler", vols(1, 35)),
@@ -199,7 +224,7 @@ export(p, art, None)
 A = sqlite3.connect(art)
 eq("export: meta round_c_merges lists applied merges only",
    json.loads((A.execute("SELECT value FROM meta WHERE key='round_c_merges'").fetchone() or ["null"])[0]),
-   [[tail, main, "extend", "T"]])
+   [[tail, main, "extend", "T", TAIL]])
 A.close()
 
 # a carry-conflict ships the candidate again on purpose: the export lists it in meta round_c_conflicts
