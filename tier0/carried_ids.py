@@ -35,6 +35,10 @@ resolve forever through id_redirect. Two stages keep it, for any market, any ent
          every later build (chains collapse at export, stopping at the first id present in
          this build); a row whose OLD id is present again (a reverted re-key) is dropped and
          reported -- it would point a live id away, and close a cycle with the new redirect;
+      1b. a carried line a round C merge (stage 4c2, meta roundc:merged, verdict extend or
+         duplicate) folded away -> its target line, and each of its carried volumes -> the
+         target's volume of the same number (reason duplicate_merge), before any vote: the
+         decision is on record, and a line without ISBNs would tie or retire below;
       2. a carried WORK this build lost -> the work now holding a strict majority of its
          volumes' ISBNs (reason duplicate_merge when that work was published, else
          correction), else the work its lines went to;
@@ -404,6 +408,30 @@ def redirects(db, carry, excluded=None):
     dated_in = collections.defaultdict(set)
     for v, l, n, d in db.execute("SELECT id, release_line_id, number, release_date FROM volume WHERE release_date IS NOT NULL"):
         dated_in[l].add((n, d))
+
+    # 1b. round C merges (stage 4c2, tier0/round_c_merge.py meta roundc:merged): the decision is on
+    # record, so it names the successor before any vote -- a tail or section line without ISBNs
+    # ties or retires there (measured: Seraph of the End / Gamaran "(Tomes 31 à aujourd'hui)").
+    # The line -> its target; each carried volume -> the target's volume of the same number (the
+    # id merge_line minted, v_<hash(target, number)>, else the target's own one of that number).
+    # Only ids still lost, and only to ids present in this build.
+    merged_rc = json.loads((db.execute("SELECT value FROM meta WHERE key='roundc:merged'").fetchone()
+                            or ["[]"])[0]) if _table(db, "meta") else []
+    for d in merged_rc:
+        cand, target, verdict = d[0], d[1], d[3]
+        if verdict not in ("extend", "duplicate") or cand not in C["lines"] or target not in lines_now \
+                or cand in exempt_lines:
+            continue
+        market = lines_now[target][1]
+        if lost(cand):
+            put(cand, target, "release_line", "duplicate_merge", market)
+        for v, n, _, _ in vols_of[cand]:
+            if not lost(v):
+                continue
+            minted = _id("v_", target, n)
+            tv = minted if vols_now.get(minted, (None,))[0] == target else num_in.get((target, n))
+            if tv:
+                put(v, tv, "volume", "duplicate_merge", market)
 
     # 2. works, from ISBNs
     for w in sorted(carried_works - excluded):

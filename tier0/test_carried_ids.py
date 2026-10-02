@@ -897,6 +897,36 @@ eq("Médias: its volumes follow, nothing retired, no orphan",
 db.close()
 eq("Médias: the carried-id gate passes", ids_ok(artifact(med_after, med_carry), med_carry), [])
 
+# ---- a round C merge (stage 4c2) without ISBNs: the merge record names the successor -------------
+# The Seraph of the End / Gamaran shape: a JP "(Tomes 31 à aujourd'hui)" tail extends the work's own
+# line; neither has ISBNs, so no vote can find the target (the build measured a tie -> 13 orphans).
+import round_c_merge as RC
+WG, GT = "fr:Gamaran", "Gamaran (Tomes 31 à aujourd'hui)"
+g_main, g_tail = rl(WG, "JP", "Gamaran"), rl(WG, "JP", GT)
+undated = lambda a, b: [(str(i), None, None) for i in range(a, b)]
+g_lines = [("JP", "manga", "Gamaran", undated(1, 31)), ("JP", "manga", GT, undated(31, 36))]
+g_carry = artifact(catalogue("rcm1", [(WG, "Gamaran", g_lines)]))
+g_after = catalogue("rcm2", [(WG, "Gamaran", g_lines)])
+RC.run(g_after)
+db = sqlite3.connect(g_after)
+rep = K.redirects(db, g_carry, excluded=set())
+red = lambda o: db.execute("SELECT new_id, entity, reason FROM id_redirect WHERE old_id=?", (o,)).fetchone()
+eq("round C extend, no ISBNs: the tail line redirects to its target (duplicate_merge)",
+   red(g_tail), (g_main, "release_line", "duplicate_merge"))
+eq("round C extend, no ISBNs: each tail volume -> the target's volume of that number",
+   [red(_id("v_", g_tail, str(n))) for n in (31, 35)],
+   [(_id("v_", g_main, str(n)), "volume", "duplicate_merge") for n in (31, 35)])
+eq("round C extend, no ISBNs: no orphans, nothing ambiguous", (rep["orphans"], rep["ambiguous"]), ([], []))
+db.close()
+g_art = artifact(g_after, g_carry)
+C_ = sqlite3.connect(g_carry); A_ = sqlite3.connect(g_art)
+tail_int = C_.execute("SELECT gcd_series_id FROM series WHERE tome_id=?", (g_tail,)).fetchone()[0]
+eq("round C extend, no ISBNs: the tail's integer resolves through old_series_id",
+   A_.execute("SELECT old_series_id, new_series_id FROM id_redirect WHERE old_tome_id=?", (g_tail,)).fetchone(),
+   (tail_int, A_.execute("SELECT gcd_series_id FROM series WHERE tome_id=?", (g_main,)).fetchone()[0]))
+C_.close(); A_.close()
+eq("round C extend, no ISBNs: the carried-id gate passes", ids_ok(g_art, g_carry), [])
+
 # ---- no carry: nothing to do ---------------------------------------------------------------------
 db = sqlite3.connect(after)
 eq("no carried artifact: an empty report", K.redirects(db, None, excluded=set())["orphans"], [])
