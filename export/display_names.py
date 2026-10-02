@@ -5,10 +5,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 from release_lines import _ROUND_A, HEADING_MEDIUM_HINTS  # noqa: E402
 
 _KIND = (r"(?:novel series|light novel|novel|literary series|manga series|manga|webcomic|"
-         r"(?:[A-Z][a-z]+ )?TV series|anime|film|video game|webtoon|manhwa|manhua|comics|franchise|"
+         r"TV series|anime|film|video game|webtoon|manhwa|manhua|comics|franchise|"
          r"roman|bande dessin[ée]e|s[ée]rie t[ée]l[ée]vis[ée]e|s[ée]rie|jeu vid[ée]o)")
-# optional leading year or one capitalised author/studio word; optional trailing ", <year>"
-DISAMBIG = re.compile(r"\s+\((?:(?:1[89]|20)\d{2}\s+|[A-Z][\w'-]+\s+)?" + _KIND + r"(?:,\s*(?:1[89]|20)\d{2})?\)$", re.I)
+# a BARE kind only (controller ruling, round C final review item 7): a year, author/studio, nationality or
+# ", <year>" qualifier tells same-titled works apart outside the catalogue ("No Longer Human (Ito manga)" ->
+# "No Longer Human" bound AniList to Furuya's adaptation; "Japan (1994 manga)" to Miura's 1992 Japan), so a
+# qualified disambiguator is kept and listed in build/round-c-unmatched-disambiguators.tsv instead
+DISAMBIG = re.compile(r"\s+\(" + _KIND + r"\)$", re.I)
 
 
 def strip_work_disambiguator(name, work_title):
