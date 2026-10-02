@@ -64,3 +64,72 @@ def display(name, work_title, medium):
     if rw:
         rules.append(rw); out = w
     return out, medium2, rules
+
+
+# ---- guards (spec §3.1): a rename is held back when it would create a clash -------------------------
+def _family(medium):
+    return "comic" if medium in ("manga", "manhwa", "manhua") else medium
+
+
+def _hold(l, held):
+    return {"name": l["name"], "medium": l["medium"], "rules": [], "held": held}
+
+
+def _changed(l, r):
+    return (r["name"], r["medium"]) != (l["name"], l["medium"])
+
+
+def _isbn_guard(lines, res, isbns):
+    for l in lines:
+        r, a = res[l["tome_id"]], isbns.get(l["tome_id"]) or set()
+        if "M" not in r["rules"] or not a:
+            continue
+        for o in lines:
+            if o is l or (o["work_id"], o["market"]) != (l["work_id"], l["market"]):
+                continue
+            b = isbns.get(o["tome_id"]) or set()
+            if (res[o["tome_id"]]["medium"] == r["medium"] and len(a & b) * 2 > len(a)) or \
+               (o["medium"] == l["medium"] and a == b):
+                res[l["tome_id"]] = _hold(l, "held-isbn")
+                break
+
+
+def _within_work_guard(lines, res):
+    groups = {}
+    for l in lines:
+        r = res[l["tome_id"]]
+        groups.setdefault((l["work_id"], l["market"], r["medium"], r["name"].lower()), []).append(l)
+    for g in groups.values():
+        if len(g) > 1:
+            for l in g:
+                if _changed(l, res[l["tome_id"]]):
+                    res[l["tome_id"]] = _hold(l, "held-clash")
+
+
+def _cross_work_guard(lines, res, carry_pairs):
+    works = {}
+    for l in lines:
+        r = res[l["tome_id"]]
+        works.setdefault((l["market"], _family(r["medium"]), r["name"].lower()), set()).add(l["work_id"])
+    for l in lines:
+        r = res[l["tome_id"]]
+        key = (l["market"], _family(r["medium"]), r["name"].lower())
+        if "D" in r["rules"] and len(works[key]) > 1 and key not in carry_pairs:
+            name, medium, rw = strip_round_a_word(l["name"], l["medium"])
+            res[l["tome_id"]] = {"name": name, "medium": medium, "rules": [rw] if rw else [], "held": "held-cross"}
+
+
+def plan_names(lines, carry_pairs, isbns):
+    """tome_id -> {"name", "medium", "rules", "held"}; pure. Born lines are never renamed."""
+    res = {}
+    for l in lines:
+        if l["born"]:
+            res[l["tome_id"]] = {"name": l["name"], "medium": l["medium"], "rules": [], "held": None}
+        else:
+            n, m, rules = display(l["name"], l["work_title"], l["medium"])
+            res[l["tome_id"]] = {"name": n, "medium": m, "rules": rules, "held": None}
+    _isbn_guard(lines, res, isbns)
+    _within_work_guard(lines, res)
+    _cross_work_guard(lines, res, carry_pairs)
+    _within_work_guard(lines, res)  # a cross-work revert can create a within-work clash
+    return res
