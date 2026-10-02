@@ -131,6 +131,7 @@ suite anilist     export/test_resolve_anilist.py
 suite measure     export/test_measure_fixture.py
 suite line_status export/test_line_status.py
 suite to_mangarr  export/test_to_mangarr.py
+suite "display names" export/test_display_names.py
 suite dnb         tier0/test_dnb.py
 suite "carried ids" tier0/test_carried_ids.py
 suite "comic medium" tier0/test_comic_medium.py
