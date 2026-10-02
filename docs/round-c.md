@@ -18,6 +18,8 @@ Names are changed at export only, so no id moves. Merges happen in a pipeline st
 
 Library-born lines (`dnb:`, `bnf:`, `loc:` keys) are never renamed.
 
+D strips only a bare kind word, such as `(manga)`, `(novel series)` or `(TV series)`. A qualified disambiguator such as `(1994 manga)`, `(Ito manga)`, `(Japanese TV series)` or `(manga, 2021)` is kept. It tells same-titled works apart outside the catalogue: stripping `No Longer Human (Ito manga)` made AniList resolve to Furuya's adaptation, not Junji Ito's. Those titles are listed in `round-c-unmatched-disambiguators.tsv`.
+
 ## Guards
 
 A rename that trips a guard keeps its pipeline name, and the line is listed with the reason.

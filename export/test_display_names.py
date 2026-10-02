@@ -15,10 +15,14 @@ def run_d():
     W = "The Water Magician (novel series)"
     eq("D: whole name is the work title", dn.strip_work_disambiguator(W, W), "The Water Magician")
     eq("D: prefix before a part qualifier", dn.strip_work_disambiguator(W + " (Part 1)", W), "The Water Magician (Part 1)")
-    for w in ("Gate (novel series)", "K (TV series)", "Ghost Hunt (novel series)", "X (2017 manga)", "X (Clamp manga)",
-              "X (manga, 2021)", "X (webcomic)", "X (literary series)", "X (Japanese TV series)", "X (2025 TV series)",
+    for w in ("Gate (novel series)", "K (TV series)", "Ghost Hunt (novel series)", "X (webcomic)", "X (literary series)",
               "Shiki (roman)", "Radiant (bande dessinée)", "Y (jeu vidéo)"):
         eq("D: listed disambiguator %r" % w, dn.strip_work_disambiguator(w, w), w[:w.index(" (")])
+    # a qualified kind (year, author/studio, nationality, ", year") tells same-titled works apart: never stripped
+    for w in ("X (2017 manga)", "X (Clamp manga)", "X (manga, 2021)", "X (Japanese TV series)", "X (2025 TV series)",
+              "No Longer Human (Ito manga)", "Japan (1994 manga)"):
+        eq("D: qualified disambiguator %r -> no-op" % w, dn.strip_work_disambiguator(w + " (Part 1)", w), w + " (Part 1)")
+        eq("D: qualified disambiguator %r -> no match" % w, dn.DISAMBIG.search(w), None)
     eq("D: work title without a disambiguator -> no-op even if the line ends in a listed word",
        dn.strip_work_disambiguator("Arifureta (Bande dessinée)", "Arifureta"), "Arifureta (Bande dessinée)")
     eq("D: line not starting with the exact work title -> no-op",
