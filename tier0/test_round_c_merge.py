@@ -22,8 +22,14 @@ def L(i, name, wt="Black Butler", arc=False, medium="manga", market="FR"):
     return {"id": i, "work_id": "w", "work_title": wt, "market": market, "medium": medium, "name": name, "arc_split": arc}
 eq("T candidate", m.candidates([L("t", "Black Butler (Tomes 31 à aujourd'hui)"), L("b", "Black Butler")]), [("t", "b", "T")])
 eq("W2 candidate", m.candidates([L("t", "Black Butler (Mangas)"), L("b", "Black Butler")]), [("t", "b", "W2")])
-eq("not the work's own line -> none", m.candidates([L("t", "Kuro (Tomes 31 à aujourd'hui)"), L("b", "Kuro")]), [])
-eq("arc split out of the group -> none", m.candidates([L("t", "Black Butler (Tomes 31 à aujourd'hui)", arc=True), L("b", "Black Butler")]), [])
+NOL = [L("t", "Kuro (Tomes 31 à aujourd'hui)"), L("b", "Kuro")]
+ARCL = [L("t", "Black Butler (Tomes 31 à aujourd'hui)", arc=True), L("b", "Black Butler")]
+eq("not the work's own line -> none", m.candidates(NOL), [])
+eq("not the work's own line -> candidates_all lists it held", m.candidates_all(NOL), [("t", "b", "T", "not-own-line")])
+eq("arc split out of the group -> none", m.candidates(ARCL), [])
+eq("arc split out of the group -> candidates_all lists it held", m.candidates_all(ARCL), [("t", "b", "T", "arc")])
+eq("candidates_all: a mergeable one has no reason",
+   m.candidates_all([L("t", "Black Butler (Mangas)"), L("b", "Black Butler")]), [("t", "b", "W2", None)])
 eq("other market -> none", m.candidates([L("t", "Black Butler (Tomes 31 à aujourd'hui)"), L("b", "Black Butler", market="JP")]), [])
 eq("nested parens: last ' (' splits", m.candidates([L("t", "X (Y) (Mangas)", wt="X (Y)"), L("b", "X (Y)", wt="X (Y)")]), [("t", "b", "W2")])
 
@@ -99,7 +105,7 @@ m.run(p)
 have, nums, meta = state(p, tail)
 eq("extend: the tail line is gone", have, False)
 eq("extend: the main line holds 35 numbers", state(p, main)[1], list(range(1, 36)))
-eq("extend: meta lists the merge", meta, [[tail, main, "T", "extend", 5, 0]])
+eq("extend: meta lists the merge", meta, [[tail, main, "T", "extend", 5, 0, "rule"]])
 
 # duplicate: the tail repeats 31-35 with the main line's ISBNs
 p = catalogue("dup", [(BB, "Black Butler", [("FR", "manga", "Black Butler", vols(1, 35)),
@@ -107,7 +113,7 @@ p = catalogue("dup", [(BB, "Black Butler", [("FR", "manga", "Black Butler", vols
 m.run(p)
 eq("duplicate: tail gone, main keeps 35, meta records 0 moved 5 dropped",
    (state(p, tail)[0], state(p, main)[1], state(p, tail)[2]),
-   (False, list(range(1, 36)), [[tail, main, "T", "duplicate", 0, 5]]))
+   (False, list(range(1, 36)), [[tail, main, "T", "duplicate", 0, 5, "rule"]]))
 
 # kept: a W2 line whose vol 1 has another ISBN
 W2 = "Black Butler (Mangas)"
@@ -116,7 +122,7 @@ p = catalogue("kept", [(BB, "Black Butler", [("FR", "manga", "Black Butler", vol
                                               ("FR", "manga", W2, vols(2, 3))])])
 m.run(p)
 eq("kept: the W2 line stays with its volumes, meta lists it 0/0",
-   state(p, w2), (True, [1, 2, 3], [[w2, main, "W2", "kept", 0, 0]]))
+   state(p, w2), (True, [1, 2, 3], [[w2, main, "W2", "kept", 0, 0, "rule", "verdict"]]))
 
 # arc: an arc was split out of the tail's rows (release_line.parent_id = the tail) -> not a candidate
 ARC = "Black Butler (Arc du cirque)"
@@ -124,7 +130,8 @@ p = catalogue("arc", [(BB, "Black Butler", [("FR", "manga", "Black Butler", vols
                                              ("FR", "manga", TAIL, vols(1, 5, 31)),
                                              ("FR", "manga", ARC, vols(3, 2), TAIL)])])
 m.run(p)
-eq("arc: the tail stays (an arc came out of it), nothing recorded", state(p, tail), (True, list(range(31, 36)), []))
+eq("arc: the tail stays (an arc came out of it), listed kept/arc", state(p, tail),
+   (True, list(range(31, 36)), [[tail, main, "T", "kept", 0, 0, "rule", "arc"]]))
 
 # re-apply 1: the carry recorded the merge; this build's tail is renamed and still a candidate
 TAIL2 = "Black Butler (Volumes 31 à aujourd'hui)"
@@ -135,7 +142,7 @@ p = catalogue("renamed", [(BB, "Black Butler", [("FR", "manga", "Black Butler", 
 m.run(p, c1)
 eq("re-apply: a renamed tail is still a candidate and merges by rule",
    (state(p, tail2)[0], state(p, main)[1], state(p, tail2)[2]),
-   (False, list(range(1, 36)), [[tail2, main, "T", "extend", 5, 0]]))
+   (False, list(range(1, 36)), [[tail2, main, "T", "extend", 5, 0, "rule"]]))
 
 # re-apply 2: no rule matches any more (the work's title changed: the target is not the work's own
 # line), but both ids exist -> the carry's record merges it
@@ -144,12 +151,42 @@ p = catalogue("carry", [(BB, "Kuroshitsuji", [("FR", "manga", "Black Butler", vo
 m.run(p, c1)
 eq("re-apply: no rule matches, the carry record merges by id",
    (state(p, tail)[0], state(p, main)[1], state(p, tail)[2]),
-   (False, list(range(1, 36)), [[tail, main, "carry", "extend", 5, 0]]))
+   (False, list(range(1, 36)), [[tail, main, "T", "extend", 5, 0, "carry"]]))
+
+# carry-conflict (a): the carry recorded tail -> main, but this build splits an arc out of the tail
+p = catalogue("conflict-arc", [(BB, "Black Butler", [("FR", "manga", "Black Butler", vols(1, 30)),
+                                                      ("FR", "manga", TAIL, vols(1, 5, 31)),
+                                                      ("FR", "manga", ARC, vols(3, 2), TAIL)])])
+m.run(p, c1)
+D = sqlite3.connect(p)
+eq("carry-conflict (arc): the tail stays, the arc still hangs under it, listed carry-conflict/arc",
+   (state(p, tail), D.execute("SELECT parent_id FROM release_line WHERE id=?", (rl(BB, "FR", ARC),)).fetchone()[0]),
+   ((True, list(range(31, 36)), [[tail, main, "T", "carry-conflict", 0, 0, "carry", "arc"]]), tail))
+D.close()
+
+# carry-conflict (b): main grew to 1-32; the tail's 31-32 carry other ISBNs -> no merge, nothing dropped
+p = catalogue("conflict-isbn", [(BB, "Kuroshitsuji", [("FR", "manga", "Black Butler", vols(1, 32)),
+                                                       ("FR", "manga", TAIL, vols(5, 5, 31))])])
+m.run(p, c1)
+D = sqlite3.connect(p)
+eq("carry-conflict (verdict): the tail keeps 31-35, main 1-32, 37 volumes in all, listed carry-conflict",
+   (state(p, tail), state(p, main)[1], D.execute("SELECT COUNT(*) FROM volume").fetchone()[0]),
+   ((True, list(range(31, 36)), [[tail, main, "T", "carry-conflict", 0, 0, "carry", "verdict:kept"]]),
+    list(range(1, 33)), 37))
+D.close()
 
 # re-apply 3: a carry record whose target is gone does nothing
 p = catalogue("gone", [(BB, "Kuroshitsuji", [("FR", "manga", TAIL, vols(1, 5, 31))])])
 m.run(p, carry_with([[tail, main, "extend"]]))
 eq("re-apply: a record whose target is absent is skipped", state(p, tail), (True, list(range(31, 36)), []))
+
+# zero-padded numbers: counted and printed, never fatal
+import contextlib, io
+p = catalogue("padded", [(BB, "Black Butler", [("FR", "manga", "Black Butler", [("01", None, None), ("2", None, None)])])])
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    m.run(p)
+eq("padded: a zero-padded number is reported", "1 line(s) with zero-padded volume numbers" in buf.getvalue(), True)
 
 # the export writes the applied merges (not the kept ones) as artifact meta round_c_merges
 from to_mangarr import export
@@ -162,6 +199,6 @@ export(p, art, None)
 A = sqlite3.connect(art)
 eq("export: meta round_c_merges lists applied merges only",
    json.loads((A.execute("SELECT value FROM meta WHERE key='round_c_merges'").fetchone() or ["null"])[0]),
-   [[tail, main, "extend"]])
+   [[tail, main, "extend", "T"]])
 A.close()
 print("FAILED: %d" % len(FAILS) if FAILS else "all passed"); sys.exit(1 if FAILS else 0)
