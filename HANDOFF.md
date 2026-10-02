@@ -5,22 +5,42 @@ _Last updated: 2026-10-01 (KR/CN lift published as opentome-2026-10-02)_
 ## Branch `round-c` (2026-10-02, NOT merged, NOT published) — line names
 
 Spec/plan: docs/superpowers/specs|plans/2026-10-02-round-c* (local, gitignored); reader doc `docs/round-c.md`.
-Ledger: .superpowers/sdd/2026-10-02-round-c/.
+Ledger: .superpowers/sdd/2026-10-02-round-c/. Trigger: MangarrBot request #1 (The Water Magician).
 
-- Export-time names (`export/display_names.py`, called from `export/to_mangarr.py`): classes D, S, W, M with guards
-  (within-work, cross-work, ISBN, medium, lookup replay). Ids hash the pipeline name, so nothing moves.
-- Stage 4c2 (`tier0/round_c_merge.py`): T continuation tails and W2 duplicate sections merge into the work's own
-  line (verdicts extend / duplicate / kept); decisions in DB meta `roundc:merged`, artifact meta `round_c_merges`
-  and `round_c_conflicts`; carried merges re-apply by id. 7b redirects the retired ids; the re-ship and moved-id
-  gates in `export/test_artifact.py` know about them.
-- Reports in `build/`, uploaded by `.github/workflows/catalogue.yml`: `round-c-report.tsv` (now with one row per
-  merge decision; a merged candidate's name before comes from the carry) and `round-c-anilist.tsv`
-  (`resolve_anilist.py --carry "$ID_CARRY"`, first call in `tier0/rebuild_all.sh`; before = the carry's id, after =
-  the id the first resolve pass leaves, so pins applied later by `corrections.py --anilist` are not in it).
-- Tests: export/test_to_mangarr.py (D row + T-extend row), export/test_display_names.py,
-  tier0/test_round_c_merge.py, tier0/test_carried_ids.py, export/test_resolve_anilist.py.
-- Next: local build + before/after diff (controller), reviews, Nick merges, CI, publish, Mangarr MetadataUpdate,
-  /fixed 1.
+**Local build GREEN (2026-10-02, carry = public `opentome-2026-10-02` sha `930e12ac…`; artifact sha `19b0d22d…`):**
+13,551 → 13,463 lines (88 merged: 24 T-extend, 16 T-duplicate, 48 W2-duplicate; 28 kept + 3 kept beside an M
+retag), 247 lines renamed (94 D, 132 W, 12 D+S, 3 D+W), 6 retagged (M); lines with a parenthetical 2,310 → 2,001;
+0 lost ids, 1,494 carried ids redirected, moved 0 (910 excluded as recorded round C merges), measure 49/49.
+The Water Magician EN manga → `The Water Magician (Part 1)`; the EN light novel keeps `(novel series)` (held-lookup:
+the bare title would win a manga-library lookup in Mangarr).
+
+- Export-time names (`export/display_names.py`, called from `export/to_mangarr.py`): D strips only a BARE kind
+  disambiguator of the work title ("(novel series)", "(manga)"…); a qualified one ("(Ito manga)", "(1994 manga)")
+  stays, because stripping it bound other adaptations on AniList (measured). S, W, M as the spec says; guards
+  within-work, cross-work (D only), ISBN, medium (origin/main/parent), lookup replay, origin pairing (held-origin).
+  Ids hash the pipeline name, so renames move nothing; every name-based export decision reads the pipeline name.
+- Stage 4c2 (`tier0/round_c_merge.py`): T tails and W2 duplicate sections merge into the work's own line —
+  extend only when contiguous (Gamaran's "31+" tails continue the sequel: kept, reason gap), duplicate when every
+  number matches by ISBN or has none. Carried merges re-apply only when this build agrees (else carry-conflict).
+  7b redirects them (ISBN vote, plus an explicit round C step for ISBN-less merges).
+- Gates (`export/test_artifact.py`): moved-id exclusion only for recorded merges the redirect confirms; re-ship
+  rule with the conflict exemption; within-work and cross-work name rules relative to the carry (150 pre-existing
+  DNB duplicate-name groups are noted, not failed).
+- Reports in `build/`, uploaded by CI: `round-c-report.tsv` (one row per line, lookup column),
+  `round-c-anilist.tsv`, `round-c-unmatched-disambiguators.tsv` (44 rows: qualified tags left for review),
+  `round-c-mainless.tsv` (5 JA novel groups left without a main line by M retags; is_main unchanged).
+- AniList moves checked against AniList (controller): Ghost Hunt and Liar, Liar now bind the right manga; the two
+  wrong binds the qualified strips caused are gone with the bare-only rule.
+
+Gotchas:
+- A local build overwrites `build/manga-metadata.sqlite`; restore the public artifact before using it as a carry
+  (copies in `build/round-c-before/`). Don't set PREV_ARTIFACT locally: `merge_aliases.py` then re-adds removed
+  aliases (CI never sets it).
+- Mangarr follow-up: its title Rank prefers an exact name of the other library over the library's own class; once
+  fixed, held-lookup lines can be released.
+
+Next: Nick merges `round-c` → main and pushes; build-only CI compared with this build; publish; Mangarr
+MetadataUpdate on Tower + lookup check (The Water Magician); FlightLog; Nick runs `/fixed 1` in Discord.
 
 ## 2026-10-01 — branch `krcn-lift`: the KR/CN hold (R6) lifted
 
