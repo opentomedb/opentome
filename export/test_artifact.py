@@ -404,16 +404,20 @@ def name_collisions(db, C):
     if now is None:
         print("  note  round C name rules skipped: this artifact's series lacks " + ", ".join(sorted(need)))
         return
-    dup = [k for k, n in collections.Counter(now).items() if n > 1]
-    rule("lines of one work, language and medium sharing a name", len(dup), str(dup[:3]))
+    if before is None:
+        print("  note  round C name rules skipped: the carry's series lacks " + ", ".join(sorted(need)))
+        return
+    # duplicates the carry already had (DNB German library lines, ...) are pre-existing: a note, not a failure;
+    # a group fails only when it is new or its count grew above the carry's
+    was = {k: n for k, n in collections.Counter(before).items() if n > 1}
+    dup = [k for k, n in collections.Counter(now).items() if n > 1 and n > was.get(k, 1)]
+    print("  note  within-work duplicate names the carry already had: %s groups" % format(len(was), ","))
+    rule("lines of one work, language and medium sharing a name (new or grown)", len(dup), str(dup[:3]))
     def shared(rows):
         by = collections.defaultdict(set)
         for w, lang, med, nm in rows:
             by[(lang, NAME_FAMILY.get(med, med), nm)].add(w)
         return {k: v for k, v in by.items() if len(v) > 1}
-    if before is None:
-        print("  note  round C cross-work name rule skipped: the carry's series lacks " + ", ".join(sorted(need)))
-        return
     had = shared(before)
     new = [k for k, ws in shared(now).items() if not ws <= had.get(k, set())]
     rule("a name newly shared by two works (language, comic/medium family)", len(new), str(new[:3]))
@@ -495,7 +499,7 @@ def run_ids(path, carry):
             return json.loads(d.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()[0])
         except (sqlite3.OperationalError, TypeError, ValueError):
             return []
-    rc_cands = {r[0] for r in meta_json(db, "round_c_merges") if r}
+    rc_cands = {r[0] for r in meta_json(db, "round_c_merges") if r and red.get(r[0]) == r[1]}
     merged_ok = rc_cands | {v for v, (s, _) in vols.items() if s in rc_cands}
     moved_ids = [t for t in moved_all if t not in merged_ok]
     print("  moved: %s (round C merges: %s excluded)" % (format(len(moved_ids), ","),
