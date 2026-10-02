@@ -305,12 +305,13 @@ def run():
     eq("round C: mediums unchanged here", {t: r["medium"] for t, r in on["series"].items()},
        {t: r["medium"] for t, r in off["series"].items()})
     eq("round C alias: the manga line keeps its pipeline name as an alias",
-       "The Water Magician (novel series) (Part 1)" in on["aliases"]["rl_mg"], True)
+       ("rl_mg", "The Water Magician (novel series) (Part 1)") in on["aliases"], True)
     eq("round C alias: the manga line's display name is an alias",
-       "The Water Magician (Part 1)" in on["aliases"]["rl_mg"], True)
-    eq("round C alias: every alias of the off run survives",
-       {t: sorted(set(a) - set(on["aliases"][t])) for t, a in off["aliases"].items()},
-       {t: [] for t in off["aliases"]})
+       ("rl_mg", "The Water Magician (Part 1)") in on["aliases"], True)
+    eq("round C alias (I1): every off-run (alias, language, kind) row is present unchanged",
+       {k: v for k, v in off["aliases"].items() if on["aliases"].get(k) != v}, {})
+    eq("round C alias (I1): the FR official work title keeps fr/official on the renamed FR line",
+       on["aliases"][("rl_wwfr", "Whispered Words")], ("fr", "official"))
     rep = {r["tome_id"]: r for r in on["report"]}
     eq("round C report: manga row", {k: rep["rl_mg"][k] for k in ("work_id", "market", "name_before", "name_after",
                                                                   "rules", "held")},
@@ -320,7 +321,63 @@ def run():
        (rep["rl_ln"]["name_after"], rep["rl_ln"]["rules"], rep["rl_ln"]["held"]),
        ("The Water Magician (novel series)", "", "held-lookup"))
     eq("round C report: W row", (rep["rl_ww"]["name_after"], rep["rl_ww"]["rules"]), ("Whispered Words", "W"))
-    eq("round C meta", on["meta"], {"renamed": 2, "retagged": 0, "held": {"held-lookup": 1}})
+    eq("round C meta", on["meta"], {"renamed": 3, "retagged": 0, "held": {"held-lookup": 1}})
+
+    # ---- round C medium guard (fix I2): an M retag that breaks origin / is_main / parents is held ----------
+    hy = rc_export(True, [("w_hy", "Hyouka"), ("w_lb", "Lonely Book")],
+                   [("rl_hy_jpm", "w_hy", "manga", "JP", "Hyouka", 3),
+                    ("rl_hy_jpn", "w_hy", "novel", "JP", "Hyouka", 2),
+                    ("rl_hy_frn", "w_hy", "novel", "FR", "Hyouka Deluxe", 1),
+                    ("rl_hy_frm", "w_hy", "manga", "FR", "Hyouka (Roman)", 2),
+                    ("rl_lb", "w_lb", "manga", "FR", "Lonely Book (Roman)", 2)])
+    s_hy = hy["series"]["rl_hy_frm"]
+    eq("round C M: Hyouka (Roman) beside its JP manga origin and an FR novel main keeps name and medium",
+       (s_hy["name"], s_hy["medium"]), ("Hyouka (Roman)", "manga"))
+    rep_hy = {r["tome_id"]: r for r in hy["report"]}
+    eq("round C M: reported held-medium", (rep_hy["rl_hy_frm"]["held"], rep_hy["rl_hy_frm"]["rules"]),
+       ("held-medium", ""))
+    eq("round C M: a free retag still applies (Lonely Book (Roman) -> novel)",
+       (hy["series"]["rl_lb"]["name"], hy["series"]["rl_lb"]["medium"], rep_hy["rl_lb"]["rules"]),
+       ("Lonely Book", "novel", "M"))
+    from test_artifact import orig_mismatches
+    hdb = sqlite3.connect(hy["path"])
+    eq("round C M: orig_series_id contract clean", orig_mismatches(hdb), [])
+    eq("round C M: one main line per (work, language, medium)", hdb.execute(
+        """SELECT COUNT(*) FROM (SELECT tome_work_id, language, medium FROM series WHERE is_main=1
+           GROUP BY 1,2,3 HAVING COUNT(*)>1)""").fetchone()[0], 0)
+    hdb.close()
+
+    # ---- round C (fix I3): a held-lookup revert that recreates a within-work clash holds the other line too --
+    xf = rc_export(True, [("w1", "X: Foo"), ("w2", "X: Foo Again")],
+                   [("rl_a", "w1", "manga", "EN", "X: Foo (Médias)", 5),
+                    ("rl_b", "w1", "manga", "EN", "X: Foo (Médias) (Médias)", 1),
+                    ("rl_c", "w2", "manga", "EN", "X: Foo", 2)])
+    eq("round C I3: written names", {t: r["name"] for t, r in xf["series"].items()},
+       {"rl_a": "X: Foo (Médias)", "rl_b": "X: Foo (Médias) (Médias)", "rl_c": "X: Foo"})
+    eq("round C I3: held labels", {r["tome_id"]: r["held"] for r in xf["report"]},
+       {"rl_a": "held-lookup", "rl_b": "held-clash"})
+
+    # ---- round C born (ruling): a DNB-born line keeps its name; a Wikipedia line of the same work does not ----
+    dn = rc_export(True, [("w_g", "Gate (novel series)")],
+                   [("rl_dnb", "w_g", "light_novel", "DE", "Gate (novel series)", 2),
+                    ("rl_wk", "w_g", "manga", "DE", "Gate (novel series) (Manga)", 2)], dnb_born=["rl_dnb"])
+    eq("round C born: the DNB-keyed line keeps its disambiguator", dn["series"]["rl_dnb"]["name"],
+       "Gate (novel series)")
+    eq("round C born: control line renamed", dn["series"]["rl_wk"]["name"], "Gate (Manga)")
+
+    # ---- round C carry_pairs from a real carry artifact (with and without series.country) ------------------
+    gate = ([("w_g1", "Gate (novel series)"), ("w_g2", "Gate")],
+            [("rl_g1", "w_g1", "manga", "EN", "Gate (novel series)", 1), ("rl_g2", "w_g2", "manga", "EN", "Gate", 3)])
+    pair = [("Gate", "manga", "en", "EN", "w_g1"), ("Gate", "manhwa", "en", "EN", "w_g2")]
+    eq("round C carry: no carry -> cross-work guard keeps the disambiguator",
+       rc_export(True, *gate)["series"]["rl_g1"]["name"], "Gate (novel series)")
+    eq("round C carry: a carry pair (same comic family, two works) releases the rename",
+       rc_export(True, *gate, carry_rows=pair)["series"]["rl_g1"]["name"], "Gate")
+    eq("round C carry: a carry without series.country maps language back to the market",
+       rc_export(True, *gate, carry_rows=pair, carry_country=False)["series"]["rl_g1"]["name"], "Gate")
+    eq("round C carry: a pair of ONE work is no pair",
+       rc_export(True, *gate, carry_rows=[("Gate", "manga", "en", "EN", "w_g1")] * 2)["series"]["rl_g1"]["name"],
+       "Gate (novel series)")
 
     if FAILS:
         print("FAILED: " + ", ".join(FAILS))
@@ -678,22 +735,22 @@ def fixture_heading_alias():
     return rows
 
 
-def fixture_round_c(display):
-    """The Water Magician (MangarrBot request #1): EN light-novel line named after the work and an EN manga
-    line '<work title> (Part 1)', plus 'Whispered Words (Médias)', the only JP manga line of its work. Exported
-    with to_mangarr.DISPLAY_NAMES = `display`. -> {"series": {tome_id: row}, "aliases": {tome_id: [alias]},
-    "report": [row] | None, "meta": dict | None}"""
+def rc_export(display, works, lines, titles=(), dnb_born=(), carry_rows=None, carry_country=True):
+    """Round C export harness. works: [(wid, primary_title)]; lines: [(rid, wid, medium, market, name, n_vols)];
+    titles: [(wid, lang, title, kind)]; dnb_born: rids given a DNB staging row (tier0/build_dnb.py);
+    carry_rows: [(name, medium, language, market, tome_work_id)] for a minimal carry artifact (with or without
+    series.country). Exported with to_mangarr.DISPLAY_NAMES = `display`.
+    -> {"series": {tome_id: row}, "aliases": {(tome_id, alias): (language, kind)}, "report": [row] | None,
+        "meta": dict | None, "path": artifact path}"""
     import to_mangarr
+    from build_dnb import STAGING_DDL
     tmp = tempfile.mkdtemp(prefix="opentome-roundc-")
     src_path, out_path = (os.path.join(tmp, n) for n in ("pipeline.db", "artifact.sqlite"))
     db = sqlite3.connect(src_path)
     db.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
-    for wid, title in (("w_wm", "The Water Magician (novel series)"), ("w_ww", "Whispered Words")):
+    for wid, title in works:
         db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES(?,?,'x','x')", (wid, title))
-    for rid, wid, medium, market, name, n in (
-            ("rl_ln", "w_wm", "light_novel", "EN", "The Water Magician (novel series)", 4),
-            ("rl_mg", "w_wm", "manga", "EN", "The Water Magician (novel series) (Part 1)", 3),
-            ("rl_ww", "w_ww", "manga", "JP", "Whispered Words (Médias)", 2)):
+    for rid, wid, medium, market, name, n in lines:
         db.execute("""INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at)
                       VALUES(?,?,?,?,?,'x','x')""", (rid, wid, medium, market, market.lower()))
         db.execute("""INSERT INTO claim(entity,entity_id,field,value,source,licence,retrieved_at)
@@ -701,20 +758,40 @@ def fixture_round_c(display):
         for k in range(1, n + 1):
             db.execute("""INSERT INTO volume(id,release_line_id,number,created_at,updated_at)
                           VALUES(?,?,?,'x','x')""", ("v_%s_%d" % (rid, k), rid, str(k)))
+    for wid, lang, title, kind in titles:
+        db.execute("INSERT INTO work_title(work_id,language,title,kind) VALUES(?,?,?,?)", (wid, lang, title, kind))
+    if dnb_born:
+        db.executescript(STAGING_DDL)
+        for i, rid in enumerate(dnb_born):
+            db.execute("""INSERT INTO dnb_line(key,rl_id,role,exported) VALUES(?,?,'linked',1)""",
+                       ("dnb:%d" % (1000 + i), rid))
     db.commit(); db.close()
+    carry = None
+    if carry_rows is not None:
+        carry = os.path.join(tmp, "carry.sqlite")
+        c = sqlite3.connect(carry)
+        c.execute("CREATE TABLE series (tome_id TEXT, status TEXT, name TEXT, medium TEXT, language TEXT%s, "
+                  "tome_work_id TEXT)" % (", country TEXT" if carry_country else ""))
+        for i, (name, medium, language, market, cwid) in enumerate(carry_rows):
+            if carry_country:
+                c.execute("INSERT INTO series(tome_id,name,medium,language,country,tome_work_id) VALUES(?,?,?,?,?,?)",
+                          ("rl_old%d" % i, name, medium, language, market, cwid))
+            else:
+                c.execute("INSERT INTO series(tome_id,name,medium,language,tome_work_id) VALUES(?,?,?,?,?)",
+                          ("rl_old%d" % i, name, medium, language, cwid))
+        c.commit(); c.close()
     real_dir, corr.DIR = corr.DIR, tempfile.mkdtemp(prefix="opentome-nocorr-")
     real_flag, to_mangarr.DISPLAY_NAMES = to_mangarr.DISPLAY_NAMES, display
     try:
         with contextlib.redirect_stdout(io.StringIO()):
-            export(src_path, out_path)
+            export(src_path, out_path, carry)
     finally:
         corr.DIR, to_mangarr.DISPLAY_NAMES = real_dir, real_flag
     out = sqlite3.connect(out_path)
     out.row_factory = sqlite3.Row
     series = {r["tome_id"]: dict(r) for r in out.execute("SELECT * FROM series")}
-    aliases = {}
-    for r in out.execute("SELECT s.tome_id, a.alias FROM series_alias a JOIN series s USING(gcd_series_id)"):
-        aliases.setdefault(r["tome_id"], []).append(r["alias"])
+    aliases = {(r["tome_id"], r["alias"]): (r["language"], r["kind"]) for r in out.execute(
+        "SELECT s.tome_id, a.alias, a.language, a.kind FROM series_alias a JOIN series s USING(gcd_series_id)")}
     meta = out.execute("SELECT value FROM meta WHERE key='round_c_names'").fetchone()
     out.close()
     rp = os.path.join(tmp, "round-c-report.tsv")
@@ -723,7 +800,21 @@ def fixture_round_c(display):
         with open(rp, encoding="utf8") as fh:
             head, *body = fh.read().splitlines()
         report = [dict(zip(head.split("\t"), l.split("\t"))) for l in body]
-    return {"series": series, "aliases": aliases, "report": report, "meta": json.loads(meta[0]) if meta else None}
+    return {"series": series, "aliases": aliases, "report": report, "meta": json.loads(meta[0]) if meta else None,
+            "path": out_path}
+
+
+def fixture_round_c(display):
+    """The Water Magician (MangarrBot request #1): EN light-novel line named after the work and an EN manga
+    line '<work title> (Part 1)'; 'Whispered Words (Médias)', its work's only JP and only FR manga line, with
+    an FR official work title 'Whispered Words' (fix I1: the display alias must not take that row)."""
+    return rc_export(display,
+                     [("w_wm", "The Water Magician (novel series)"), ("w_ww", "Whispered Words")],
+                     [("rl_ln", "w_wm", "light_novel", "EN", "The Water Magician (novel series)", 4),
+                      ("rl_mg", "w_wm", "manga", "EN", "The Water Magician (novel series) (Part 1)", 3),
+                      ("rl_ww", "w_ww", "manga", "JP", "Whispered Words (Médias)", 2),
+                      ("rl_wwfr", "w_ww", "manga", "FR", "Whispered Words (Médias)", 2)],
+                     titles=[("w_ww", "fr", "Whispered Words", "official")])
 
 
 FIX_META = {}
