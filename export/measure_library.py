@@ -80,14 +80,14 @@ def rank_old(cands, query):
                                         -c["volume_count"], c["gcd_series_id"]))[0]
 
 
-def pick(db, names, ranker):
+def pick(db, names, ranker, prefer_novel=False):
     """Mangarr tries displayName then name; offline we try each stored name
     and then the arc title after the last ':' or ',' when it is 3+ words --
     exactly GcdMetadataService.FindSeriesBySubtitle, no more."""
     for q in names:
         c = candidates(db, q)
         if c:
-            p = ranker(c, q)
+            p = ranker(c, q, prefer_novel) if prefer_novel else ranker(c, q)
             if p:
                 return p, q
     for q in names:
@@ -98,31 +98,32 @@ def pick(db, names, ranker):
             if len(normalize(tail).split()) >= 3:
                 c = candidates(db, tail)
                 if c:
-                    p = ranker(c, tail)
+                    p = ranker(c, tail, prefer_novel) if prefer_novel else ranker(c, tail)
                     if p:
                         return p, tail
     return None, None
 
 
 def library(readarr):
-    """One dict per series: id, name, folder, owned (sorted volume numbers), status.
-    From a readarr.db copy, or from the .json snapshot of one (same rows, same order;
-    the snapshot carries no Mangarr ids)."""
+    """One dict per series: id, name, folder, owned (sorted volume numbers), status, novel (the entry is in
+    Mangarr's light-novel library: its lookup sees novel lines only). From a readarr.db copy, or from the
+    .json snapshot of one (same rows, same order; the snapshot carries no Mangarr ids; an older snapshot
+    without "novel" reads as all manga)."""
     if readarr.endswith(".json"):
         with open(readarr, encoding="utf8") as f:
-            return [dict(id=None, name=s["name"], folder=s["folder"], owned=sorted(set(s["volumes"])), status=s["status"])
-                    for s in json.load(f)]
+            return [dict(id=None, name=s["name"], folder=s["folder"], owned=sorted(set(s["volumes"])), status=s["status"],
+                         novel=bool(s.get("novel"))) for s in json.load(f)]
     L = sqlite3.connect(readarr)
-    rows = L.execute("""SELECT a.Id, am.Name, a.Path, am.Status FROM Authors a
+    rows = L.execute("""SELECT a.Id, am.Name, a.Path, am.Status, am.ForeignAuthorId FROM Authors a
                         JOIN AuthorMetadata am ON am.Id=a.AuthorMetadataId ORDER BY am.Name""").fetchall()
     out = []
-    for aid, name, path, status in rows:
+    for aid, name, path, status, foreign in rows:
         owned = sorted({r[0] for r in L.execute("""
             SELECT b.VolumeNumber FROM BookFiles bf JOIN Editions e ON e.Id=bf.EditionId
             JOIN Books b ON b.Id=e.BookId JOIN Authors a ON a.AuthorMetadataId=b.AuthorMetadataId
             WHERE a.Id=? AND b.VolumeNumber IS NOT NULL""", (aid,))})
         out.append(dict(id=aid, name=name, folder=os.path.basename(path.rstrip("/")),
-                        owned=owned, status=status))
+                        owned=owned, status=status, novel="~ln" in (foreign or "")))
     return out
 
 
@@ -134,7 +135,7 @@ def measure(art_path, readarr, old_path=None, verbose=True):
     n_pick_id = 0
     for s in library(readarr):
         names = [s["name"], s["folder"]]
-        p, q = pick(A, names, rank_new)
+        p, q = pick(A, names, rank_new, s["novel"])
         op, _ = pick(O, names, rank_old) if O else (None, None)
         owned = set(s["owned"])
         if p:

@@ -46,6 +46,14 @@ def make_artifact(path):
     db.execute("INSERT INTO series_alias VALUES (2, 'Tongari Boushi no Atelier')")
     for n in range(1, 4):
         db.execute("INSERT INTO volumes VALUES (NULL, 2, ?, NULL)", (n,))
+    # 3/4: a light-novel line named exactly the title and a manga spin-off carrying it only as an alias
+    # (Mangarr 10.0.0.897 ranks the library's class first): a light-novel entry must still take line 4
+    db.execute("INSERT INTO series VALUES (3, 'Sword Art Online: Girls'' Ops', 'en', 0, 8, NULL, 'manga', 8)")
+    db.execute("INSERT INTO series_alias VALUES (3, 'Sword Art Online')")
+    db.execute("INSERT INTO series VALUES (4, 'Sword Art Online', 'en', 0, 2, NULL, 'light_novel', 2)")
+    for sid in (3, 4):
+        for n in range(1, 3):
+            db.execute("INSERT INTO volumes VALUES (NULL, ?, ?, NULL)", (sid, n))
     db.commit()
     db.close()
 
@@ -54,19 +62,23 @@ def make_readarr(path):
     """The five tables library() joins, with the columns it touches and nothing else."""
     db = sqlite3.connect(path)
     db.executescript("""
-        CREATE TABLE AuthorMetadata (Id INTEGER PRIMARY KEY, Name TEXT NOT NULL, Status INTEGER NOT NULL);
+        CREATE TABLE AuthorMetadata (Id INTEGER PRIMARY KEY, Name TEXT NOT NULL, Status INTEGER NOT NULL,
+            ForeignAuthorId TEXT);
         CREATE TABLE Authors (Id INTEGER PRIMARY KEY, AuthorMetadataId INTEGER NOT NULL, Path TEXT NOT NULL);
         CREATE TABLE Books (Id INTEGER PRIMARY KEY, AuthorMetadataId INTEGER NOT NULL, VolumeNumber INTEGER);
         CREATE TABLE Editions (Id INTEGER PRIMARY KEY, BookId INTEGER NOT NULL);
         CREATE TABLE BookFiles (Id INTEGER PRIMARY KEY, EditionId INTEGER NOT NULL);
     """)
-    db.execute("INSERT INTO AuthorMetadata VALUES (10, 'Vinland Saga', 0)")
+    db.execute("INSERT INTO AuthorMetadata VALUES (10, 'Vinland Saga', 0, 'local-vinland-saga')")
     db.execute("INSERT INTO Authors VALUES (1, 10, '/manga/Vinland Saga/')")
-    db.execute("INSERT INTO AuthorMetadata VALUES (20, 'Atelier of Witch Hat', 1)")
+    db.execute("INSERT INTO AuthorMetadata VALUES (20, 'Atelier of Witch Hat', 1, 'local-atelier-of-witch-hat')")
+    db.execute("INSERT INTO AuthorMetadata VALUES (30, 'Sword Art Online', 0, 'local-sword-art-online~ln')")
+    db.execute("INSERT INTO Authors VALUES (3, 30, '/lightnovels/Sword Art Online')")
     db.execute("INSERT INTO Authors VALUES (2, 20, '/manga/Tongari Boushi no Atelier')")
     # (book id, metadata id, volume number, number of files on disk)
     books = [(1, 10, 1, 1), (2, 10, 2, 2), (3, 10, 3, 1), (4, 10, 4, 0),   # v4 is a book without a file
-             (5, 20, 1, 1), (6, 20, 2, 1), (7, 20, 5, 1), (8, 20, None, 1)]  # a NULL volume number is skipped
+             (5, 20, 1, 1), (6, 20, 2, 1), (7, 20, 5, 1), (8, 20, None, 1),  # a NULL volume number is skipped
+             (9, 30, 1, 1), (10, 30, 2, 1)]
     fid = 0
     for bid, mid, num, files in books:
         db.execute("INSERT INTO Books VALUES (?, ?, ?)", (bid, mid, num))
@@ -90,13 +102,21 @@ def main():
         with open(fix, "w", encoding="utf8") as f:
             json.dump(snap, f, indent=1, ensure_ascii=False)
 
-        # -- the snapshot carries exactly the four public fields, as library() sees them
+        # -- the snapshot carries exactly the five public fields, as library() sees them
         eq("snapshot: one entry per series, in library() order", [s["name"] for s in snap],
-           ["Atelier of Witch Hat", "Vinland Saga"])
-        eq("snapshot: keys", sorted(snap[0]), ["folder", "name", "status", "volumes"])
+           ["Atelier of Witch Hat", "Sword Art Online", "Vinland Saga"])
+        eq("snapshot: keys", sorted(snap[0]), ["folder", "name", "novel", "status", "volumes"])
         eq("snapshot: folder is the basename (trailing slash dropped), status as stored, volumes distinct+sorted",
            [(s["folder"], s["status"], s["volumes"]) for s in snap],
-           [("Tongari Boushi no Atelier", 1, [1, 2, 5]), ("Vinland Saga", 0, [1, 2, 3])])
+           [("Tongari Boushi no Atelier", 1, [1, 2, 5]), ("Sword Art Online", 0, [1, 2]), ("Vinland Saga", 0, [1, 2, 3])])
+        eq("snapshot: novel = Mangarr's light-novel library (the ~ln foreign id)", [s["novel"] for s in snap],
+           [False, True, False])
+        old = [{k: v for k, v in s.items() if k != "novel"} for s in snap]
+        oldfix = os.path.join(tmp, "library-old.json")
+        with open(oldfix, "w", encoding="utf8") as f:
+            json.dump(old, f)
+        eq("library(): an older snapshot without 'novel' reads as all manga", [s["novel"] for s in M.library(oldfix)],
+           [False, False, False])
         from_db = [{k: v for k, v in s.items() if k != "id"} for s in M.library(lib)]
         from_fix = [{k: v for k, v in s.items() if k != "id"} for s in M.library(fix)]
         eq("library(): the fixture path yields the DB path's dicts (minus Mangarr ids)", from_fix, from_db)
@@ -110,8 +130,10 @@ def main():
         # -- and the rows say what a real measurement would say
         eq("row 1: folder alias matched, owned v5 missing from the picked line",
            rows_fix[0], ("Atelier of Witch Hat", 3, "Witch Hat Atelier [manga] v3 d3", "MISSING [5]", "+0 (0 past)", "--"))
-        eq("row 2: name matched, all owned present, one past-dated volume beyond",
-           rows_fix[1], ("Vinland Saga", 3, "Vinland Saga [manga] v4 d4", "OK", "+1 (1 past)", "--"))
+        eq("row 2: a light-novel entry takes the exact-named novel line, not the manga line with the alias",
+           rows_fix[1][:4], ("Sword Art Online", 2, "Sword Art Online [light_novel] v2 d2", "OK"))
+        eq("row 3: name matched, all owned present, one past-dated volume beyond",
+           rows_fix[2], ("Vinland Saga", 3, "Vinland Saga [manga] v4 d4", "OK", "+1 (1 past)", "--"))
         eq("failures name the series, the pick and the missing volumes",
            fails_fix, [("Atelier of Witch Hat", "Witch Hat Atelier", [5])])
 
@@ -119,7 +141,7 @@ def main():
         r = subprocess.run([sys.executable, os.path.join(HERE, "measure_library.py"), art, fix],
                            capture_output=True, text=True)
         eq("CLI: exit 1 on the coverage failure", r.returncode, 1)
-        eq("CLI: prints the summary line", "matched 2/2   coverage failures 1" in r.stdout, True)
+        eq("CLI: prints the summary line", "matched 3/3   coverage failures 1" in r.stdout, True)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
