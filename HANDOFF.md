@@ -8,6 +8,12 @@
   Magician EN light novel and the others in `round-c-report.tsv`) are released on the next build. **Publish only
   once a public Mangarr release carries the new Rank** (live on the build server since 897; the public beta
   image still has the old order, where an exact-named novel line beats the manga line for a manga entry).
+- **Measure gate reads the library class.** `snapshot_library.py` records `novel` (Mangarr's `~ln` foreign id) and
+  `measure_library` ranks those entries as light-novel lookups; the class-first replay otherwise failed Re:Zero and
+  SAO (light-novel entries replayed as manga lookups). The `OPENTOME_LIBRARY_JSON` secret was re-set 2026-10-17
+  with `novel` on the 5 entries that were light novels when the snapshot was taken (local copy in Nick's scratch,
+  never in git). Build-only run 39093387939 GREEN: library gate ok, renamed 247 -> 250, `held-lookup` 3 -> 0,
+  everything else as on main (`moved: 15` is on main too).
 - **No origin guard in `resolve_anilist.pick()` — decided against (2026-10-17).** Measured: of the 76 bound EN
   manhwa/manhua lines, 2 have an AniList `countryOfOrigin` that disagrees (Raiders 40230, Black God 30982) and
   both bindings are right (AniList flags them JP). A Mangarr-style guard would unbind two correct lines and
