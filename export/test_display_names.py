@@ -101,8 +101,14 @@ def run_lookup():
               C("mg", "w", "The Water Magician (novel series) (Part 1)", "manga", sid=2)]
     after = [C("ln", "w", "The Water Magician", "light_novel", sid=1),
              C("mg", "w", "The Water Magician (Part 1)", "manga", sid=2)]
-    eq("lookup: the LN rename that would win the manga library's bare-title lookup is held",
-       dn.lookup_holds(before, after), {"ln": "held-lookup"})
+    # Mangarr 10.0.0.897 (2026-10-17) ranks the library's own class before an exact name: the manga library's
+    # bare-title lookup keeps the manga line, so the LN rename no longer needs holding
+    eq("lookup: the LN rename to the bare title is released (manga library keeps its manga line)",
+       dn.lookup_holds(before, after), {})
+    eq("lookup: an exact-named LN still loses to an alias-carrying manga line in a manga library",
+       dn._lookup_pick(after, "name", "The Water Magician", False)["tome_id"], "mg")
+    eq("lookup: ... and still wins the light-novel library",
+       dn._lookup_pick(after, "name", "The Water Magician", True)["tome_id"], "ln")
     eq("lookup: a rename with no competing line is not held",
        dn.lookup_holds([C("a", "w", "Gate (novel series)", "light_novel")], [C("a", "w", "Gate", "light_novel")]), {})
     picks = {}

@@ -1,5 +1,18 @@
 # HANDOFF — OpenTome
 
+## Branch `rank-class-first` (2026-10-17, NOT merged, NOT published) — the round C follow-ups
+
+- **Lookup replay = Mangarr 10.0.0.897.** Mangarr's catalogue `Rank` now puts the library's class before an exact
+  name (a manga entry keeps the manga line even when the light novel's line is named exactly the title).
+  `display_names._rank` and `measure_library.rank_new` mirror it, so round C's `held-lookup` lines (The Water
+  Magician EN light novel and the others in `round-c-report.tsv`) are released on the next build. **Publish only
+  once a public Mangarr release carries the new Rank** (live on the build server since 897; the public beta
+  image still has the old order, where an exact-named novel line beats the manga line for a manga entry).
+- **No origin guard in `resolve_anilist.pick()` — decided against (2026-10-17).** Measured: of the 76 bound EN
+  manhwa/manhua lines, 2 have an AniList `countryOfOrigin` that disagrees (Raiders 40230, Black God 30982) and
+  both bindings are right (AniList flags them JP). A Mangarr-style guard would unbind two correct lines and
+  fix none; the KR/CN works' path already searches by country.
+
 _Last updated: 2026-10-01 (KR/CN lift published as opentome-2026-10-02)_
 
 ## Branch `round-c` (2026-10-02, NOT merged, NOT published) — line names

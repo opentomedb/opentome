@@ -160,7 +160,7 @@ def _rank(cands, query, prefer_novel=False):
         en = [c for c in en if c["medium"] not in MANGA_FAMILY]
     if not en:
         return None
-    return sorted(en, key=lambda c: (not c["exact"], c["medium"] not in MANGA_FAMILY,
+    return sorted(en, key=lambda c: (c["medium"] not in MANGA_FAMILY, not c["exact"],
                                      c["is_omnibus"], -c["dated_count"],
                                      -c["volume_count"], c["gcd_series_id"]))[0]
 

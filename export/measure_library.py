@@ -59,14 +59,14 @@ def candidates(db, title):
 def rank_new(cands, query, prefer_novel=False):
     """The ranking the C# implements after the 2026-09-03 change (library-aware since
     2026-09-14): English only; a light-novel entry (prefer_novel) sees novel lines only;
-    exact name first; manga family before light novels; non-omnibus first; more dated
-    volumes; more volumes; lowest id."""
+    the library's class first (manga family before light novels, Mangarr 10.0.0.897), then the exact
+    name; non-omnibus first; more dated volumes; more volumes; lowest id."""
     en = [c for c in cands if c["language"] == "en"]
     if prefer_novel:
         en = [c for c in en if c["medium"] not in MANGA_FAMILY]
     if not en:
         return None
-    return sorted(en, key=lambda c: (not c["exact"], c["medium"] not in MANGA_FAMILY,
+    return sorted(en, key=lambda c: (c["medium"] not in MANGA_FAMILY, not c["exact"],
                                      c["is_omnibus"], -c["dated_count"],
                                      -c["volume_count"], c["gcd_series_id"]))[0]
 
