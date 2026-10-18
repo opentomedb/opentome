@@ -299,8 +299,10 @@ def run():
     eq("round C off: no report, no meta", (off["report"], off["meta"]), (None, None))
     eq("round C D: the manga line drops the work's disambiguator", on["series"]["rl_mg"]["name"],
        "The Water Magician (Part 1)")
-    eq("round C lookup: the LN line keeps its pipeline name (held-lookup)", on["series"]["rl_ln"]["name"],
-       "The Water Magician (novel series)")
+    # Mangarr 10.0.0.897 ranks the library's class before an exact name, so the bare LN title no longer
+    # takes the manga library's lookup: the rename goes through (it was held-lookup before)
+    eq("round C lookup: the LN line drops the disambiguator too", on["series"]["rl_ln"]["name"],
+       "The Water Magician")
     eq("round C W: a section word alone in its group is dropped", on["series"]["rl_ww"]["name"], "Whispered Words")
     eq("round C: mediums unchanged here", {t: r["medium"] for t, r in on["series"].items()},
        {t: r["medium"] for t, r in off["series"].items()})
@@ -317,9 +319,9 @@ def run():
                                                                   "rules", "held")},
        {"work_id": "w_wm", "market": "EN", "name_before": "The Water Magician (novel series) (Part 1)",
         "name_after": "The Water Magician (Part 1)", "rules": "D", "held": ""})
-    eq("round C report: LN row is held-lookup, name unchanged",
+    eq("round C report: LN row is a plain D rename, not held",
        (rep["rl_ln"]["name_after"], rep["rl_ln"]["rules"], rep["rl_ln"]["held"]),
-       ("The Water Magician (novel series)", "", "held-lookup"))
+       ("The Water Magician", "D", ""))
     eq("round C report: W row", (rep["rl_ww"]["name_after"], rep["rl_ww"]["rules"]), ("Whispered Words", "W"))
     mr = rc_export(True, [("w_wm", "The Water Magician (novel series)")],
                    [("rl_mg", "w_wm", "manga", "EN", "The Water Magician (novel series) (Part 1)", 3)],
@@ -334,9 +336,9 @@ def run():
        {"work_id": "w_wm", "market": "EN", "medium_before": "manga", "medium_after": "manga",
         "name_before": "The Water Magician (Tomes 4-6)", "name_after": "The Water Magician (Part 1)", "held": ""})
     eq("round C meta: merge rows do not count as renames", mr["meta"]["renamed"], 1)
-    eq("round C meta", on["meta"], {"renamed": 3, "retagged": 0, "held": {"held-lookup": 1}})
+    eq("round C meta", on["meta"], {"renamed": 4, "retagged": 0, "held": {}})
     eq("round C report: lookup column = the replay for a renamed EN line, empty otherwise",
-       (rep["rl_mg"]["lookup"], rep["rl_ln"]["lookup"], rep["rl_ww"]["lookup"]), ("unchanged", "", ""))
+       (rep["rl_mg"]["lookup"], rep["rl_ln"]["lookup"], rep["rl_ww"]["lookup"]), ("unchanged", "unchanged", ""))
     ga = rc_export(True, [("w_g", "Gate (novel series)")],
                    [("rl_a", "w_g", "manga", "EN", "Gate (novel series)", 4),
                     ("rl_b", "w_g", "manga", "EN", "Gate (novel series) (Part 2)", 9)])
