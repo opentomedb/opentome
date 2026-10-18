@@ -15,3 +15,5 @@ __pycache__/
 # SDD process artifacts (specs/plans) stay on the private mirror, not in the public tree
 docs/superpowers/
 export/fixtures/library.json
+# private test data (a real library's audit pages): CI unpacks it from the private cache repo
+export/private/

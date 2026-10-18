@@ -144,7 +144,6 @@ docs/           findings -- every design decision traces to one
 | `docs/legal-position.md` | Each source's terms, verified; what a free release and a commercial one can carry |
 | `docs/schema-v1.md` | Schema design, traced to findings |
 | `docs/id-scheme.md` | The id scheme — the public contract |
-| `docs/smoke-test-library16.md` | 536 volumes extracted; the silent-mismatch bug and its fix |
 | `docs/tier1-crossverify.md` | 0.24% true error rate; the week-multiple calibration rule |
 | `docs/calibration.md` | The week-multiple rule derived and independently replicated |
 | `docs/verification-coverage.md` | What "verified" means, field by field |

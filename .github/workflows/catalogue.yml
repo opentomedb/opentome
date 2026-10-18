@@ -136,6 +136,16 @@ jobs:
           else
             echo "::warning::OPENTOME_LIBRARY_JSON is not set -- the measure gate will fail"
           fi
+      # The recorded AniList half of stage 0 (pages for a real library's audit lines) is private
+      # too: a tarball on the private cache repo's `private` release, unpacked into the
+      # git-ignored export/private/. No token (a fork) -> stage 0 fails by design.
+      - name: recorded AniList tests (private)
+        env:
+          GH_TOKEN: ${{ secrets.OPENTOME_CACHE_TOKEN }}
+        run: |
+          gh release download private --repo opentomedb/opentome-cache --pattern 'opentome-private.tar.zst' --dir /tmp
+          mkdir -p export/private && tar --zstd -xf /tmp/opentome-private.tar.zst -C export/private
+          echo "private tests unpacked"
       # Runs every stage including the measure gate (8d, writes build/measure.log)
       # and exits non-zero on any test, audit, contract or coverage failure.
       # DNB freshness window (Nick 2026-09-24: a weekly refresh, no manual step): the build

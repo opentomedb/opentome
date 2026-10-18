@@ -1,7 +1,7 @@
 # Schema v1 — design notes
 
-Every table traces to an empirical finding in `step0-findings.md`,
-`smoke-test-library16.md` or `tier1-crossverify.md`. Nothing here is speculative.
+Every table traces to an empirical finding in `step0-findings.md`
+or `tier1-crossverify.md` (or an early private smoke test). Nothing here is speculative.
 
 ## The four decisions that matter
 
