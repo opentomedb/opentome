@@ -1,6 +1,8 @@
 # HANDOFF — OpenTome
 
-## Branch `rank-class-first` (2026-10-17, NOT merged, NOT published) — the round C follow-ups
+## `rank-class-first` — **MERGED (main 0a9ee09) + PUBLISHED 2026-10-18 as `opentome-2026-10-18`** (sha 9e948677; build-only 39158199134, publish 39158706597; Tower pulled it 14:32 CDT; Mangarr beta.2 = 899 carries the class-first Rank)
+
+### (was) Branch `rank-class-first` (2026-10-17) — the round C follow-ups
 
 - **Lookup replay = Mangarr 10.0.0.897.** Mangarr's catalogue `Rank` now puts the library's class before an exact
   name (a manga entry keeps the manga line even when the light novel's line is named exactly the title).
