@@ -1173,6 +1173,12 @@ ALIAS_LOSS_OK = {
     (t, a): "FR list-article fix (base drift): the broken 's Enquêtes' alias is replaced by 'Les Enquêtes'"
     for t in ("rl_5a9a8a726f29", "rl_f0e22cf59265", "rl_8c5a57d499cc")
     for a in ("s Enquêtes de Kindaichi", "s enqu tes de kindaichi")}
+# base drift (2026-10-20): DNB corrected the German Reincarnation Damage Control line's pre-publication working
+# title "Rückkehr in meine Welt" to the printed "Rückkehr in meinen Körper" (vols 1-2, ISBN 978-3-98950-266-6/-267-3)
+ALIAS_LOSS_OK.update({
+    ("rl_31140414f992", a): "DNB title fix (base drift): the working title 'Rückkehr in meine Welt' was never printed"
+    for a in ("Reincarnation Damage Control - Rückkehr in meine Welt",
+              "reincarnation damage control r ckkehr in meine welt")})
 # E3: carried lines whose orig_series_id may change, with the reason. Measured 2026-09-28 on the pipeline-order
 # dry run (build/krcn-replay/exportfix): the comic-family origin rule only fills a line whose own medium has no
 # origin line; one carried line gains one, 0 in a work with a Japanese line, 0 sibling-pick changes.

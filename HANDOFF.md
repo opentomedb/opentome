@@ -7,8 +7,9 @@
   in `export/to_mangarr.py`, the value check in `tier2/corrections.py --check`, and `test_artifact.py` asserts
   the cover is NULL. First two entries: Goblin Slayer manga Vol. 1 (Open Library's cover is an interior page)
   and The Apothecary Diaries manga Vol. 1 (Japanese cover). Google Books stays excluded (Nick, 2026-10-20).
-- Next: Nick pushes main to github, then build-only CI, then publish (`test_artifact` will report the two
-  entries missing until the rebuild — expected).
+- Build-only 39502780586 (d5bd564): both cover corrections applied and asserted; RED only on E1 — DNB fixed the
+  German Reincarnation Damage Control line's working title, dropping the alias 'Rückkehr in meine Welt'. Added to
+  `ALIAS_LOSS_OK`. Next: Nick pushes main, build-only again, then publish.
 
 ## `rank-class-first` — **MERGED (main 0a9ee09) + PUBLISHED 2026-10-18 as `opentome-2026-10-18`** (sha 9e948677; build-only 39158199134, publish 39158706597; Tower pulled it 14:32 CDT; Mangarr beta.2 = 899 carries the class-first Rank)
 
