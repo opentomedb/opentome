@@ -9,7 +9,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "tier2"))
 sys.path.insert(0, os.path.join(ROOT, "schema"))
 sys.path.insert(0, os.path.join(ROOT, "tier0"))
-from to_mangarr import title_for_export, pick_origin, origin_markets, export, local_title, local_name_for
+from to_mangarr import title_for_export, pick_origin, origin_markets, export, local_title, local_name_for, pick_cover
 import corrections as corr
 
 FAILS = []
@@ -73,6 +73,16 @@ def run():
     eq("no hint, no dates: falls back to the fixed JP>KR>CN>TW order",
        pick_origin("manga", {"TW", "KR"}, {}), "KR")
     eq("no candidate markets at all: None", pick_origin("manga", set(), {}), None)
+
+    # ---- pick_cover: a correction picks a cover, or removes a wrong one (2026-10-20) ----
+    OL = "https://covers.openlibrary.org/b/id/1-L.jpg"
+    PICK = "https://example.org/cover.jpg"
+    eq("one ISBN lookup: it is the cover", pick_cover({"openlibrary": OL}, "EN"), (OL, "openlibrary"))
+    eq("JP prefers openBD", pick_cover({"openlibrary": OL, "openbd": PICK}, "JP"), (PICK, "openbd"))
+    eq("a picked cover wins", pick_cover({"openlibrary": OL, "correction": PICK}, "EN"), (PICK, "correction"))
+    eq("a 'none' correction removes the lookup's cover",
+       pick_cover({"openlibrary": OL, "correction": corr.NO_COVER}, "EN"), (None, None))
+    eq("no claim: no cover", pick_cover({}, "EN"), (None, None))
 
     # ---- origin_markets (heading cleanup, 2026-09-29): the export's origin loop at module level, so
     # stage 4b2 (tier0/comic_medium.py) decides a work's origin exactly as the export does. Recast: a

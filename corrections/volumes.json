@@ -1,1 +1,18 @@
-[]
+[
+  {
+    "volume": "v_42f5da1bf8f1",
+    "field": "cover_url",
+    "value": "none",
+    "source_url": "https://openlibrary.org/books/OL26941238M",
+    "reason": "Goblin Slayer (Yen Press manga) Vol. 1: Open Library's only cover for this ISBN is an interior manga page, not the cover",
+    "checked": "2026-10-20"
+  },
+  {
+    "volume": "v_ad63cac50614",
+    "field": "cover_url",
+    "value": "none",
+    "source_url": "https://openlibrary.org/books/OL29853690M",
+    "reason": "The Apothecary Diaries (Square Enix manga) Vol. 1: Open Library's covers for this ISBN are the Japanese edition's cover and a 60 px stub",
+    "checked": "2026-10-20"
+  }
+]

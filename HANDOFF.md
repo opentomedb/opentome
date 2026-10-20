@@ -1,5 +1,15 @@
 # HANDOFF — OpenTome
 
+## `cover_url: "none"` corrections — **on main, awaiting Nick's push + a build** (2026-10-20)
+
+- A `corrections/volumes.json` `cover_url` entry may now carry `"none"`: it removes a wrong ISBN-lookup cover
+  when no source has the right one (no cover beats a wrong one; Mangarr falls back to its own). `pick_cover()`
+  in `export/to_mangarr.py`, the value check in `tier2/corrections.py --check`, and `test_artifact.py` asserts
+  the cover is NULL. First two entries: Goblin Slayer manga Vol. 1 (Open Library's cover is an interior page)
+  and The Apothecary Diaries manga Vol. 1 (Japanese cover). Google Books stays excluded (Nick, 2026-10-20).
+- Next: Nick pushes main to github, then build-only CI, then publish (`test_artifact` will report the two
+  entries missing until the rebuild — expected).
+
 ## `rank-class-first` — **MERGED (main 0a9ee09) + PUBLISHED 2026-10-18 as `opentome-2026-10-18`** (sha 9e948677; build-only 39158199134, publish 39158706597; Tower pulled it 14:32 CDT; Mangarr beta.2 = 899 carries the class-first Rank)
 
 ### (was) Branch `rank-class-first` (2026-10-17) — the round C follow-ups

@@ -43,7 +43,7 @@ sys.path.insert(0, os.path.join(ROOT, "tier0"))
 sys.path.insert(0, os.path.join(ROOT, "tier2"))
 from build_corpus import work_title, FR_LIST_ARTICLE, CONTRACTED_ARTICLE
 from release_lines import GENERIC, HELD
-from corrections import load_aliases, load_alias_removals, load_exclusions
+from corrections import load_aliases, load_alias_removals, load_exclusions, NO_COVER
 from line_status import line_status
 sys.path.insert(0, os.path.join(ROOT, "export"))
 from display_names import plan_names, lookup_holds, _family, DISAMBIG
@@ -153,6 +153,19 @@ MEDIUM_ORIGIN_HINT = {"manhwa": ("KR",), "webtoon": ("KR",), "manhua": ("CN", "T
 # upstream (King of Hell, Unbalance X2, Biao Ren). A same-medium origin always wins; is_main, parents and
 # aliases stay per medium.
 COMIC_FAMILY = ("manga", "manhwa", "manhua")
+
+
+def pick_cover(claims, market):
+    """-> (cover_url, cover_source) from a volume's cover claims {source: url}. A picked cover
+    (corrections/volumes.json) wins; NO_COVER there removes a wrong one -- no cover beats a
+    wrong one, and the reader falls back to its own. Else openBD on a JP volume, else the one
+    ISBN lookup."""
+    src = ("correction" if "correction" in claims else
+           "openbd" if market == "JP" and "openbd" in claims else
+           next(iter(claims), None))
+    if src is None or claims[src] == NO_COVER:
+        return None, None
+    return claims[src], src
 
 
 def pick_origin(medium, markets, first_dated_by_market):
@@ -823,11 +836,7 @@ def export(src_path, out_path, carry_ids_from=None):
         ints_written, dated, years, is_omni = set(), 0, [], 0
         for vid, num, title, rdate, prec, i13, i10, fmt, rtype in vols:
             c = comp_vol.get(vid)
-            cv = covers.get(vid) or {}
-            cover_src = ("correction" if "correction" in cv else          # a picked cover wins
-                         "openbd" if market == "JP" and "openbd" in cv else
-                         next(iter(cv), None))
-            cover_url = cv.get(cover_src) if cover_src else None
+            cover_url, cover_src = pick_cover(covers.get(vid) or {}, market)
             day = rdate if (rdate and prec == "day" and len(rdate) == 10) else None
             if rdate:
                 years.append(int(rdate[:4]))

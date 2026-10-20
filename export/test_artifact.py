@@ -170,6 +170,9 @@ def run(path):
         if row is None:
             continue        # non-integer volume label -> volumes_special, not read here
         checked_value += 1
+        if field == "cover_url" and want == corr.NO_COVER:
+            missing_value += row[0] is not None
+            continue
         missing_value += str(row[0]) != want
     rule("volume corrections not present in the artifact", missing_value,
          f"({checked_value} checked)")

@@ -560,6 +560,17 @@ class CheckTests(unittest.TestCase):
         self.assertIn("volumes.json[0]", out)
         self.assertIn("source_url", out)
 
+    def test_cover_url_and_no_cover_pass(self):
+        for value in ("https://example.org/cover.jpg", C.NO_COVER):
+            code, out = self.check(self.corrections(volumes=[dict(VOL, field="cover_url", value=value)]))
+            self.assertEqual(code, 0, out)
+
+    def test_cover_url_not_a_url_fails(self):
+        code, out = self.check(self.corrections(volumes=[dict(VOL, field="cover_url", value="cover.jpg")]))
+        self.assertEqual(code, 1)
+        self.assertIn("volumes.json[0]", out)
+        self.assertIn("cover_url", out)
+
     def test_bad_field_fails(self):
         code, out = self.check(self.corrections(volumes=[dict(VOL, field="colour")]))
         self.assertEqual(code, 1)

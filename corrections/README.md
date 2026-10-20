@@ -51,7 +51,9 @@ artifact) or an ISBN-13, which is resolved to the volume that carries it — key
 on the id when the same ISBN is on more than one volume. Fields: `release_date`
 (with optional `precision`), `isbn13`, `page_count`, `title`, `cover_url` (a
 picked cover: stored as a `correction` claim, which the exporter prefers over
-every ISBN lookup).
+every ISBN lookup; the value `"none"` removes a wrong cover when no source has
+the right one — an interior page, another market's cover — because no cover
+beats a wrong one: the reader falls back to its own).
 
 Each correction is written to the `override` table — where `tier2/resolve.py`
 already ranks it above every source, so the confidence layer reports it as

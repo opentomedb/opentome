@@ -33,6 +33,8 @@ DIR = os.path.join(ROOT, "corrections")
 NOW = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
 VOLUME_FIELDS = {"release_date", "isbn13", "page_count", "title", "cover_url"}
+# a cover_url correction's value: an http(s) URL picks a cover, NO_COVER removes a wrong one
+NO_COVER = "none"
 ORIGIN_MARKETS = ("JP", "KR", "CN", "TW")
 VOLUME_KEYS = ("volume", "field", "value", "source_url", "checked")
 LINE_KEYS = ("work", "market", "medium", "name", "volumes", "source_url", "checked")
@@ -754,6 +756,11 @@ def check(directory=DIR, artifact=None):
             continue
         if field == "page_count" and not str(e["value"]).strip().isdigit():
             problems.append("volumes.json[%d]: page_count %r is not a number" % (i, e["value"]))
+            continue
+        if field == "cover_url" and not (str(e["value"]) == NO_COVER or
+                                         re.match(r"https?://", str(e["value"]))):
+            problems.append("volumes.json[%d]: cover_url %r is neither an http(s) URL nor %r"
+                            % (i, e["value"], NO_COVER))
             continue
         key = str(e["volume"]).strip()
         if key.startswith("v_"):
