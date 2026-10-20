@@ -1,6 +1,6 @@
 # HANDOFF — OpenTome
 
-## `cover_url: "none"` corrections — **on main, awaiting Nick's push + a build** (2026-10-20)
+## `cover_url: "none"` corrections — **PUBLISHED 2026-10-20 as `opentome-2026-10-20`** (main 0d27ff0; sha 717514ce; build-only 39504191996, publish 39504985695; Mangarr pulled it the same evening)
 
 - A `corrections/volumes.json` `cover_url` entry may now carry `"none"`: it removes a wrong ISBN-lookup cover
   when no source has the right one (no cover beats a wrong one; Mangarr falls back to its own). `pick_cover()`
