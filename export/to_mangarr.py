@@ -155,6 +155,23 @@ MEDIUM_ORIGIN_HINT = {"manhwa": ("KR",), "webtoon": ("KR",), "manhua": ("CN", "T
 COMIC_FAMILY = ("manga", "manhwa", "manhua")
 
 
+_PREFIX_LABEL = re.compile(r"^([A-Za-z]+) ?(\d*)$")
+
+
+def prefix_run(numbers):
+    """-> {label: n} when a line's volume numbers are one labelled run and nothing else: "Ex, Ex2 ...
+    Ex6" (Re:Zero Ex), "APPEND1..5" -- a bare prefix is 1, and the numbers are exactly 1..n. Such a
+    line otherwise exports no readable volume at all (every label goes to volumes_special, which
+    Mangarr does not read). Anything else -> {}: a line with a plain-numbered volume keeps its
+    specials as specials, and a single label, a gap or two prefixes is not a run."""
+    labels = [str(n).strip() for n in numbers]
+    matches = [_PREFIX_LABEL.match(l) for l in labels]
+    if len(labels) < 2 or not all(matches) or len({m.group(1).lower() for m in matches}) != 1:
+        return {}
+    run = {l: int(m.group(2) or 1) for l, m in zip(labels, matches)}
+    return run if sorted(run.values()) == list(range(1, len(labels) + 1)) else {}
+
+
 def pick_cover(claims, market):
     """-> (cover_url, cover_source) from a volume's cover claims {source: url}. A picked cover
     (corrections/volumes.json) wins; NO_COVER there removes a wrong one -- no cover beats a
@@ -834,7 +851,9 @@ def export(src_path, out_path, carry_ids_from=None):
                    WHERE c.volume_id IN (SELECT id FROM volume WHERE release_line_id=?)""", (rid,)):
             (comp_vol if contains == "volume" else comp_ch)[vid] = ref_list
         ints_written, dated, years, is_omni = set(), 0, [], 0
+        run = prefix_run([v[1] for v in vols])
         for vid, num, title, rdate, prec, i13, i10, fmt, rtype in vols:
+            num = run.get(str(num).strip(), num)
             c = comp_vol.get(vid)
             cover_url, cover_src = pick_cover(covers.get(vid) or {}, market)
             day = rdate if (rdate and prec == "day" and len(rdate) == 10) else None

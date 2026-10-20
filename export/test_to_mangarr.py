@@ -9,7 +9,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "tier2"))
 sys.path.insert(0, os.path.join(ROOT, "schema"))
 sys.path.insert(0, os.path.join(ROOT, "tier0"))
-from to_mangarr import title_for_export, pick_origin, origin_markets, export, local_title, local_name_for, pick_cover
+from to_mangarr import title_for_export, pick_origin, origin_markets, export, local_title, local_name_for, pick_cover, prefix_run
 import corrections as corr
 
 FAILS = []
@@ -83,6 +83,19 @@ def run():
     eq("a 'none' correction removes the lookup's cover",
        pick_cover({"openlibrary": OL, "correction": corr.NO_COVER}, "EN"), (None, None))
     eq("no claim: no cover", pick_cover({}, "EN"), (None, None))
+
+    # ---- prefix_run: a line numbered only "Ex, Ex2 ... Ex6" reads as volumes 1..6 (2026-10-20) ----
+    eq("Re:Zero Ex: bare prefix is 1", prefix_run(["Ex", "Ex2", "Ex3", "Ex4", "Ex5", "Ex6"]),
+       {"Ex": 1, "Ex2": 2, "Ex3": 3, "Ex4": 4, "Ex5": 5, "Ex6": 6})
+    eq("spaced labels, case kept", prefix_run(["Ex 1", "Ex 2"]), {"Ex 1": 1, "Ex 2": 2})
+    eq("APPEND1..5", prefix_run(["APPEND%d" % n for n in range(1, 6)]),
+       {"APPEND%d" % n: n for n in range(1, 6)})
+    eq("one label is no run", prefix_run(["Roman"]), {})
+    eq("a gap is no run", prefix_run(["SP1", "SP3"]), {})
+    eq("a duplicate is no run", prefix_run(["Ex", "Ex1"]), {})
+    eq("two prefixes are no run", prefix_run(["SS1", "SP2"]), {})
+    eq("a line with a numbered volume keeps its specials", prefix_run(["1", "Ex", "Ex2"]), {})
+    eq("fractions are not a prefix", prefix_run(["4.5", "6.5"]), {})
 
     # ---- origin_markets (heading cleanup, 2026-09-29): the export's origin loop at module level, so
     # stage 4b2 (tier0/comic_medium.py) decides a work's origin exactly as the export does. Recast: a

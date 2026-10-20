@@ -230,5 +230,19 @@
     "source_url": "https://anilist.co/manga/38901",
     "reason": "a franchise relative's title, not a name for Weed: \"Ginga Legend Riki\" is a synonym of Ginga Densetsu Riki, its own 1-volume work (AniList 38901), separate from Ginga Densetsu Weed (34010, 60 volumes); the English form of the \"Ginga Densetsu Riki\" alias removed above (anilist resolve follow-up, 2026-09-24)",
     "checked": "2026-09-24"
+  },
+  {
+    "line": "rl_4fd3320b7608",
+    "alias": "Re:ZERO -Starting Life in Another World- Ex",
+    "source_url": "https://yenpress.com/9780316412902/rezero-starting-life-in-another-world-ex-vol-1-light-novel/",
+    "reason": "the Yen Press series title, which releases carry; the line name 'Re:Zero (Ex)' is a disambiguated display name",
+    "checked": "2026-10-20"
+  },
+  {
+    "line": "rl_15765e675ece",
+    "alias": "Re:ZERO -Starting Life in Another World- Short Story Collection",
+    "source_url": "https://yenpress.com/titles/9781975392512-re-starting-life-in-another-world-short-story-collection-vol-1-light-novel",
+    "reason": "the Yen Press series title, which releases carry; the line name 'Re:Zero (Short story collections)' is the Wikipedia section heading",
+    "checked": "2026-10-20"
   }
 ]

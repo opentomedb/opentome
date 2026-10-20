@@ -1,5 +1,17 @@
 # HANDOFF — OpenTome
 
+## Labelled-run lines + Re:Zero spin-off aliases — **on main, awaiting Nick's push + a build** (2026-10-20)
+
+- `prefix_run()` in `export/to_mangarr.py`: a line with NO plain-numbered volume whose labels are one run
+  ("Ex, Ex2 ... Ex6", "APPEND1..5"; bare prefix = 1; exactly 1..n) exports them as volumes 1..n instead of
+  `volumes_special`, which Mangarr never reads. Measured on opentome-2026-10-20: 8 lines -- Re:Zero (Ex) EN + JA,
+  Re:Zero Ex JA, Monogatari (Box sets) EN, Strike the Blood (Side-stories), Tokyo Ravens EX1-4, Saekano FD/FD2,
+  Hatena Illusion R/R2. Singletons (Roman, Fanbook, DJCD) and mixed lines stay specials.
+- `aliases.json`: the Yen Press series titles for Re:Zero (Ex) and Re:Zero (Short story collections) -- Mangarr
+  searched the display names ("Re Zero Short story collections"), which no release carries.
+- Watch on the build-only run: the JA Ex ISBNs are on two JA lines (Re:Zero (Ex), Re:Zero Ex) -- now as numbered
+  volumes on both.
+
 ## `cover_url: "none"` corrections — **PUBLISHED 2026-10-20 as `opentome-2026-10-20`** (main 0d27ff0; sha 717514ce; build-only 39504191996, publish 39504985695; Mangarr pulled it the same evening)
 
 - A `corrections/volumes.json` `cover_url` entry may now carry `"none"`: it removes a wrong ISBN-lookup cover
