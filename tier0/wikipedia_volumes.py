@@ -438,12 +438,124 @@ def parse_date(v, months=None):
     return (m.group(1), "year") if m else (None, "none")
 
 
+# ---- chapter numbers --------------------------------------------------------------------------
+# Between two numbers, a dash written as an em dash, an entity or a template is the same dash
+# ("1—9", "3&ndash;5"). Only there: "Chapter 1 — A Title" stays unread, as it always was.
+_CH_DASH_FORMS = re.compile(
+    r"(?<=\d)\s*(?:&ndash;|&mdash;|&#8211;|&#8212;|—"
+    r"|\{\{\s*(?:ndash|en ?dash|snd|spnd|spaced (?:ndash|en ?dash)|mdash|em ?dash|nbnd)\s*\}\})\s*(?=\d)", re.I)
+# An entry's number, then the separator before its title.
+_CH_FIRST = re.compile(r"\b(?:Chapter|Round|Episode|Act|Case|Night|Quest|Page|File|#)?"
+                       r"\s*(\d{1,4})(\.\d+)?\s*([:.–-])")
+# An entry that is a chapter word and its number and nothing else: "Chapter 13", "File 41".
+_CH_BARE = re.compile(r"['\"\s]*(Chapter|Round|Episode|Act|Case|Night|Quest|Page|File)\.?\s*(?:#\s*)?"
+                      r"(\d{1,4})(\.\d+)?['\"\s]*", re.I)
+# the far end of "12–21": an optional repeat of the label ("File.27 – File.41") and the number...
+_CH_END = re.compile(r"\s*(?:([^\W\d_]{1,12})\.?\s*|#\s*)?(\d{1,4})(\.\d+)?(?!\d)")
+# ...and then the end of the line or punctuation: "5 - 10 Things" is chapter 5 and its title, and
+# "1 – 24.12.2029" ends on a date. After a plural ("Chapters 16–30 from the magazine") the entry
+# can only be a range.
+_CH_END_OF_ENTRY = re.compile(r"[ \t]*(?:$|\n|[(),;<{\[|}'\"]|[:.](?!\d))")
+# The start of a range must sit where a chapter number sits: at the head of the entry, after markup
+# and at most two words ("Chapters 12–21", "Lesson Time 15–21"), or right after a chapter word in a
+# sentence that has no earlier number ("This book holds chapters 129-138.").
+_CH_HEAD = re.compile(r"[\s'\"“”‘’\[\(#.:]*(?:[^\W\d_]{1,12}(?:[\s.:#]+|\Z)){0,2}")
+_CH_WORDS = {"chapter", "round", "episode", "act", "case", "night", "quest", "page", "file", "issue",
+             "chapitre", "épisode"}
+# ...and never after a word for something that is numbered apart from the chapters.
+_CH_NOT_CHAPTERS = {"special", "extra", "bonus", "side", "omake", "part", "vol", "volume", "book",
+                    "tome", "short", "prologue", "epilogue", "interlude", "intermission",
+                    "gaiden", "season", "arc", "ex",
+                    "spécial", "spéciaux", "hors", "partie", "livre", "saison"}
+_CH_MAX_SPAN = 150      # a longer "range" is two unrelated numbers
+# An entry that opens with its number and goes straight into a quoted or templated title, with no
+# separator: '07 "Title"', "Fight 1 {{nihongo|...}}". Markup and at most one word before the number.
+_CH_TITLED = re.compile(r"([\s'\"“”‘’\[\(#.:]*)(?:([^\W\d_]{1,12})[\s.:#]*)?"
+                        r"(\d{1,4})(\.\d+)?\s*(?=[\"“{]|'')")
+# When quotes or bold opened before the number ("'''Chapitre 14''' : Title"), the mark after it
+# closes them, and the entry is read only if a separator, a template or a title follows, or the
+# word is a chapter word ('"Chapter 4" and extras'): in "''Sample 009'' Part II" and '"After 7"'
+# the number is the end of a title.
+_CH_AFTER_CLOSE = re.compile(r"['\"”’]+\s*(?:[:.–-]|\{\{|[\"“]|'')")
+# A range in words, read only at the head of an entry and after a chapter word.
+_CH_WORDED = re.compile(r"['\"\s]*(chap(?:ters?|itres?)|[ée]pisodes?)\s*(?::\s*)?"
+                        r"(\d{1,4})(\.\d+)?\s+(?:à|to)\s+(\d{1,4})(\.\d+)?(?!\d)", re.I)
+
+
+def _one_of(word, vocabulary):
+    """`word` (lower case) or its singular is in `vocabulary`."""
+    return word in vocabulary or (word.endswith("s") and word[:-1] in vocabulary)
+
+
+def _chapter_number(whole, fraction):
+    """18 -> 18, 18.5 -> 18.5 (a half chapter). Any other fraction is a part of chapter N -> N."""
+    return int(whole) + 0.5 if fraction == ".5" else int(whole)
+
+
+def _words(text):
+    return [w.lower() for w in re.findall(r"[^\W\d_]+", text)]
+
+
+def _range_tail(line, m):
+    """The chapters after the first one when the entry gives a range ("Chapters 12–21" -> 13..21),
+    else nothing. `m` is the _CH_FIRST match of the entry's first number."""
+    if m.group(3) not in "–-":
+        return []
+    head = line[:m.start(1)]
+    words = _words(head)
+    if any(_one_of(w, _CH_NOT_CHAPTERS) for w in words[-2:]):
+        return []
+    label = words[-1] if words else ""
+    after_chapter_word = (_one_of(label, _CH_WORDS) and re.search(r"[^\W\d_][\s.:#]*\Z", head)
+                          and not re.search(r"\d", re.sub(r"\{\{[^{}]*\}\}", "", head)))
+    if not (_CH_HEAD.fullmatch(head) or after_chapter_word):
+        return []
+    t = _CH_END.match(line, m.end())
+    if not t:
+        return []
+    if t.group(1) and t.group(1).lower().rstrip("s") != label.rstrip("s"):   # "File.27 – File.41"
+        return []
+    plural = after_chapter_word and label.endswith("s")
+    if not (plural or _CH_END_OF_ENTRY.match(line, t.end())):
+        return []
+    if len(m.group(1)) > 1 and m.group(1)[0] == "0" and len(t.group(2)) != len(m.group(1)):
+        return []                                                            # "002–005", never "01-2"
+    return _span(_chapter_number(m.group(1), m.group(2)), _chapter_number(t.group(2), t.group(3)))
+
+
+def _span(first, last):
+    """The chapters after `first` up to `last`; nothing when the two are not a range."""
+    if not first < last <= first + _CH_MAX_SPAN:
+        return []
+    if first != int(first) and last != int(last):                            # "1.5–5.5": the halves
+        return [first + k for k in range(1, int(last - first) + 1)]
+    tail = list(range(int(first) + 1, int(last) + 1))
+    if last != int(last):
+        tail.append(last)
+    return tail
+
+
+def _worded_range(line):
+    """Every chapter of an entry that opens with a range in words ("Chapitres 1 à 12",
+    "Chapters 1 to 7"), else nothing."""
+    m = _CH_WORDED.match(line)
+    if not m or not (m.group(1).lower().endswith("s") or _CH_END_OF_ENTRY.match(line, m.end())):
+        return []
+    first = _chapter_number(m.group(2), m.group(3))
+    tail = _span(first, _chapter_number(m.group(4), m.group(5)))
+    return [first] + tail if tail else []
+
+
 def parse_chapters(v):
     """Chapter NUMBERS only -- pure facts, never titles.
 
-    Two conventions in the wild:
+    Three conventions in the wild:
       1. {{Numbered list|start=N|item|item|...}}  -> numbers implicit in item count
-      2. "* Chapter N: Title" bullets            -> numbers explicit
+      2. "* Chapter N: Title" / "* Chapter N" / '* N "Title"' -> numbers explicit
+      3. "* Chapters N–M" / "Chapitres N à M"    -> a range, every chapter in it
+    A half chapter ("18.5: Title") stays a half: floored, it would claim a chapter of another
+    volume. A whole number that is not there is the costly mistake, so a doubtful entry gives
+    its first number only, or nothing.
     """
     nums = []
     # fr: "* {{5e|episode}} : ..." -- ordinal template carries the number
@@ -465,11 +577,53 @@ def parse_chapters(v):
         nums += range(start, start + items)
     if nums:
         return sorted(set(nums))
-    for line in v.split("*"):
-        m = re.search(r"\b(?:Chapter|Round|Episode|Act|Case|Night|Quest|Page|File|#)?"
-                      r"\s*(\d{1,4})(?:\.\d+)?\s*[:.\u2013-]", line.strip())
+    bare, tails, words, pair_starts = [], [], set(), {}
+    for line in _CH_DASH_FORMS.sub("–", v).split("*"):
+        line = line.strip()
+        m = _CH_BARE.fullmatch(line)
         if m:
-            nums.append(int(m.group(1)))
+            bare.append(m)
+            continue
+        worded = _worded_range(line)
+        if worded:
+            nums += worded
+            continue
+        m = _CH_TITLED.match(line)
+        if m:
+            word = (m.group(2) or "").lower()
+            in_quotes = re.search(r"['\"“‘]", m.group(1))
+            if _one_of(word, _CH_NOT_CHAPTERS) or (in_quotes and not _one_of(word, _CH_WORDS)
+                                                   and not _CH_AFTER_CLOSE.match(line, m.end())):
+                continue            # "Bonus 1 ...", or a title that ends in a number: not this entry's number
+            nums.append(_chapter_number(m.group(3), m.group(4)))
+            if word:
+                words.add(word.rstrip("s"))
+            continue
+        m = _CH_FIRST.search(line)
+        if not m:
+            continue
+        if m.group(3) == "." and line[m.end():m.end() + 1].isdecimal():
+            continue                # "103.5 A Title", "24.12.2029": a decimal point or a date, no separator
+        first = _chapter_number(m.group(1), m.group(2))
+        nums.append(first)
+        head = line[:m.start(1)]
+        word = (_words(head)[-1:] or [""])[0]
+        apart = _one_of(word, _CH_NOT_CHAPTERS)
+        word = word.rstrip("s")
+        if word and not apart and _CH_HEAD.fullmatch(head):
+            words.add(word)                             # the word this list numbers its entries with
+        if m.group(3) in "–-" and _CH_END.match(line, m.end()):
+            pair_starts[word, first] = pair_starts.get((word, first), 0) + 1
+            tails.append(_range_tail(line, m))
+    # "Block 3-1", "Block 3-2", "Block 3-3": two pairs that start alike are parts of one chapter,
+    # and then no pair in this list is trusted as a range.
+    if all(n == 1 for n in pair_starts.values()):
+        nums += [n for tail in tails for n in tail]
+    # A bare entry is a chapter unless the list numbers its entries with another word: "Act 2"
+    # under "Episode 7: Title" is a part of that episode.
+    for m in bare:
+        if all(w == m.group(1).lower() for w in words):
+            nums.append(_chapter_number(m.group(2), m.group(3)))
     return sorted(set(nums))
 
 

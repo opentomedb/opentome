@@ -5,7 +5,7 @@ before (docs/cleanup-v2.md). No network: everything is synthetic wikitext.
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wikipedia_volumes import parse_date, canon_number, parse_volumes, _is_blank, FR_MONTHS, _clean
+from wikipedia_volumes import parse_date, canon_number, parse_volumes, parse_chapters, _is_blank, FR_MONTHS, _clean
 from isbn import isbn_market, normalise_isbn
 from collapse import collapse_licensed
 import release_lines as RL
@@ -872,6 +872,113 @@ _main3 = [("Foo", None, "1"), ("Foo", None, "2"), ("Foo", None, "3")]
 _pub2 = [("Foo (Publication history)", None, "1"), ("Foo (Publication history)", None, "2")]
 eq("arc groups: held group after the main list keeps its heading name, no arc", _arc_shape("MP"), _main3 + _pub2)
 eq("arc groups: held group first leaves the main list unparented and numbered", _arc_shape("PM"), _pub2 + _main3)
+
+# ---- chapter lists: ranges, bare entries and half chapters (2026-11-05) ----------------
+# Measured on the English corpus: 3,396 of 29,442 chapter lists parsed to ONE number, and 2,609 of
+# those state a range in the source ("Chapters 12–21") that was read as its first number only; the
+# same miss left holes in longer lists ("002–005." read as 2). A half chapter ("18.5") was floored
+# to a whole number that belongs to another volume. Every string below is made up.
+eq("ch: range at the start of an entry", parse_chapters("\n*Chapters 1–11\n*Bonus\n"), list(range(1, 12)))
+eq("ch: range written with a hyphen", parse_chapters("* Episodes 1-8\n* Postscript"), list(range(1, 9)))
+eq("ch: label repeated on the range end", parse_chapters("* File.27 – File.41\n* Extra: X"), list(range(27, 42)))
+eq("ch: bare numbered range, then a single", parse_chapters('* 002–005. {{Nihongo|"Sample (1–4)"|x|y}}\n* 006. Z'), [2, 3, 4, 5, 6])
+eq("ch: range after a chapter word inside a sentence", parse_chapters("* This book holds chapters 129-138."), list(range(129, 139)))
+eq("ch: the same in French", parse_chapters("* Ce livre contient les chapitres 12-20."), list(range(12, 21)))
+eq("ch: label with a colon", parse_chapters("* Chapters: 54–57"), [54, 55, 56, 57])
+eq("ch: a series' own label word", parse_chapters("* Mission 12–19"), list(range(12, 20)))
+eq("ch: a label of two words", parse_chapters("* Lesson Time 15–21"), list(range(15, 22)))
+eq("ch: range followed by prose", parse_chapters("* Chapters 212–242 from ''Sample Magazine''"), list(range(212, 243)))
+eq("ch: only a plural allows prose after the range", parse_chapters("* Chapter 5 - 10 years later"), [5])
+eq("ch: issues collected, said in a sentence", parse_chapters("* This book gathers issues 71-79 plus an extra."), list(range(71, 80)))
+eq("ch: zero-padded range", parse_chapters("* Take 001 – 007"), list(range(1, 8)))
+eq("ch: a range from chapter 0", parse_chapters("* Chapters 0–21"), list(range(0, 22)))
+eq("ch: an em dash between two numbers", parse_chapters("* Chapters 10—16"), list(range(10, 17)))
+for _dash in ("&ndash;", "&mdash;", "&#8211;", "{{ndash}}", "{{snd}}", "{{spaced ndash}}", " &ndash; "):
+    eq("ch: dash written as " + _dash.strip(), parse_chapters("* Chapters 3" + _dash + "5"), [3, 4, 5])
+eq("ch: an em dash before a title is not read (as before)", parse_chapters("* Chapter 3 — A Title\n* Intermission 2 — Another"), [])
+eq("ch: range followed by a bracket", parse_chapters("* Chapters 28–43 (see the note)"), list(range(28, 44)))
+eq("ch: a range and a single entry", parse_chapters("* Episodes 9-15\n* Episode 16: Extra\n* Postscript"), list(range(9, 17)))
+# a range in words, at the head of an entry and after a chapter word (about 320 French entries, 10 English)
+eq("ch: a French range", parse_chapters("* Chapitres 1 à 12"), list(range(1, 13)))
+eq("ch: a French range ending on a half, then markup", parse_chapters("Chapitres 15 à 28.5 {{Sample|x}}"), [*range(15, 29), 28.5])
+eq("ch: an English range in words", parse_chapters("* Chapter 1 to 20\n* Chapters 21 to 27 and an extra"), list(range(1, 28)))
+eq("ch: a singular needs the entry to end there", parse_chapters("* Chapter 3 to 5 years later"), [])
+eq("ch: words for a range need a chapter word", parse_chapters("* From 3 to 5\n* 9 to 17"), [])
+eq("ch: a main range beside extras that start alike", parse_chapters("* Chapters 1–4\n* Extras 1–2"), [1, 2, 3, 4])
+_bare = parse_chapters("* Chapter 48\n* Chapter 49\n* Sample pages (from 24 - 54)")
+eq("ch: bare entries beside a number that is not at the head of its entry", [n for n in (48, 49) if n in _bare], [48, 49])
+eq("ch: bare entries beside an extra numbered apart", 5 in parse_chapters("* Chapter 5\n* Bonus 1: X"), True)
+# shapes that are NOT a range
+eq("ch: a title that begins with a number", parse_chapters("* 5 - 10 Things"), [5])
+eq("ch: a descending pair", parse_chapters("* 12–3. Title"), [12])
+eq("ch: an absurd span", parse_chapters("* Chapters 1–900"), [1])
+eq("ch: a part number after a padded chapter", parse_chapters("* Chapter II. 01-2: Sample"), [1])
+eq("ch: parts of one chapter, unpadded", parse_chapters("* Chapter 3-1: A\n* Chapter 3-2: B\n* Chapter 3-3: C\n* Chapter 3-4: D"), [3])
+eq("ch: part numbering switches off every pair in the list", parse_chapters("* Block 1-2: A\n* Block 1-3: B\n* Block 2-11: C"), [1, 2])
+eq("ch: a range that would end on a date", parse_chapters("* Chapter 1 – 24.12.2029"), [1])
+eq("ch: a range that would end on a time", parse_chapters("* Chapter 7 - 11:59"), [7])
+# these keep whatever their first number gives today (not a chapter; a known leftover) but must not grow
+eq("ch: part numbers inside a title are not a range", 5 in parse_chapters('* {{Nihongo|"A Sample Title (4–6)"|x|y}}'), False)
+eq("ch: special chapters are not expanded", 2 in parse_chapters("* Special chapters 1–2"), False)
+eq("ch: bonus entries are not expanded", 2 in parse_chapters("* Bonus 1–3"), False)
+eq("ch: parts of one round are not expanded", 2 in parse_chapters("* Round 5, part 1–3"), False)
+eq("ch: French words for things numbered apart", 2 in parse_chapters("* Hors-série 1–3\n* Partie 1–2"), False)
+eq("ch: a page range after the chapter's own number", 6 in parse_chapters("* Chapter 3 (pages 5–40)"), False)
+eq("ch: one long word is not two short ones", 2 in parse_chapters("* Supercalifragilistic 1–3"), False)
+eq("ch: explicit bullets unchanged", parse_chapters("* Chapter 1: A\n* Chapter 2: B\n* 3. C"), [1, 2, 3])
+eq("ch: numbered-list template unchanged", parse_chapters("{{Numbered list|start=12|A|B|C}}"), [12, 13, 14])
+eq("ch: French ordinal template unchanged", parse_chapters("* {{5e|épisode}} : X\n* {{6e|épisode}} : Y"), [5, 6])
+# half chapters
+eq("ch: a half chapter stays a half", parse_chapters('* Chapter 18.5: "Sample"\n* Bonus: "Other"'), [18.5])
+eq("ch: halves beside wholes", parse_chapters("* 14. A\n* 14.5. B\n* 15. C"), [14, 14.5, 15])
+eq("ch: range ending on a half", parse_chapters("*Chapters 1-10.5"), [*range(1, 11), 10.5])
+eq("ch: range starting on a half", parse_chapters("* Chapters 27.5–30"), [27.5, 28, 29, 30])
+eq("ch: a range of halves", parse_chapters("* Stage 1–3\n* Stage 1.5–3.5"), [1, 1.5, 2, 2.5, 3, 3.5])
+eq("ch: a part number is not a half (floored as before)", parse_chapters("* 12.1: A\n* 12.2: B\n* 13. C"), [12, 13])
+eq("ch: whole numbers stay integers", [type(x).__name__ for x in parse_chapters("* 14. A\n* 14.5. B")], ["int", "float"])
+# an entry that is only a chapter word and its number (235 lists read nothing, or only their titled entry)
+eq("ch: bare entries", parse_chapters("* Chapter 128\n* Chapter 129\n* Chapter 130"), [128, 129, 130])
+eq("ch: bare entries after a titled one", parse_chapters('*File 40 – "Sample"\n*File 41\n*File 42'), [40, 41, 42])
+eq("ch: a bare half chapter", parse_chapters("* Chapters 21–23\n* Chapter 23.5\n* Chapters 24–25\n* Bonus Comic"), [21, 22, 23, 23.5, 24, 25])
+eq("ch: bare entries beside unlabelled numbers", parse_chapters("* 19. A\n* Chapter 20\n* 21. B"), [19, 20, 21])
+eq("ch: a bare entry needs a chapter word", parse_chapters("* 2010\n* Volume 3\n* Part 2"), [])
+eq("ch: a bare entry is the whole entry", parse_chapters("* Chapter 5 and other stories"), [])
+eq("ch: bare parts under an entry numbered with another word", parse_chapters("Episode 7: A\n* Act1\n* Act2\n* Act3"), [7])
+eq("ch: bare entries with the list's own word", parse_chapters("* Act 034.5\n* Act 035. A\n* Act 036. B"), [34.5, 35, 36])
+# an entry that opens with its number and goes straight into a quoted or templated title
+# (about 1,300 lists, most of them French; most read nothing before)
+eq("ch: a number, then a quoted title", parse_chapters('* 001 "Sample"\n* 002 "Other"\n* 003 "Third"'), [1, 2, 3])
+eq("ch: a word, a number, then a templated title", parse_chapters('*Fight 1 {{nihongo|"A"|x|y}}\n*Fight 2 {{nihongo|"B"|x|y}}'), [1, 2])
+eq("ch: a word joined to its number by a dot", parse_chapters('*RIDE.670 {{nihongo|"A"|x|y}}\n*RIDE.670.5 {{nihongo|"B"|x|y}}'), [670, 670.5])
+eq("ch: a bold number, then a templated title", parse_chapters("* '''059 ''' {{Sample|A (1)|x|y}}\n* '''060 ''' {{Sample|A (2)|x|y}}"), [59, 60])
+eq("ch: a hash and a number, then a template", parse_chapters("* #359 {{sample||x|y}}\n* #360 {{sample||x|y}}"), [359, 360])
+eq("ch: a titled entry's date is not read", parse_chapters('* 02 "Sample" 10.4.2029\n* 03 "Other" 27.7.2029'), [2, 3])
+eq("ch: a titled half chapter", parse_chapters('* 070.5 "Sample"'), [70.5])
+eq("ch: mixed with separated entries", parse_chapters('* Act 8: "A"\n* Act 9: "B"\n* Act 10 "C"\n* Act 11: "D"'), [8, 9, 10, 11])
+eq("ch: not after a word for something numbered apart", parse_chapters('* Bonus 1 "Sample"\n* Volume 3 "Other"\n* Part 2 {{sample|x}}'), [])
+eq("ch: not after two words", parse_chapters('* Sample Story act 50 "A"'), [])
+# a number inside quotes or bold that opened before it: what follows is the closing mark, and the
+# entry is read only when a separator, a template or a title comes after it
+eq("ch: an italic title that ends in a number", parse_chapters("* ''Sample 009'' Part II: A"), [])
+eq("ch: a quoted title that ends in a number", parse_chapters('* "After 7"\n* "Sample1"'), [])
+eq("ch: a title ending in a number beside real entries", parse_chapters("* ''District 22''\n* 11. A\n* 12. B"), [11, 12])
+eq("ch: a bold chapter word and number, then a separator", parse_chapters("* '''Chapitre 14''' : Sample 1 : A\n* '''Chapitre 15''' : Sample 2 : B"), [14, 15])
+eq("ch: a quoted chapter word and number", parse_chapters('* "Chapter 3"\n* "Chapter 4" and extras'), [3, 4])
+eq("ch: an italic chapter word and number", parse_chapters("* ''Chapitre 1''\n* ''Chapitre 2''"), [1, 2])
+eq("ch: a bold number alone names nothing", parse_chapters("* '''EX01'''"), [])
+eq("ch: extras numbered apart", parse_chapters('* EX 01 "Sample"\n* Ex 2 {{sample|x}}'), [])
+eq("ch: a number inside the entry is not its number", parse_chapters('* Sample of 5 "Things"'), [])
+# a decimal point is not the separator before a title: no whole number out of "103.5" or a date,
+# and no later number of the entry is taken in its place
+eq("ch: a decimal is not floored into a whole chapter", parse_chapters("* 103 The Sample\n** 103.5 Another"), [])
+eq("ch: a date is not a chapter", parse_chapters("* Sample of 24.12.2029\n* Other, 2.5.2030"), [])
+eq("ch: a date with a time is not a chapter", parse_chapters("* Sample 2035.03.06.AM05:05"), [])
+eq("ch: a half entry is its half, not a number in its title", parse_chapters('* 31.5 {{Nihongo|"A"|x|Dai 1-wa}}'), [31.5])
+eq("ch: a decimal entry does not hand over to a number in a note", parse_chapters("* 12.5 A Title (see Guide 2: B)"), [])
+eq("ch: a decimal entry does not hand over to a year", parse_chapters("* Chapter 10.5 Title, out 2019-05-01"), [])
+eq("ch: a dot before a title still separates", parse_chapters("* 3.Title\n* 4. Title\n* 5.\u2460 Title"), [3, 4, 5])
+_ch_rec = parse_volumes("{{Graphic novel list\n | VolumeNumber = 2\n | RelDate = January 5, 2020\n | ISBN = 978-4-06-384276-0\n | ChapterList =\n*Chapters 12–21\n*Bonus\n}}", "List of Test chapters", "en")[0]
+eq("ch: a volume's list and range come from the whole range", (_ch_rec.get("chapters"), _ch_rec.get("chapter_range")), (list(range(12, 22)), [12, 21]))
 
 print()
 if FAILS:
