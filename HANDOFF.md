@@ -1,5 +1,65 @@
 # HANDOFF — OpenTome
 
+## Chapter lists read in full — **on main (local), awaiting Nick's push + a build-only run** (2026-11-05)
+
+- **Why.** Mangarr's chapter builder found that about 17 % of the English chapter lists held only a volume's
+  FIRST chapter (v1 `[1]`, v2 `[12]`). Cause, in `tier0/wikipedia_volumes.py` `parse_chapters`: an entry's first
+  number was taken and the rest of a range dropped ("Chapters 12–21" -> 12). 3,396 of 29,442 English lists parsed
+  to one number; 2,609 of those state a range in the source.
+- **What `parse_chapters` reads now** (each with tests in `tier0/test_parser.py`, block "chapter lists"):
+  a range at the head of an entry or right after a chapter word in a sentence ("Chapters 12–21", "002–005.",
+  "File.27 – File.41"); a range in words after a chapter word ("Chapitres 1 à 12", "Chapters 1 to 7"); an entry
+  that opens with its number and goes straight into a quoted / templated title (`07 "Title"`, `Fight 1 {{...}}`,
+  `'''Chapitre 14''' : ...`); an entry that is only a chapter word and its number ("Chapter 13"); a half
+  chapter as a half (18.5, never floored to 18). Reviewed twice by a separate reviewer against every raw list
+  (both rounds' findings fixed; the reviews and probe scripts were scratch files, not kept).
+- **What it refuses, on purpose** (a whole number that is not there is the costly mistake: it makes a good volume
+  contradict its neighbour): a pair after a word for something numbered apart (special, extra, bonus, side, part,
+  volume, book, season, arc, ... and the French ones); a descending pair, a span over 150, a pair ending on a
+  date / time; "5 - 10 Things" (a title), "01-2" (a part of a padded chapter); every pair of a list in which two
+  pairs start alike ("Block 3-1", "Block 3-2" = parts); a bare entry when the list numbers its entries with another
+  word (acts under an episode); a decimal or date with no separator ("103.5 Title", "24.12.2029") gives nothing;
+  a number inside quotes that opened before it (`"After 7"`, `''Sample 009'' Part II`) unless a separator, a
+  template or a title follows the closing mark or the word is a chapter word.
+- **Half chapters are JSON numbers** in `composition.ref_list` and so in the artifact's `volume_chapters`
+  (`[21, 22, 23, 23.5]`). The export copies the text; Mangarr reads a list of doubles and treats a half as an
+  optional extra. Nothing writes the string form shown in `schema/schema.sql`'s comment.
+- **Measured, cache only, no network** (4,270 English + 1,553 French articles; stage 2 built into a scratch
+  database before and after, with `_get` replaced by a cache-only reader; same volumes, lines and works). Lists
+  that parse to one number: English 3,396 -> 779, French 750 -> 515; lists with text and no number: English
+  3,493 -> 3,082, French 2,592 -> 1,483. Volumes with a chapter list 42,254 -> 44,150 (462 with a half chapter).
+  Comic lines: one whole chapter 5,876 -> 1,264 (English market 2,004 -> 143); neighbouring volumes whose lists
+  adjoin 28,911 -> 34,814 of 38,016; volumes that pass Mangarr's adjacency rule (unbroken, no overlap, confirmed
+  by a neighbour) 29,565 -> 36,128 (English market 8,582 -> 10,524). In 119 lists a number the old code read is
+  gone, each a floored decimal, a date, or a number inside a title. Whole chapters claimed by two volumes of a
+  line 2,949 -> 3,096: numbering that restarts every volume, now read in full. Output is identical on Python
+  3.9 and 3.14 over all 40,469 lists; the whole corpus parses in about 1.5 s.
+- **Not run locally: the full `rebuild_all.sh`.** The measure gate needs the private library fixture (CI secret)
+  and the local carry is the 2026-10-02 artifact. The export only copies `ref_list`, and `export/test_artifact.py`
+  has no rule on `volume_chapters`; no id, line or ISBN changes. The build-only run is the check.
+- **Next.** Nick pushes main (github + forgejo) -> build-only CI green -> publish (`catalogue`, `publish=true`) ->
+  Mangarr Metadata Update -> FlightLog line. Then re-measure on the published artifact before any public wording
+  (Mangarr beta.5 notes) quotes a number.
+
+### Chapter lists: measured leftovers (not fixed)
+
+- **Two lists for one volume** (646 volumes: the English and the French article describe the same original
+  volume and disagree). `export/to_mangarr.py` keeps whichever row comes last (`comp_ch[vid] = ref_list`), in 468
+  of them the shorter. "Unbroken run first, then longest" would add about 480 trusted volumes on JP lines and
+  none on English lines, so it was left; a better rule would use the neighbours.
+- **First numbers after numbered-apart words are still emitted** ("Bonus 1: ...", "Special chapters 1–2", a part
+  number inside a title): about 415 lists, false whole numbers that pre-date this change. Dropping them is safe
+  after special / extra / bonus / side / epilogue ..., NOT after part / vol (some series number their chapters
+  "Vol N").
+- `<br>`-separated lists and `#` / `:` lists read one number per `*` entry (about 90 lists, 16 articles); entries
+  such as "Sample Story act.50" (two words before the number, no separator), `<nowiki>#</nowiki>425` and a quoted
+  label whose word is the series' own (`"Mission:01"`, 16 lists) read nothing.
+- Still expanded, by the reviewer's made-up inputs only (no list in the corpus): "Chapter 1-2: Title" (a part
+  number, unpadded, alone in its list), "1-1. A / 2-5. B", "issues 12–20 of a magazine" in a sentence;
+  `Top 10 "Things"` and `1945 "Title"` read their number.
+- Edition lines without the omnibus flag ("(Omnibus edition)", "(Collector's Edition)", "(Bunkoban edition)" with
+  `is_omnibus = 0`): seen from Mangarr on 2026-11-05, not looked at here.
+
 ## Labelled-run lines + Re:Zero spin-off aliases — **on main, awaiting Nick's push + a build** (2026-10-20)
 
 - `prefix_run()` in `export/to_mangarr.py`: a line with NO plain-numbered volume whose labels are one run
