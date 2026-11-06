@@ -477,6 +477,7 @@ def export(src_path, out_path, carry_ids_from=None):
     carry_names = {}        # round C report: the name a merged-away line shipped with (its claims are gone)
     carry_rc_names = {}     # ... or the name the carry's round_c_merges recorded for it (5th element)
     carry_pairs = set()     # round C: (market, family, lower(name)) that two works' lines share in the carry
+    carry_roman = []        # (tome_id, alias, language) of the carry's romanised alias rows (continuity, below)
     # meta.carried_from: which published artifact this build's ids were carried from.
     # export/publish.sh refuses an artifact without it (unless OPENTOME_COLD_START=1).
     carried_from = "cold-start" if os.environ.get("OPENTOME_COLD_START") == "1" else None
@@ -502,6 +503,13 @@ def export(src_path, out_path, carry_ids_from=None):
             prev_status = dict(old.execute("SELECT tome_id, status FROM series"))
             carry_names = dict(old.execute("SELECT tome_id, name FROM series"))
         except sqlite3.OperationalError:
+            pass
+        try:
+            carry_roman = old.execute("""SELECT s.tome_id, a.alias, a.language FROM series_alias a
+                                         JOIN series s ON s.gcd_series_id=a.gcd_series_id
+                                         WHERE a.kind='romanized' AND s.tome_id IS NOT NULL
+                                         ORDER BY s.tome_id, a.alias""").fetchall()
+        except sqlite3.OperationalError:        # a carry older than series_alias.kind (2026-09-24)
             pass
         try:
             row = old.execute("SELECT value FROM meta WHERE key='round_c_merges'").fetchone()
@@ -1105,6 +1113,26 @@ def export(src_path, out_path, carry_ids_from=None):
                 """INSERT OR IGNORE INTO series_alias (gcd_series_id, alias, language, kind)
                    VALUES(?,?,NULL,'correction')""", (sid, a)).rowcount
 
+    # Romanised titles of library-born works stay (2026-11-06). A KR/CN work's romanised title comes from the
+    # libraries' original-title fields, and DNB's sits on the publisher-supplied announcement record: once DNB
+    # catalogues the volume the 240 is gone, the share of volumes carrying it falls under build_dnb's half, and
+    # the title left work_title -- six works lost a published alias this way in one week (run 42139196651:
+    # "Jigojisun", "Dwaejiuri", ...), which E1 rightly refuses, and listing each loss in ALIAS_LOSS_OK would be a
+    # manual step every week. The title was read from a CC0 record and is still the work's title, so a romanised
+    # alias row the carry ships stays on its line, as it shipped: only for a work in catalogue meta krcn:ids
+    # `works` (a Wikipedia work's alias loss stays E1's to judge), never a string that is another work's own
+    # title. Before the removals below, so a curated removal still wins.
+    lib_works = set(json.loads((src.execute("SELECT value FROM meta WHERE key='krcn:ids'").fetchone()
+                                or ["{}"])[0]).get("works", []))
+    line_now = {t: (i, w) for i, t, w in out.execute("SELECT gcd_series_id, tome_id, tome_work_id FROM series")}
+    n_roman = 0
+    for tid, alias, alang in carry_roman:
+        sid, wid = line_now.get(tid, (None, None))
+        if sid is None or wid not in lib_works or other_titles.get(normalize(alias), set()) - {wid}:
+            continue
+        n_roman += out.execute("""INSERT OR IGNORE INTO series_alias (gcd_series_id, alias, language, kind)
+                                  VALUES(?,?,?,'romanized')""", (sid, alias, alang)).rowcount
+
     # Curated alias REMOVALS (2026-09-23 cleanup, item 2): an exact string on an
     # exact line, not a rule. The automated version of this -- drop any alias
     # whose normalized form equals a volume title -- was tried (followups-0923)
@@ -1295,6 +1323,7 @@ def export(src_path, out_path, carry_ids_from=None):
         ("omnibus_lines", str(n_omni)),
         ("correction_aliases", str(len(load_aliases()))),
         ("correction_alias_removals", str(n_removed)),
+        ("romanised_aliases_carried", str(n_roman)),
         # Every excluded.json work id, so corrections.py --check can accept one
         # after a publish actually removes it from `series` (see corrections/
         # README.md, "excluded.json") instead of reporting it stale forever.

@@ -148,6 +148,25 @@ def run():
     lic = open(os.path.join(ROOT, "LICENSE-DATA.md"), encoding="utf8").read()
     eq("LICENSE-DATA.md carries meta.attribution byte-for-byte", "\n> %s\n" % FIX_META.get("attribution") in lic, True)
 
+    # ---- romanised titles of library-born works stay (2026-11-06) ---------------------------
+    rc = fixture_roman_continuity()
+    ROM = lambda rows: sorted(a for a, l, k in rows if k == "romanized")
+    eq("romanised continuity: without a carry the build ships what the catalogue has",
+       (ROM(rc["cold"]["rl_de"]), ROM(rc["cold"]["rl_en"])), (["Ji go ji sun"], ["Ji go ji sun"]))
+    eq("... with the carry, a romanised title the catalogue lost stays on every line that shipped it, as it shipped "
+       "(the row's own spelling, language and kind)",
+       ([r for r in rc["carried"]["rl_de"] if r[0] == "Jigojisun"], ROM(rc["carried"]["rl_en"])),
+       ([("Jigojisun", "ko", "romanized")], ["JI GO JI SUN", "Ji go ji sun", "Jigojisun"]))
+    eq("... never another work's own title, never a row of another kind",
+       [a for a, _, _ in rc["carried"]["rl_de"] if a in ("Other Work", "Old Official")], [])
+    eq("... and only for library-born works (a Wikipedia work's alias loss stays E1's to judge)",
+       ROM(rc["carried"].get("rl_j", [])), [])
+    eq("... a curated removal (corrections/aliases.json) still wins, on its line only",
+       (ROM(rc["removed"]["rl_en"]), ROM(rc["removed"]["rl_de"])),
+       (["JI GO JI SUN", "Ji go ji sun"], ["Ji go ji sun", "Jigojisun"]))
+    eq("... the count is in the artifact's meta", (rc["meta"], rc["meta_removed"]),
+       ({"romanised_aliases_carried": "3"}, {"romanised_aliases_carried": "3"}))
+
     # ---- KR/CN library lines (krcn-design §8, controller rulings 2, 3, 5) --------------------
     k = fixture_krcn()
     eq("a library line with no Wikipedia name: series.name is the builder's, not an earlier line_name claim",
@@ -611,6 +630,72 @@ def fixture_krcn():
     r["r6_fails"] = TA.FAILS[n:]
     del TA.FAILS[:]
     return r
+
+
+def fixture_roman_continuity():
+    """A library-born work whose romanised title left the catalogue (DNB drops a publisher-supplied 240 once
+    it catalogues the volume) while the carry still ships it; a Wikipedia work in the same position; a carried
+    romanised alias that is another work's title; a curated removal. -> {name: {tome_id: [(alias, language, kind)]}}"""
+    import build_krcn as BK
+    tmp = tempfile.mkdtemp(prefix="opentome-roman-")
+    src_path = os.path.join(tmp, "pipeline.db")
+    db = sqlite3.connect(src_path)
+    db.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+    db.executescript(BK.STAGING_DDL)
+    for wid, t in (("w_k", "Love so pure"), ("w_o", "Other Work"), ("w_j", "Wiki Manga")):
+        db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES(?,?,'x','x')", (wid, t))
+    for rid, wid, market, lang, medium, src in (("rl_de", "w_k", "DE", "de", "manhwa", "dnb"), ("rl_en", "w_k", "EN", "en", "manhwa", "loc"),
+                                                ("rl_o", "w_o", "EN", "en", "manhwa", "loc"), ("rl_j", "w_j", "EN", "en", "manga", None)):
+        db.execute("""INSERT INTO release_line(id,work_id,medium,market,language,publisher,created_at,updated_at)
+                      VALUES(?,?,?,?,?,NULL,'x','x')""", (rid, wid, medium, market, lang))
+        if src:
+            db.execute("""INSERT INTO krcn_line(key,source,market,rl_id,carried,work,name,publisher,role,exported)
+                          VALUES(?,?,?,?,1,?,?,NULL,'new_work',1)""", (src + ":" + rid, src, market, rid, wid,
+                                                                      db.execute("SELECT primary_title FROM work WHERE id=?", (wid,)).fetchone()[0]))
+    db.execute("INSERT INTO work_title VALUES('w_k','ko','Ji go ji sun','romanized')")      # the 240 form is gone
+    db.execute("INSERT INTO meta VALUES('krcn:ids',?)", (json.dumps(
+        {"works": ["w_k", "w_o"], "created": [], "lines": {"rl_de": "dnb", "rl_en": "loc", "rl_o": "loc"}}),))
+    db.commit()
+    db.close()
+
+    def exp(name, carry=None, corrections=None):
+        out_path = os.path.join(tmp, name)
+        real_dir, corr.DIR = corr.DIR, tempfile.mkdtemp(prefix="opentome-nocorr-", dir=tmp)
+        if corrections:
+            with open(os.path.join(corr.DIR, "aliases.json"), "w", encoding="utf8") as f:
+                json.dump(corrections, f)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                export(src_path, out_path, carry)
+        finally:
+            corr.DIR = real_dir
+        o = sqlite3.connect(out_path)
+        got = {}
+        for t, a, l, k in o.execute("""SELECT s.tome_id, a.alias, a.language, a.kind FROM series_alias a
+                                       JOIN series s USING(gcd_series_id) WHERE a.kind<>'line' ORDER BY 1, 2"""):
+            got.setdefault(t, []).append((a, l, k))
+        meta = dict(o.execute("SELECT key, value FROM meta WHERE key='romanised_aliases_carried'"))
+        o.close()
+        return out_path, got, meta
+
+    first, a0, _ = exp("a0.sqlite")
+    carry = os.path.join(tmp, "carry.sqlite")
+    shutil.copy(first, carry)
+    c = sqlite3.connect(carry)
+    sid = dict(c.execute("SELECT tome_id, gcd_series_id FROM series"))
+    c.executemany("INSERT INTO series_alias VALUES(?,?,?,?)", [
+        (sid["rl_de"], "Jigojisun", "ko", "romanized"), (sid["rl_en"], "Jigojisun", "ko", "romanized"),
+        (sid["rl_en"], "JI GO JI SUN", "ko", "romanized"),          # another spelling of a row the build still makes
+        (sid["rl_de"], "Other Work", "ko", "romanized"),            # another work's own title
+        (sid["rl_de"], "Old Official", "ko", "official"),           # not a romanised title
+        (sid["rl_j"], "Wiki Romaji", "ja", "romanized")])           # not a library-born work
+    c.commit()
+    c.close()
+    _, a1, m1 = exp("a1.sqlite", carry)
+    _, a2, m2 = exp("a2.sqlite", carry, [{"line": "rl_en", "alias": "Jigojisun", "remove": True,
+                                           "source_url": "https://example.org/x", "checked": "2026-11-06"}])
+    shutil.rmtree(tmp, ignore_errors=True)
+    return {"cold": a0, "carried": a1, "removed": a2, "meta": m1, "meta_removed": m2}
 
 
 def fixture_export_fixes():
