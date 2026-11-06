@@ -8,6 +8,7 @@
 # the job, so the manifest, the upload and the publish never see a half-built or
 # stale artifact. Never add `if: always()` / `continue-on-error` to a step here --
 # the one exception is the source-cache save at the end, which ships nothing.
+# A failed build is reported by its own job (report-failure), not by a step of this one.
 name: catalogue
 
 on:
@@ -235,3 +236,34 @@ jobs:
         with:
           path: .cache
           key: opentome-cache-${{ github.run_id }}-${{ github.run_attempt }}
+
+  # A red build must be seen. The Sunday builds of 2026-10-25 and 2026-11-01 failed at a gate and
+  # nobody noticed for two weeks: the published catalogue just stopped moving. This job only
+  # reports -- it ships nothing and cannot turn a red run green. One line to a PRIVATE channel
+  # (the DISCORD_ALERT_WEBHOOK secret; skipped when it is not set), never the public catalogue
+  # channel the publish step announces in. A cancelled run is not a failure.
+  report-failure:
+    needs: build
+    if: ${{ failure() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: report the failed build
+        if: ${{ env.HOOK != '' }}
+        env:
+          HOOK: ${{ secrets.DISCORD_ALERT_WEBHOOK }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EVENT: ${{ github.event_name }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          body=$(python3 - <<'EOF'
+          import json, os
+          kind = "weekly" if os.environ["EVENT"] == "schedule" else (
+              "publish" if os.environ.get("PUBLISH") == "true" else "build-only")
+          print(json.dumps({"username": "OpenTome", "embeds": [{
+              "title": "Catalogue build failed (%s run)" % kind, "color": 0xc0392b, "url": os.environ["RUN_URL"],
+              "description": "A build that stops at a gate publishes nothing, so the catalogue stays as "
+                             "it was. The run's log names the stage or rule it stopped at."}]}))
+          EOF
+          )
+          curl -sS -o /dev/null -w 'discord: %{http_code}\n' -A "OpenTome-CI/1.0" -H 'Content-Type: application/json' --data "$body" "$HOOK"
