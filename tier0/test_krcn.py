@@ -1247,6 +1247,32 @@ eq("follow-up: a crossed answer leaves the ISBN unanswered (not gone), nothing c
    (fu["gone"], list(fu["unanswered"]), "bath.isbn=" + _fx in json.load(open(LS.LOC.sets_path))), ([], [_fx], False))
 LRULE.pop("seq")
 eq("... and the next run finds it", LS.follow_up({}, [_fx])["found"], {_fx: ["2000005009"]})
+# a stale follow-up set whose refresh fails keeps its previous answer -- and the run is degraded IN THE REPORT, which
+# build_krcn.record_meta reads for meta loc:degraded (enumerate_loc filled the report before the follow-up ran)
+CLOCK[0] += 29 * 86400
+LS.LOC.refresh_days = 28
+LRULE["fail"], LRULE["code"] = (lambda q, start, size, seen: q == "bath.isbn=" + _fx), "10"
+rep = {"degraded": None, "degraded_queries": []}
+fu = LS.follow_up({}, [_fx], rep)
+LRULE["fail"], LRULE["code"] = (lambda q, start, size, seen: False), "61"
+eq("follow-up: a failed refresh keeps the previous answer and marks the run degraded in the report (no publish)",
+   (fu["found"], bool(rep["degraded"]), rep["degraded_queries"]), ({_fx: ["2000005009"]}, True, ["bath.isbn=" + _fx]))
+LS.LOC.refresh_days, LS.LOC.degraded, LS.LOC.degraded_queries = 0, None, []
+# an ISBN that could not be asked for is an unchecked published volume: the run is degraded, so the build that
+# would retire the volume unasked does not publish (offline with nothing cached, the cap, a failing request)
+LS.LOC.offline = True
+rep = {"degraded": None, "degraded_queries": []}
+LS.follow_up({}, [isbn13("978981128", 6)], rep)
+LS.LOC.offline = False
+eq("follow-up: an unanswered ISBN degrades the run in the report",
+   ("1 carried ISBN" in (rep["degraded"] or ""), rep["degraded_queries"]), (True, ["bath.isbn=" + isbn13("978981128", 6)]))
+rep = {"degraded": None, "degraded_queries": []}
+LS.follow_up({}, [isbn13("978981128", 8)], rep)          # asked, answered with nothing: gone, a fact -- not degraded
+eq("follow-up: an answered ISBN, found or gone, does not", (rep["degraded"], rep["degraded_queries"]), (None, []))
+rep = {"degraded": "offline-incomplete", "degraded_queries": ["bath.isbn=97988554*"]}
+LS.follow_up({}, [], rep)
+eq("follow-up: what the enumeration reported as degraded stays in the report (merged, never cleared)",
+   (rep["degraded"], rep["degraded_queries"]), ("offline-incomplete", ["bath.isbn=97988554*"]))
 # 4. a set cached before this check: its foreign records are counted in the report (no refetch for them)
 LS.LOC.store_set("bath.isbn=97988662*", 2, [(LS.LOC.url_for("bath.isbn=97988662*", 1, 100),
     '<zs:searchRetrieveResponse xmlns:zs="http://www.loc.gov/zing/srw/"><zs:numberOfRecords>2</zs:numberOfRecords><zs:records>'

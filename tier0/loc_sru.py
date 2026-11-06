@@ -433,8 +433,9 @@ def follow_up(recs, isbns, report=None):
     for one ISBN answers for the others it carries (a set record). At most MAX_FOLLOW ISBNs a run.
 
     Never raises for the source: an ISBN that cannot be asked (an offline miss, LoC degraded or
-    failing, the request cap) is listed under `unanswered` and the run goes on -- the volume stays
-    absent, and 8c's carried-id rules fail the build exactly as before this function existed.
+    failing, the request cap) is listed under `unanswered` and the run goes on -- degraded in the
+    report (no publish: the volume was not checked). A refresh that fails on a follow-up set cached
+    earlier keeps that set and degrades the run as well, like a channel's.
     -> {"asked": [isbn], "found": {isbn: [lccn]}, "gone": [isbn], "unanswered": {isbn: why}}; `gone`:
     answered, and no DLC record carries the ISBN any more. Also stored as report["follow_up"]."""
     def dlc_isbns(rs):
@@ -468,7 +469,17 @@ def follow_up(recs, isbns, report=None):
             len(out["found"]), sorted(out["found"].items())[:5], len(out["gone"]), out["gone"][:5],
             len(out["unanswered"]), sorted(out["unanswered"].items())[:3]), flush=True)
     if report is not None:
-        report.update(follow_up=out, live_requests=LOC.live)
+        # a follow-up set's refresh can fail like a channel's (the previous set is kept, LOC.degraded is set):
+        # the report was filled before this ran, and record_meta reads the degraded state from it
+        # (merged, never cleared: what the enumeration reported stays). An ISBN that could not be asked for is
+        # a published volume nobody checked: the run is degraded too, so the build that would retire the volume
+        # unasked does not publish.
+        unasked = "follow-up: %d carried ISBN(s) could not be asked for" % len(out["unanswered"]) if out["unanswered"] else None
+        report.update(follow_up=out, live_requests=LOC.live,
+                      degraded=report.get("degraded") or LOC.degraded or unasked,
+                      degraded_queries=list(dict.fromkeys(
+                          list(report.get("degraded_queries") or []) + list(LOC.degraded_queries)
+                          + ["bath.isbn=%s" % i for i in sorted(out["unanswered"])])))
     return out
 
 
