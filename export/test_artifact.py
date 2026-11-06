@@ -987,8 +987,13 @@ def run_krcn(path, catalogue, carry=None):
     rule("volumes dated from a 263 1111", c("""SELECT COUNT(*) FROM claim x JOIN loc_member m ON %s
          WHERE lower(x.source)='loc' AND x.field='projected_date' AND m.f263='1111'""" % url))
     # works created in this build (§9; R6)
+    # §9 criterion 2 is about the CLUSTER ("contains at least one record with explicit origin"), and stage 3f's
+    # planner applies it there (build_krcn.decide: c2). So the evidence may sit on a line of the work's cluster
+    # that does not export yet: Ize's "Seven Sundays" (LoC, origin by imprint) was created on its announced German
+    # edition's 041 $h kor (dnb:1422827569), every volume of which is still held back (2026-11-05, run 42139196651).
     rule("library-created works without a line of explicit KR/CN origin", sum(
-        1 for w in created if not c("SELECT COUNT(*) FROM krcn_line WHERE work=? AND exported=1 AND explicit=1", w)))
+        1 for w in created if not c("""SELECT COUNT(*) FROM krcn_line WHERE explicit=1 AND (
+            (work=? AND exported=1) OR cluster IN (SELECT cluster FROM krcn_line WHERE work=? AND exported=1))""", w, w)))
     rule("library-created works without a comic line", sum(1 for w in created if not c(
         "SELECT COUNT(*) FROM release_line WHERE work_id=? AND medium IN (%s)" % ",".join("?" * len(COMIC)), w, *COMIC)))
     rule("library-created works with a Japanese line", sum(1 for w in created if c(

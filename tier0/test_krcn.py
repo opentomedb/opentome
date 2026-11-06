@@ -3188,6 +3188,17 @@ eq("the lift: a created work without an English line passes (R6's English-line r
     mutate_art=["UPDATE series SET language='de';"]), [])
 eq("a created work without explicit KR/CN origin fails", has(krcn_fails(
     ["UPDATE krcn_line SET explicit=0 WHERE key='loc:2023941160';"]), "explicit KR/CN origin"), True)
+# §9 criterion 2 reads the CLUSTER (2026-11-06): an Ize line (origin by imprint, explicit=0) whose German sibling
+# states the origin but ships nothing yet (every volume announced: `absorbed`) is a created work with its evidence
+_SIB = ("UPDATE krcn_line SET explicit=0, cluster='c1' WHERE key='loc:2023941160';"
+        "INSERT INTO krcn_line(key,source,market,rl_id,carried,name,medium,n_volumes,origin,explicit,comic,role,work,"
+        "exported,cluster) VALUES('dnb:9','dnb','DE',NULL,0,'New','manhwa',2,'kor',1,1,'absorbed',NULL,0,'%s');")
+eq("... but passes on an explicit line of its cluster that does not export yet (announced German edition)",
+   has(krcn_fails([_SIB % "c1"]), "explicit KR/CN origin"), False)
+eq("... an explicit line of ANOTHER cluster is no evidence", has(krcn_fails([_SIB % "c2"]), "explicit KR/CN origin"), True)
+eq("... nor is one when the work's own line has no cluster (NULL never matches NULL)", has(krcn_fails(
+    [(_SIB % "c1").replace("cluster='c1' WHERE", "cluster=NULL WHERE").replace("'c1');", "NULL);")]),
+    "explicit KR/CN origin"), True)
 eq("a created work with a JP manga line fails", has(krcn_fails(
     ["INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at) VALUES('rl_jp','w_new','manga','JP','ja','x','x');"]),
     "Japanese line"), True)

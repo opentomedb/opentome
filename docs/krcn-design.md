@@ -507,7 +507,7 @@ read in full before a publish; a wrong one is pinned in `corrections/anilist.jso
 - No `loc` `published` date from a record at encoding level `5` or `8`. Such a record dates a volume only as `projected` (from `263`).
 - `loc`, `bnf` and `dnb` published dates are year precision; projected dates are month precision and never override published or on_sale.
 - No volume dated from a `263 1111`.
-- **Every library-created work has at least one line with explicit KR/CN origin and at least one comic line.** No library-created work has a JP-market line.
+- **Every library-created work has at least one line with explicit KR/CN origin and at least one comic line.** The explicit line is one of the work's cluster (§9 criterion 2), exported or not: an announced edition whose volumes are all held back still states the origin (2026-11-06). No library-created work has a JP-market line.
 - **R6.** (Lifted 2026-10-01: a created work no longer needs an English line; it needs a comic line.) No held cluster has a `tome_id`, `tome_work_id` or `id_map` integer (read from the `krcn_line` staging through the catalogue path). No carried line or work is absent from the export because it was held (never demoted).
 - **Flood gate.** At most `MAX_NEW_LIBRARY_WORKS` new library works in a refresh build.
 - No `novel` line in a work without a comic line.
