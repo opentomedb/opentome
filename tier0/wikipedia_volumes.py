@@ -439,14 +439,15 @@ def parse_date(v, months=None):
 
 
 # ---- chapter numbers --------------------------------------------------------------------------
-# Between two numbers, a dash written as an em dash, an entity or a template is the same dash
-# ("1—9", "3&ndash;5"). Only there: "Chapter 1 — A Title" stays unread, as it always was.
+# Between two numbers, a dash written as an em dash, two hyphens, an entity or a template is the same
+# dash ("1—9", "93--99", "3&ndash;5"). Only there: "Chapter 1 — A Title" stays unread, as it always was.
 _CH_DASH_FORMS = re.compile(
-    r"(?<=\d)\s*(?:&ndash;|&mdash;|&#8211;|&#8212;|—"
+    r"(?<=\d)\s*(?:--|&ndash;|&mdash;|&#8211;|&#8212;|—"
     r"|\{\{\s*(?:ndash|en ?dash|snd|spnd|spaced (?:ndash|en ?dash)|mdash|em ?dash|nbnd)\s*\}\})\s*(?=\d)", re.I)
-# An entry's number, then the separator before its title.
+# An entry's number, then the separator before its title -- past a part of that chapter in brackets
+# ("Chapter 2 (Part 1): Title" is chapter 2).
 _CH_FIRST = re.compile(r"\b(?:Chapter|Round|Episode|Act|Case|Night|Quest|Page|File|#)?"
-                       r"\s*(\d{1,4})(\.\d+)?\s*([:.–-])")
+                       r"\s*(\d{1,4})(\.\d+)?\s*(?:\((?:[Pp]art|[Pp]t|[Pp]artie)\.?\s*[0-9IVXivx]{1,4}\)\s*)?([:.–-])")
 # An entry that is a chapter word and its number and nothing else: "Chapter 13", "File 41".
 _CH_BARE = re.compile(r"['\"\s]*(Chapter|Round|Episode|Act|Case|Night|Quest|Page|File)\.?\s*(?:#\s*)?"
                       r"(\d{1,4})(\.\d+)?['\"\s]*", re.I)
@@ -467,7 +468,30 @@ _CH_NOT_CHAPTERS = {"special", "extra", "bonus", "side", "omake", "part", "vol",
                     "tome", "short", "prologue", "epilogue", "interlude", "intermission",
                     "gaiden", "season", "arc", "ex",
                     "spécial", "spéciaux", "hors", "partie", "livre", "saison"}
+# Of those, the words whose entry gives no number at all ("Bonus 1: ...", "Special Chapter 2: ...",
+# "Extra Scene 3."): its number counts extras, and read as a chapter it claims a chapter of another
+# volume. NOT part / vol / book / tome / season / arc: some series number their chapters "Vol 3".
+_CH_APART = {"special", "extra", "bonus", "side", "omake", "short", "prologue", "epilogue", "interlude",
+             "intermission", "gaiden", "ex", "spécial", "spéciaux", "hors"}
 _CH_MAX_SPAN = 150      # a longer "range" is two unrelated numbers
+# Entries that are not '*' bullets. A line that opens with ':' or '#', an HTML <li>, a '<br>' in a cell
+# with no list markup, an item of a {{Bulleted list}}: each is an entry too, marked _CH_STRICT because it gives a
+# number only at its HEAD -- a ':' line is often a note under a bullet, and "pages 5: ..." in it is
+# no chapter.
+_CH_STRICT = "\x00"
+_CH_HEADING = "\x01"          # read like a strict entry, and never as a bare "File 20": that is the list's heading
+_CH_WRAPPED = re.compile(r"^(?:\s*\{\{[^{}|]*\|)+")       # ':{{Nihongo|Theme 1. "A"|...}}': the head is inside the template
+_CH_NOWIKI = re.compile(r"</?nowiki\s*/?>", re.I)
+_CH_BR = re.compile(r"<br\s*/?>", re.I)
+_CH_LINE_MARK = re.compile(r"^[ \t]*[:#]+", re.M)
+_CH_ITEM_LISTS = ("Bulleted list", "Unbulleted list", "Ubl")
+# Implicit numbers are read only where the source says where the count starts: {{Numbered list|start=N}}
+# and its real name {{Ordered list}}, <ol start="N">, a '#' list whose item carries <li value="N">.
+_CH_COUNTED_LISTS = ("Numbered list", "Ordered list")
+_CH_OL = re.compile(r"<ol\b[^>]*\bstart\s*=\s*[\"']?(\d+)[^>]*>(.*?)(?=</ol\s*>|<ol\b|\Z)", re.I | re.S)
+_CH_LI = re.compile(r"<li\b[^>]*>", re.I)
+_CH_ITEM_OWN = re.compile(r"\b(?:Chapter|Chapitre|Episode|[ÉE]pisode)\s+(\d{1,4})\b", re.I)
+_CH_HASH_ITEM = re.compile(r"^[ \t]*#(?![#*:;])[ \t]*(?:<li\s+value\s*=\s*[\"']?(\d+))?", re.M | re.I)
 # An entry that opens with its number and goes straight into a quoted or templated title, with no
 # separator: '07 "Title"', "Fight 1 {{nihongo|...}}". Markup and at most one word before the number.
 _CH_TITLED = re.compile(r"([\s'\"“”‘’\[\(#.:]*)(?:([^\W\d_]{1,12})[\s.:#]*)?"
@@ -546,43 +570,88 @@ def _worded_range(line):
     return [first] + tail if tail else []
 
 
+def _counted(v):
+    """The numbers a cell states by COUNT: the items of a list that says where it starts."""
+    nums = []
+    for name in _CH_COUNTED_LISTS:
+        for _p, body in _templates(v, name):
+            parts = _split_params(body[2:-2])
+            if any(re.match(r"\s*list[_-]style[_-]type\s*=", part) for part in parts[1:]):
+                continue                                 # its own marker ('118.5. '): the items are not counted
+            start, items = 1, 0
+            for part in parts[1:]:                       # parts[0] is the template name
+                m = re.match(r"\s*start\s*=\s*(\d+)", part)
+                if m:
+                    start = int(m.group(1))
+                    continue
+                if re.match(r"\s*\w+\s*=", part):        # any other named param
+                    continue
+                if part.strip():
+                    items += 1
+            nums += range(start, start + items)
+    for m in _CH_OL.finditer(v):
+        items = _CH_LI.split(m.group(2))[1:]
+        # an item that names its own chapter ("Chapter 9" as the tenth item, after a prologue) says the
+        # positions are not the chapter numbers: such a list is not counted
+        own = [(k, int(x.group(1))) for k, it in enumerate(items, int(m.group(1)))
+               for x in [_CH_ITEM_OWN.search(it[:120])] if x]
+        if all(k == n for k, n in own):
+            nums += range(int(m.group(1)), int(m.group(1)) + len(items))
+    at = None                                            # a '#' list: counted from its first <li value="N">
+    for m in _CH_HASH_ITEM.finditer(v):
+        if m.group(1):
+            at = int(m.group(1))
+        if at is not None:
+            nums.append(at)
+            at += 1
+    return nums
+
+
+def _entries(v):
+    """A chapter cell as [(mark, entry)]: mark '*' for a bullet (and the text before the first one),
+    _CH_STRICT for an entry of another shape (a ':' / '#' line, a <li>, a '<br>' piece, a list-template
+    item), _CH_HEADING for the text before the first entry of such a list ("File 20", then a '#' list)."""
+    v = _CH_DASH_FORMS.sub("–", _CH_NOWIKI.sub("", v).replace("：", ":"))
+    for name in _CH_ITEM_LISTS:
+        for pos, body in reversed(list(_templates(v, name))):
+            items = [p for p in _split_params(body[2:-2])[1:] if p.strip() and not re.match(r"\s*\w+\s*=", p)]
+            v = v[:pos] + "".join("\n" + _CH_STRICT + it for it in items) + "\n" + v[pos + len(body):]
+    v = _CH_LI.sub(_CH_STRICT, v)                        # an HTML list item (one _counted did not count)
+    first = _CH_HEADING
+    if "*" not in v and _CH_STRICT not in v and not _CH_LINE_MARK.search(v):
+        v = _CH_BR.sub(_CH_STRICT, v)                    # no list markup at all: '<br>' parts the entries,
+        first = "*"                                      # and the first one is read as the whole cell was
+    parts = re.split("([*%s])" % _CH_STRICT, _CH_LINE_MARK.sub(_CH_STRICT, v))
+    return [(first if parts[1:2] == [_CH_STRICT] else "*", parts[0])] + list(zip(parts[1::2], parts[2::2]))
+
+
 def parse_chapters(v):
     """Chapter NUMBERS only -- pure facts, never titles.
 
     Three conventions in the wild:
-      1. {{Numbered list|start=N|item|item|...}}  -> numbers implicit in item count
+      1. {{Numbered list|start=N|item|item|...}}  -> numbers implicit in item count (_counted)
       2. "* Chapter N: Title" / "* Chapter N" / '* N "Title"' -> numbers explicit
       3. "* Chapters N–M" / "Chapitres N à M"    -> a range, every chapter in it
     A half chapter ("18.5: Title") stays a half: floored, it would claim a chapter of another
     volume. A whole number that is not there is the costly mistake, so a doubtful entry gives
-    its first number only, or nothing.
+    its first number only, or nothing -- and an entry numbered apart from the chapters ("Bonus 1")
+    gives nothing.
     """
     nums = []
     # fr: "* {{5e|episode}} : ..." -- ordinal template carries the number
     ord_hits = re.findall(r"\{\{\s*(\d{1,4})\s*(?:e|er|re)\s*\|", v)
     if ord_hits:
         return sorted({int(x) for x in ord_hits})
-    for _p, body in _templates(v, "Numbered list"):
-        parts = _split_params(body[2:-2])
-        start, items = 1, 0
-        for part in parts[1:]:                       # parts[0] is the template name
-            m = re.match(r"\s*start\s*=\s*(\d+)", part)
-            if m:
-                start = int(m.group(1))
-                continue
-            if re.match(r"\s*\w+\s*=", part):        # any other named param
-                continue
-            if part.strip():
-                items += 1
-        nums += range(start, start + items)
+    nums = _counted(v)
     if nums:
         return sorted(set(nums))
-    bare, tails, words, pair_starts = [], [], set(), {}
-    for line in _CH_DASH_FORMS.sub("–", v).split("*"):
+    bare, tails, words, pair_starts, lead = [], [], set(), {}, None
+    for mark, line in _entries(v):
         line = line.strip()
         m = _CH_BARE.fullmatch(line)
         if m:
-            bare.append(m)
+            if mark != _CH_HEADING:
+                bare.append(m)
             continue
         worded = _worded_range(line)
         if worded:
@@ -605,9 +674,19 @@ def parse_chapters(v):
         if m.group(3) == "." and line[m.end():m.end() + 1].isdecimal():
             continue                # "103.5 A Title", "24.12.2029": a decimal point or a date, no separator
         first = _chapter_number(m.group(1), m.group(2))
-        nums.append(first)
         head = line[:m.start(1)]
+        if any(_one_of(w, _CH_APART) for w in _words(head)[-2:]):
+            continue                # "Bonus 1: ...", "Special Chapter 2: ...": numbered apart, no chapter
+        if mark != "*" and not _CH_HEAD.fullmatch(_CH_WRAPPED.sub("", head)):
+            continue                # an entry of another shape gives a number only at its head
         word = (_words(head)[-1:] or [""])[0]
+        # ...and only under the word the cell's first numbered entry uses: "Parallel 1." after "06." "07."
+        # "08." is numbered apart, whatever the word is
+        if lead is None:
+            lead = word.rstrip("s")
+        elif mark != "*" and word.rstrip("s") != lead:
+            continue
+        nums.append(first)
         apart = _one_of(word, _CH_NOT_CHAPTERS)
         word = word.rstrip("s")
         if word and not apart and _CH_HEAD.fullmatch(head):

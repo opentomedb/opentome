@@ -977,6 +977,53 @@ eq("ch: a half entry is its half, not a number in its title", parse_chapters('* 
 eq("ch: a decimal entry does not hand over to a number in a note", parse_chapters("* 12.5 A Title (see Guide 2: B)"), [])
 eq("ch: a decimal entry does not hand over to a year", parse_chapters("* Chapter 10.5 Title, out 2019-05-01"), [])
 eq("ch: a dot before a title still separates", parse_chapters("* 3.Title\n* 4. Title\n* 5.\u2460 Title"), [3, 4, 5])
+B3 = "'" * 3          # wiki bold
+# ---- chapter lists: leftovers (2026-11-06) -----------------------------------------------------
+# (b) an entry numbered apart from the chapters gives no number at all: its "1" is a chapter of another volume
+eq("ch: a bonus beside real chapters gives no number", parse_chapters("* Chapter 5: A\n* Chapter 6: B\n* Bonus 1: X"), [5, 6])
+eq("ch: the word may sit one word before the number", parse_chapters("* 12. A\n* Extra Scene 1. B\n* Special Chapter 2: C\n* Side Story 3 - D"), [12])
+eq("ch: a list of extras only has no chapters", parse_chapters("* Side Story 1: A\n* Side Story 2: B\n* EX 03. C\n* Epilogue 4 - D"), [])
+eq("ch: the same in French", parse_chapters("* Chapitre 3 : A\n* Chapitre bonus 1 : B\n* Épisode spécial 2 : C\n* Hors-série 4 : D\n* Omake 5 : E"), [3])
+eq("ch: a year after such a word is no chapter either", parse_chapters("* 7. A\n* Summer Special 2029: B"), [7])
+eq("ch: an apart word inside the TITLE of a numbered chapter changes nothing", parse_chapters("* 14. The Special 2: Return\n* Chapter 15: Bonus Stage 3"), [14, 15])
+eq("ch: 'Vol' / 'Part' / 'Book' still give their number (some series number their chapters so)",
+   parse_chapters('* Vol 2: "A"\n* Annex: "B"') + parse_chapters("* Part 3: A") + parse_chapters("* Book 4. A"), [2, 3, 4])
+# (c) entries that are not '*' bullets: a line opening with ':' or '#', '<br>' between entries, a list template.
+# Such an entry gives a number only at its head -- never one found deeper in it (a continuation line, a note).
+eq("ch: lines opening with ':'", parse_chapters(":" + B3 + "Program 1:" + B3 + " ''A''\n:" + B3 + "Program 2:" + B3 + " ''B''\n:" + B3 + "Program 3:" + B3 + " ''C''"), [1, 2, 3])
+eq("ch: a ':' line whose entry sits inside a template", parse_chapters(':{{Nihongo|Theme 1. "A"|x|y}}\n:{{Nihongo|Theme 2. "B"|x|y}}\n:{{Nihongo|EX 01. "C"|x|y}}'), [1, 2])
+eq("ch: lines opening with '#'", parse_chapters('# Life.0\n# Life.1: "A"\n# Life.2: "B"\n#* A note'), [1, 2])
+eq("ch: '#' entries that are a chapter word and number", parse_chapters(":Prologue\n#Chapter 1\n#Chapter 2\n#Chapter 3\n:Epilogue"), [1, 2, 3])
+eq("ch: a ':' line under a bullet is no entry of its own number", parse_chapters("* Chapter 1: A\n: reprinted with pages 5: B\n* Chapter 2: C"), [1, 2])
+eq("ch: a colon inside an entry is not a separator of entries", parse_chapters("* Chapter 4: Title: Subtitle 9: x"), [4])
+eq("ch: '<br>' between entries of a cell without list markup", parse_chapters("Chapter 1: A<br />Chapter 2: B<br>Chapter 3: C<br/>Bonus: D"), [1, 2, 3])
+eq("ch: '<br>' inside a bulleted entry stays inside it", parse_chapters("* 10. A<br/>(see page 2: x)\n* 11. B"), [10, 11])
+eq("ch: a bare chapter word and number in a '<br>' cell", parse_chapters("Episode 1<br />Episode 2<br />Episode 3"), [1, 2, 3])
+eq("ch: the text before a '#' list is its heading, not a chapter", parse_chapters("File 20\n#{{Nihongo|Prologue|x|y}}\n#{{Nihongo|Chapter 1 A|x|y}}"), [])
+eq("ch: a heading before ':' entries", parse_chapters(";Volume 6\n:" + B3 + "Program 38:" + B3 + " ''A''\n:" + B3 + "Program 39:" + B3 + " ''B''"), [38, 39])
+eq("ch: an entry under another word than the cell's first is numbered apart",
+   parse_chapters("06. {{japonais|A|x|y}}<br />07. {{japonais|B|x|y}}<br />Parallel 1. {{japonais|C|x|y}}<br />Parallel 2. {{japonais|D|x|y}}"), [6, 7])
+eq("ch: bullets keep their own rule for mixed words", parse_chapters("* 6. A\n* Sample 7. B"), [6, 7])
+eq("ch: a bulleted-list template", parse_chapters("{{Bulleted list|\n| " + B3 + "quest 1:" + B3 + " {{Nihongo|A|x|y}}\n| " + B3 + "quest 2:" + B3 + " {{Nihongo|B|x|y}}\n| " + B3 + "quest 3:" + B3 + " C\n}}"), [1, 2, 3])
+eq("ch: an unbulleted-list template with a range", parse_chapters("{{Unbulleted list|Chapters 12–15|Bonus}}"), [12, 13, 14, 15])
+# implicit numbers: only where the source states where the count starts
+eq("ch: 'Ordered list' is the numbered-list template", parse_chapters('{{Ordered list|start=4|{{Nihongo|"A"|x|y}}|{{Nihongo|"B"|x|y}}<br/>5.1. C|D}}'), [4, 5, 6])
+eq("ch: the same inside a columns template", parse_chapters("{{columns-list|colwidth=30em|\n{{ordered list|start=0\n| A\n| B\n| C\n}}}}"), [0, 1, 2])
+eq("ch: a list with its own marker is not counted", parse_chapters("{{Numbered list|start=118|A|B}}\n{{Ordered list|list_style_type='118.5. '|list_style_position=inside|C}}"), [118, 119])
+eq("ch: an HTML ordered list with a start", parse_chapters('<ol start="8">\n<li>{{Nihongo|"A"|x|y}}\n<li>B\n<li>C\n</ol>'), [8, 9, 10])
+eq("ch: an HTML list whose items name another chapter than their place is not counted",
+   parse_chapters('File 22 <ol start="10">\n<li>{{Nihongo|Chapter 9 Truth 1 – A|x|y}}\n<li>{{Nihongo|Chapter 10 Truth 2 – B|x|y}}\n</ol>'), [])
+eq("ch: HTML list items that state their numbers are entries", parse_chapters("<ol>\n<li>Chapter 4: A\n<li>Chapter 5: B\n</ol>"), [4, 5])
+eq("ch: a '#' list whose first item sets its value", parse_chapters('#<li value="236">{{nihongo|"A"|x|y}}</li>\n#{{nihongo-s|"B"|x|y}}\n#C'), [236, 237, 238])
+eq("ch: a '#' list with no stated start counts nothing", parse_chapters("# A\n# B\n# C"), [])
+eq("ch: an HTML list with no start counts nothing", parse_chapters("<ol>\n<li>A\n<li>B\n</ol>"), [])
+# small things between a number and its reading
+eq("ch: a part of a chapter in brackets before the separator", parse_chapters('* Chapter 1: "A"\n* Chapter 2 (Part 1): "B"\n* 39 (Part 2). C\n* Omake: "D"'), [1, 2, 39])
+eq("ch: other brackets after the number are not read past",
+   [n for n in parse_chapters("* Chapter 3 (pages 5–40): A\n* Chapter 4 (2019): B") if n in (3, 4)], [])
+eq("ch: a nowiki '#' before the number", parse_chapters('*<nowiki>#</nowiki>49 {{Nihongo|"A"|x|y}}\n*<nowiki>#</nowiki>50 {{Nihongo|"B"|x|y}}'), [49, 50])
+eq("ch: a full-width colon", parse_chapters('*Round 1： "A"\n*Round 2："B"\n*Round 3: C'), [1, 2, 3])
+eq("ch: a range written with two hyphens", parse_chapters("Chapters 93--99 and a bonus story, from the 2029-12-26 issue on"), list(range(93, 100)))
 _ch_rec = parse_volumes("{{Graphic novel list\n | VolumeNumber = 2\n | RelDate = January 5, 2020\n | ISBN = 978-4-06-384276-0\n | ChapterList =\n*Chapters 12–21\n*Bonus\n}}", "List of Test chapters", "en")[0]
 eq("ch: a volume's list and range come from the whole range", (_ch_rec.get("chapters"), _ch_rec.get("chapter_range")), (list(range(12, 22)), [12, 21]))
 
