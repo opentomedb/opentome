@@ -1,20 +1,41 @@
 # HANDOFF — OpenTome
 
-## KR/CN refresh round — FIXED LOCALLY 2026-11-06 (main 476816f + this file), NOT PUSHED; nothing published
+## KR/CN refresh round + chapter lists -- **PUBLISHED 2026-11-06 as `opentome-2026-11-06`** (main 974ae80; sha 71a79453; build-only 42225539914, publish 42226810075; Mangarr pulled it 07:46 CST)
 
-Nick, 11-05 night: "push both the Opentome fixes and beta 5". The chapter-list fix was pushed (f391b79) and Mangarr
-0.1.0-beta.5 went out, but the catalogue could NOT publish: build-only run 42139196651 failed 7 contract rules that
-have nothing to do with chapter lists (the Sunday builds of 10-25 and 11-01 were already red on 2 and 3 of them,
-unseen). **The published catalogue is still `opentome-2026-10-20`.** The seven commits below fix every cause; they
-are local only. **Pushing them needs Nick's push or his word** (his sentence covered the chapter-list fix only).
+Nick, 11-06 morning: "Push the fixed" (the nine commits 726fc91..974ae80; a one-time word, the rule that Nick
+pushes main is unchanged) and "Yes go ahead" for the alert secret. Pushed to GitHub + Forgejo, build-only run green
+in 8 minutes (the LoC cache of the 11-05 run was fresh: 3 live LoC requests), publish run green, public manifest and
+opentomedb.com/catalogue/version.json both name `opentome-2026-11-06`.
 
-**NEXT, in order:** (1) push main (GitHub + Forgejo); (2) `gh workflow run catalogue.yml -R opentomedb/opentome --ref main`
-(build-only) and read the log: the LoC follow-up line, any `crossed` / `foreign` warning, the 8c rules; (3) green ->
-the same dispatch with `-f publish=true`; (4) Mangarr Metadata Update on the homelab + its ledger line; (5) measure
-chapter lists against the 10-20 artifact (8,570 English volumes, 29,419 in all languages, pass Mangarr's adjacency
-rule there; 2,014 English lists hold one whole chapter); (6) the short #beta / #announcements note with the numbers.
-Also Nick's: the `DISCORD_ALERT_WEBHOOK` repository secret (a PRIVATE channel's webhook) -- until it exists the new
-failure job posts nothing.
+**What the CI log showed (the things only CI could show):**
+- LoC follow-up, end to end: `1 carried ISBN(s) no channel delivered -- found 1 [('9789811286315', ['2025398065'])]`;
+  "Science battles!" keeps rl_8438f51ce15b / w_76652aa46c96. `krcn-report.json` `loc.follow_up` carries it
+  (`loc-report.json` is written before the follow-up and does not).
+- No crossed page in CI's cache: `foreign` 0, no WARNING line, `degraded` None.
+- 8c `artifact contract ok`, library gate ok, 8d every floor ok. Ids: carried lines kept 543, taken 2 (weak 1, the
+  confirmed `taken_ok`), left 0; works created 3 (w_1c81add0d1fc "Seven Sundays", w_8c6958849f0f "Special Civil
+  Servant", w_d7ed37cea85d "Bring it on!"); "My secretly hot husband" (en) sits under w_fdd8ef0310ff.
+- Against the 10-20 artifact: 13,461 -> 13,464 lines, 125,432 -> 125,468 volumes, 7 lines gone (all German, all
+  with an id_redirect: 6 corrections, 1 retired = "The Marshal King Limited Edition" folded into the plain line),
+  10 new, 0 lines under another work, romanised aliases 454 -> 455 (`romanised_aliases_carried` 12).
+- Measure-gate moves vs 10-20 are 16 days of library drift, none near a floor: DE lines 1,783 -> 1,782, DE volumes
+  13,816 -> 13,836, KR/CN DE staged lines 380 -> 395, EN exported lines 70 -> 74, library works 425 -> 428.
+
+**Chapter lists, measured on the published file (Mangarr's adjacency rule; `ot_artifact_measure.py` of the 11-05
+session):** English volumes passing 8,570 -> 10,477 (+1,907); English lists of one whole chapter 2,014 -> 165;
+all languages passing 29,419 -> 35,860; one-chapter lists 5,909 -> 1,328; 427 lists now carry a half chapter.
+
+**Failure alert:** secret `DISCORD_ALERT_WEBHOOK` is set (2026-11-06, the private #releases webhook). The
+`report-failure` job was skipped on both green runs, as it should be; it has NOT yet fired on a real red build
+(only its script was dry-run locally). The first red Sunday build is its live test.
+
+**Gotcha found at the publish:** Mangarr's first manifest is opentomedb.com/catalogue/version.json, which the
+`pages` workflow redeploys after the catalogue run; Pages kept serving the previous deploy for about 4 minutes
+(`cache-control: max-age=600`). A Metadata Update run in that window says "up to date". Wait until the site
+manifest names the new label, then run it.
+
+**Open, nobody's go-ahead yet:** the short #beta note with the numbers (draft given to Nick 11-06); the items under
+"Left open" below.
 
 **What each red rule was -- checked against the live library records on 11-06 (two of the 11-05 guesses were wrong):**
 
@@ -82,7 +103,7 @@ neither. **A local rebuild is not a mirror of CI**: only the build-only run says
 - `build/manga-metadata.sqlite` locally is the PUBLISHED 10-20 artifact (the id carry); `*.local-20261002` are the
   older local files; `build/manga-metadata.sqlite.new` and `build/opentome.db` are the 11-06 offline rebuild.
 
-## Chapter lists read in full — **PUSHED 2026-11-05 (main f391b79, GitHub + Forgejo), NOT PUBLISHED: the build is red on KR/CN drift, section above**
+## Chapter lists read in full — **PUBLISHED 2026-11-06 in `opentome-2026-11-06`** (pushed 2026-11-05 as main f391b79; numbers in the section above)
 
 - **Why.** Mangarr's chapter builder found that about 17 % of the English chapter lists held only a volume's
   FIRST chapter (v1 `[1]`, v2 `[12]`). Cause, in `tier0/wikipedia_volumes.py` `parse_chapters`: an entry's first
