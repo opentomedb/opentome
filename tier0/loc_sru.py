@@ -46,7 +46,8 @@ LOC.transport_stops = True
 SIZES = (100, 50, 25)
 RETRIES = 3
 RETRY_WAIT = 10
-LADDERED = ("61", "short", "crossed")   # diagnostic 61, a short page and a crossed page go down the ladder; others raise
+# diagnostic 61, a short page, a crossed page (foreign) and a malformed one go down the ladder; others raise
+LADDERED = ("61", "short", "crossed", "malformed")
 MAX_DEPTH = 2
 WINDOW = 500                       # reachable positions per result set (R7, diag 61 past ~500); a larger
                                    # ISBN stem is sliced before any page (C0 ruling 2026-09-29)
@@ -162,7 +163,10 @@ def _fetch_page(query, u, start, size, last):
         raise LocIncomplete("%r changed during paging: %d announced, page says %d" % (query, last, SRU.count(text)))
     if got < want:
         raise SRU.SourceDiagnostic("short", "%d records, the range holds %d" % (got, want), u)
-    bad = foreign(query, text)
+    try:
+        bad = foreign(query, text)
+    except M.ET.ParseError as e:       # a cut-off answer: a failed page as well, never stored
+        raise SRU.SourceDiagnostic("malformed", "the page is not well-formed XML (%s)" % e, u) from e
     if bad:                            # a crossed result set: a failed page, never stored (see foreign)
         raise SRU.SourceDiagnostic("crossed", "%d of %d records carry no ISBN the search asks for (001 %s)"
                                    % (len(bad), got, ", ".join(bad[:5])), u)

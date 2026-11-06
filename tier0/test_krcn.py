@@ -1273,6 +1273,15 @@ rep = {"degraded": "offline-incomplete", "degraded_queries": ["bath.isbn=9798855
 LS.follow_up({}, [], rep)
 eq("follow-up: what the enumeration reported as degraded stays in the report (merged, never cleared)",
    (rep["degraded"], rep["degraded_queries"]), ("offline-incomplete", ["bath.isbn=97988554*"]))
+# a page that is not well-formed XML (a cut-off answer) is a failed page too: never stored, never a crash of the stage
+_fm = isbn13("978981128", 10)
+LRULE["raw"] = {"bath.isbn=" + _fm: '<?xml version="1.0"?><zs:searchRetrieveResponse xmlns:zs="http://www.loc.gov/zing/srw/">'
+                '<zs:numberOfRecords>1</zs:numberOfRecords><zs:records><record><controlfield tag="001">7</controlfield>'}
+k = len(LCALLS)
+fu = LS.follow_up({}, [_fm])
+LRULE.pop("raw")
+eq("malformed page: laddered (3 attempts at each size after the count), then unanswered -- nothing cached, no exception",
+   (list(fu["unanswered"]), len(LCALLS) - k, "bath.isbn=" + _fm in json.load(open(LS.LOC.sets_path))), ([_fm], 10, False))
 # 4. a set cached before this check: its foreign records are counted in the report (no refetch for them)
 LS.LOC.store_set("bath.isbn=97988662*", 2, [(LS.LOC.url_for("bath.isbn=97988662*", 1, 100),
     '<zs:searchRetrieveResponse xmlns:zs="http://www.loc.gov/zing/srw/"><zs:numberOfRecords>2</zs:numberOfRecords><zs:records>'
