@@ -1674,6 +1674,92 @@ eq("ruling 3: the duplicate numbers are in lost", sorted(m for m, f, k in lost i
    ["dnb:139562769X", "dnb:1395628068"])
 eq("dnb_marc.classify is unchanged: the Roman volume is still 'manga' to the JP round", M.classify(dr["1270356976"]), "manga")
 
+# ---- sections of a set (2026-11-06): DNB files a series published in seasons under ONE set, each season numbered
+# from 1 -- 245 $n '2nd season' $n '1', or $n '[...]' $p 'Season II' $n '1'. Read as one line, every number after
+# the first season's is a duplicate and the whole set sits in review. A section is its own line.
+def sv(idn, f245, parent=None, pub="Imprint A", extra=(), announced=False):
+    r = drec(idn, ("041", [("a", "ger"), ("h", "kor")]), ("082", [("a", "741.5")]), ("926", [("a", "XAMG")]),
+             ("245", f245), ("264", [("b", pub)]), ("020", [("a", isbn13("97837539", int(idn[2:4] + idn[-2:])))]),
+             ("300", [("a", "180 Seiten")]), ("700", [("a", "Zeichner, Z."), ("4", "ill")]),
+             *((("773", [("w", "(DE-101)" + parent)]),) if parent else ()), *extra)
+    if announced:
+        r["leader"] = r["leader"][:17] + "8" + r["leader"][18:]
+    return r
+
+
+def loose(idn, series, num, pub, announced=True):
+    return sv(idn, [("a", "%s %s" % (series, num))], pub=pub, announced=announced,
+              extra=(("490", [("a", series), ("v", num)]),))
+
+
+SAGA = "Sample saga"
+sp = {p["cf"]["001"]: p for p in (
+    drec("1700000000", ("245", [("a", SAGA), ("c", "A. Autor")]), ("240", [("a", "Saempeul saga")]),
+         ("264", [("b", "Imprint A")]), ("100", [("a", "Autor, A."), ("4", "aut")]), parent=True),
+    drec("1710000000", ("245", [("a", "Sample stalker")]), ("264", [("b", "Imprint A")]), parent=True),
+    drec("1720000000", ("245", [("a", "Sample continuous")]), ("264", [("b", "Imprint A")]), parent=True),
+    drec("1730000000", ("245", [("a", "Sample arcs")]), ("264", [("b", "Imprint A")]), parent=True),
+    drec("1740000000", ("245", [("a", "Sample one edition")]), ("264", [("b", "Imprint A")]), parent=True),
+    drec("1750000000", ("245", [("a", "Sample running count")]), ("264", [("b", "Imprint A")]), parent=True))}
+sr = {r["cf"]["001"]: r for r in (
+    # the season shape in 245 $n: a cataloguer-supplied '[1st season]', then '2nd season', '3rd season'
+    sv("1700000011", [("a", SAGA), ("n", "[1st season]"), ("n", "1")], "1700000000"),
+    sv("1700000012", [("a", SAGA), ("n", "[1st season]"), ("n", "2")], "1700000000"),
+    sv("1700000021", [("a", SAGA), ("n", "2nd season"), ("n", "1")], "1700000000"),
+    sv("1700000022", [("a", SAGA), ("n", "2nd season"), ("n", "2")], "1700000000"),
+    sv("1700000031", [("a", SAGA), ("n", "3rd season"), ("n", "1")], "1700000000"),
+    # the same season announced by the publisher under its own series statement: one line with the set's volume
+    # when the publisher family agrees, its own line under another publisher name
+    loose("1700000041", "Sample Saga – 3rd Season", "2", "Imprint A"),
+    loose("1700000051", "Sample Saga – 3rd Season", "3", "Other House"),
+    # the season shape in 245 $p after a placeholder $n; '[Part I]' and 'Part I' are one section
+    sv("1710000011", [("a", "Sample stalker"), ("n", "[...]"), ("p", "[Part I]"), ("n", "1")], "1710000000"),
+    sv("1710000012", [("a", "Sample stalker"), ("n", "[...]"), ("p", "Part I"), ("n", "2")], "1710000000"),
+    sv("1710000021", [("a", "Sample stalker"), ("n", "[...]"), ("p", "Part II"), ("n", "1")], "1710000000"),
+    # controls, each one line as before: a numeric group above a running count; a volume number above a part of an
+    # arc (the old duplicate, still a review); one designation for the whole set; seasons that keep counting
+    sv("1720000011", [("a", "Sample continuous"), ("n", "1"), ("n", "1")], "1720000000"),
+    sv("1720000012", [("a", "Sample continuous"), ("n", "1"), ("n", "2")], "1720000000"),
+    sv("1720000013", [("a", "Sample continuous"), ("n", "2"), ("n", "3")], "1720000000"),
+    sv("1730000011", [("a", "Sample arcs"), ("n", "1")], "1730000000"),
+    sv("1730000012", [("a", "Sample arcs"), ("n", "2")], "1730000000"),
+    sv("1730000013", [("a", "Sample arcs"), ("n", "Teil 3."), ("p", "Ein Bogen"), ("n", "Teil 1.")], "1730000000"),
+    sv("1740000011", [("a", "Sample one edition"), ("n", "[...]"), ("p", "Deutschsprachige Ausgabe"), ("n", "1")], "1740000000"),
+    sv("1740000012", [("a", "Sample one edition"), ("n", "[...]"), ("p", "Deutschsprachige Ausgabe"), ("n", "2")], "1740000000"),
+    sv("1750000011", [("a", "Sample running count"), ("n", "1st season"), ("n", "1")], "1750000000"),
+    sv("1750000012", [("a", "Sample running count"), ("n", "2nd season"), ("n", "2")], "1750000000"))}
+lines, lost, st = KL.dnb_lines(sr, sp)
+by = {l["key"]: l for l in lines}
+eq("sections: each season of a set is a line keyed 'dnb:<set IDN>#<section>'; the controls stay one line each",
+   {k: sorted(v["number"] for v in l["vols"]) for k, l in by.items()},
+   {"dnb:1700000000#1stseason": ["1", "2"], "dnb:1700000000#2ndseason": ["1", "2"],
+    "dnb:1700000000#3rdseason": ["1", "2"], "dnb:1700000051": ["3"],
+    "dnb:1710000000#parti": ["1", "2"], "dnb:1710000000#partii": ["1"],
+    "dnb:1720000000": ["1", "2", "3"], "dnb:1730000000": ["1", "2"], "dnb:1740000000": ["1", "2"],
+    "dnb:1750000000": ["1", "2"]})
+eq("sections: no season volume is a duplicate number any more; the arc control still is, and still a review",
+   (sorted(m for m, f, k in lost if f == "dropped_duplicate_number"),
+    {k: l["medium_why"] for k, l in by.items() if l["medium_why"]}),
+   (["dnb:1730000013"], {"dnb:1730000000": "duplicate_numbers"}))
+eq("sections: named '<set title> – <section>' (brackets dropped); the publisher's own series statement wins",
+   [by[k]["name"] for k in ("dnb:1700000000#1stseason", "dnb:1700000000#2ndseason", "dnb:1700000000#3rdseason",
+                            "dnb:1710000000#parti", "dnb:1710000000#partii")],
+   ["Sample saga – 1st season", "Sample saga – 2nd season", "Sample Saga – 3rd Season",
+    "Sample stalker – Part I", "Sample stalker – Part II"])
+s1 = by["dnb:1700000000#1stseason"]
+eq("sections: the set's title proper, its original title and its creators stay on every section line",
+   (SAGA in s1["titles"], "Sample saga – 1st season" in s1["titles"], s1["orig"], s1["authors"][:1], s1["medium"], s1["explicit"]),
+   (True, True, ["Saempeul saga"], ["Autor, A."], "manhwa", True))
+eq("sections: the announced volume of the same publisher family is in the section line, the other publisher's is not",
+   (by["dnb:1700000000#3rdseason"]["members"], by["dnb:1700000051"]["members"]),
+   (["dnb:1700000031", "dnb:1700000041"], ["dnb:1700000051"]))
+import build_krcn as _BK
+eq("sections: a section key's source url is the set record's", _BK.member_url("dnb:1700000000#3rdseason"),
+   "https://d-nb.info/1700000000")
+_k, _d = B.select(sr, sp, in_scope=M.krcn_in_scope)
+eq("sections: build_dnb.cluster itself is unchanged (the German JP round): the set is one cluster",
+   sorted(len(g) for k, g in B.cluster(B.twins(_k)[0], sp).items() if k == "dnb:1700000000"), [5])
+
 # ruling 3c for BnF and LoC too: a number left over twice -> review
 bdup = KL.bnf_lines({U.ark(r): r for r in (
     brec(("010", [("a", isbn13("97823", 11))]), ("101", [("a", "fre"), ("c", "kor")]), ("200", [("a", "Yureka"), ("h", "1")]),
@@ -1994,6 +2080,24 @@ KCf = carry("fC", [(gid, "Gamma", I5)], pubs={gid: YEN})
 got, r = run([bl("loc:100", "loc", "Gamma", [("1", "9798400777771")], YEN), bl("loc:300", "loc", "Delta", [("1", I5[0][1])], YEN)], KCf)
 eq("C: the key-maker holding none of T keeps T (continuity); the different-name stray-ISBN line mints its own key",
    got, [("loc:100", gid, True), ("loc:300", M("loc:300"), False)])
+# S -- a section line of a DNB set (krcn_lines.split_sections). The season's volume 1 was announced under another
+# publisher name and its IDN minted that line's id; DNB then re-filed the record into the set. Keyed by the set
+# and the section, the section line takes the line it shares most with and the other line keeps its own.
+TS1, TS2 = M("dnb:1800000001"), M("dnb:1800000002")
+SV = {n: isbn13("97837538", 7000 + n) for n in range(1, 6)}
+KS = lambda nm: carry(nm, [(TS1, "Sample Saga – 3rd Season", [("1", SV[1]), ("4", SV[4])]),
+                           (TS2, "Sample Saga – 3rd Season", [("2", SV[2]), ("3", SV[3]), ("5", SV[5])])],
+                      pubs={TS1: "Big House", TS2: "Imprint A"}, src="dnb")
+sec = lambda key: [bl(key, "dnb", "Sample Saga – 3rd Season", [(str(n), SV[n]) for n in (1, 2, 3, 5)], "Imprint A"),
+                   bl("dnb:1800000004", "dnb", "Sample Saga – 3rd Season", [("4", SV[4])], "Big House")]
+got, r = run(sec("dnb:1700000000#3rdseason"), KS("fS1"))
+eq("S: a section line (key = set + section) takes the published line it shares 3 ISBNs with; the line of the other "
+   "publisher name keeps its id (a weak take, gated); nothing is left",
+   (got, r["left"], r["taken_weak"]),
+   ([("dnb:1700000000#3rdseason", TS2, True), ("dnb:1800000004", TS1, True)], [], [(TS1, "dnb:1800000004", 1, 2)]))
+got, r = run(sec("dnb:1800000001"), KS("fS2"))
+eq("S: keyed by its lowest member IDN instead, continuity would hand it the OTHER line's id and re-key both lines",
+   (got, r["left"]), ([("dnb:1800000001", TS1, True), ("dnb:1800000004", M("dnb:1800000004"), False)], [TS2]))
 # E
 te = M("loc:100")
 KEf = carry("fE", [(te, "Eps", I5)], pubs={te: YEN}, ints={te: 10})

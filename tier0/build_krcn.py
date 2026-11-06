@@ -841,10 +841,11 @@ def record_meta(db, lines, plan, reports, offline=None):
 # ---- stage 3f, part 2: load, staging, adoption, files (Task 14) ------------------------------------------
 
 def member_url(m):
-    """'dnb:<IDN>' / 'loc:<LCCN>[#<vol>]' / 'bnf:<ark>' (a member or a line key) -> the record's url."""
+    """'dnb:<IDN>[#<section>]' / 'loc:<LCCN>[#<vol>]' / 'bnf:<ark>' (a member or a line key) -> the record's url
+    (a section line of a DNB set, krcn_lines.split_sections: the set record's)."""
     src, rest = m.split(":", 1)
     if src == "dnb":
-        return B.url(rest)
+        return B.url(rest.split("#")[0])
     if src == "loc":
         return LM.url(rest.split("#")[0])
     return U.url(rest)

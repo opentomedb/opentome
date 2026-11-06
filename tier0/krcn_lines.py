@@ -4,7 +4,8 @@ tier0/build_krcn.py links, clusters, creates and loads them.
 
 A line dict (every source):
   key         natural key, from source data only (§8): 'dnb:<parent IDN | lowest member IDN>'
-              (build_dnb's rule), 'loc:<LCCN of a set record | lowest kept member LCCN>' (string order
+              (build_dnb's rule; 'dnb:<parent IDN>#<section>' for a section of a set whose sections
+              repeat the volume numbers, split_sections), 'loc:<LCCN of a set record | lowest kept member LCCN>' (string order
               of the normalised LCCN), 'bnf:<ark with the lowest 8-digit record number among the kept
               volumes>' -- a LoC / BnF key is always one of the line's own volumes
   source      'dnb' | 'loc' | 'bnf'; market 'DE' | 'EN' | 'FR'; language 'de' | 'en' | 'fr'
@@ -124,9 +125,80 @@ def _illustrator(r):
     return DRAW_ROLE.search(" ".join(M.subs(r, "245", "c"))) is not None
 
 
+# A set filed in sections (2026-11-06). DNB keeps a series published in seasons under ONE set record and numbers
+# each season from 1: 245 $n '[1st season]' $n '1' ... $n '2nd season' $n '1' (773 $q '11st 11', '12nd 11'), or
+# 245 $n '[...]' $p 'Season II' $n '1' (773 $q 'se12 11'). Read as one line, every number after the first season's
+# is a duplicate and the set sits in review for good; the publisher sells each season as its own series ('<Title> –
+# 3rd Season', the announcement records' 490). So a section whose numbers repeat another's is its own line.
+PLACEHOLDER = re.compile(r"^\[?\s*(?:\.\.\.|…)\s*\]?$")           # '[...]': DNB's "no designation at this level"
+
+
+def _bare(s):
+    """A designation without its statement of responsibility and the cataloguer's brackets ('[Season I]')."""
+    return re.sub(r"^\[\s*|\s*\]$", "", M.clean(s).split(" / ")[0].strip()).strip()
+
+
+def section(r):
+    """The section of its set a DNB volume record is filed under, or None: what stands in 245 BEFORE the last $n
+    (the volume number) -- the first leading $n that is a designation in words ('2nd season'), else, when every
+    leading $n is the placeholder '[...]', the first leading $p ('Season II'). A leading $n that is a plain number
+    is not a section: it groups a running count ('1' over volumes 1-5, '3' over 11-15) or IS the volume number above
+    a part of an arc ('Teil 10.' $p ... $n 'Teil 1.'), and both stay as they were."""
+    f = next(iter(M.fields(r, "245")), None)
+    ns = [k for k, (c, _) in enumerate(f or ()) if c == "n"]
+    if len(ns) < 2:
+        return None
+    lead = f[:ns[-1]]
+    for n in (M.clean(v).split(" / ")[0].strip() for c, v in lead if c == "n"):
+        if PLACEHOLDER.match(n):
+            continue
+        if M._NUM.match(n) or not re.search(r"[^\W\d_]", n):
+            return None
+        return _bare(n) or None
+    return next((_bare(v) for c, v in lead if c == "p" and _bare(v)), None)
+
+
+def split_sections(groups, parents):
+    """Re-file the volumes of a set whose sections repeat the volume numbers: each section's groups move from
+    'parent' <set IDN> to the pseudo-set '<set IDN>#<folded section>', and the pseudo-set records come back
+    ({pseudo id: the set record with 245 $a '<set title> – <section>'}) for build_dnb.cluster / shape_line, which
+    then treat a section like any set: its key is 'dnb:<set IDN>#<section>' (source data only, never a member's
+    IDN -- a member's IDN can be the natural key that minted ANOTHER published line of the season, and continuity
+    would hand that line's id over), and the publisher's own announcement line of the same name and publisher
+    family folds into it. Nothing moves in a set whose numbers do not collide across sections (one designation for
+    the whole set, seasons that keep counting), so no line that was ever exported changes: a collision has always
+    meant review 'duplicate_numbers'. A volume with no section stays with the set."""
+    by_parent = collections.defaultdict(list)
+    for g in groups:
+        if g["parent"] in parents:
+            sec = next((s for s in (section(v["r"]) for v in g["members"] if g["parent"] in M.parent_idns(v["r"])) if s), None)
+            by_parent[g["parent"]].append((g, sec, L.fold(sec, False) if sec else ""))
+    pseudo = {}
+    for pidn, gs in sorted(by_parent.items()):
+        holders = collections.defaultdict(set)
+        for g, _, slug in gs:
+            if g["num"]:
+                holders[g["num"]].add(slug)
+        if not any(len(h) > 1 for h in holders.values()):
+            continue
+        p = parents[pidn]
+        title = M.clean(M.first(p, "245", "a"))
+        for g, sec, slug in sorted(gs, key=lambda x: B.idn_key(x[0]["primary"])):
+            if not slug:
+                continue
+            sid = "%s#%s" % (pidn, slug)
+            g["parent"] = sid
+            if sid not in pseudo:
+                pseudo[sid] = dict(p, df=[(t, i1, i2, [(c, "%s – %s" % (title, sec) if c == "a" else v) for c, v in sf]
+                                           if t == "245" else sf) for t, i1, i2, sf in p["df"]])
+    return pseudo
+
+
 def dnb_lines(recs, parents):
     """The German KR/CN lines: build_dnb's selection / twins / clustering / numbering unchanged, with
-    the KR/CN origin predicate (§4, §5: 'run through the existing DNB parser and clustering unchanged').
+    the KR/CN origin predicate (§4, §5: 'run through the existing DNB parser and clustering unchanged')
+    -- after split_sections has re-filed the sections of a set that repeat the volume numbers (KR/CN round
+    only: the German JP round's lines are frozen, build_dnb.cluster is not touched).
     manga -> manhwa (kor) / manhua (chi); light_novel -> novel (§7). Then ruling 3, in this order:
       (c) a volume number left over twice (shape_line's duplicate fate) -> review 'duplicate_numbers';
       (a) a 'Roman' token on any member (or the parent set record) -> novel;
@@ -136,6 +208,8 @@ def dnb_lines(recs, parents):
     allparents.update({k: r for k, r in recs.items() if M.is_parent(r)})
     kept, drop = B.select(recs, allparents, in_scope=M.krcn_in_scope)
     groups, _ = B.twins(kept)
+    sections = split_sections(groups, allparents)
+    allparents.update(sections)
     clusters = B.cluster(groups, allparents)
     lines, lost = [], []
     for key in sorted(clusters):
@@ -166,6 +240,17 @@ def dnb_lines(recs, parents):
             "orig": [t for t in ln["orig"] if not script_title(t)],
             "native": list(dict.fromkeys(t for t in ln["titles"] + ln["orig"] if script_title(t))),
             "authors": ln["authors"], "members": ["dnb:" + i for g in ln["vols"] for i in g["idns"]], "loc": []}
+        if key[4:] in sections:
+            # a section line: the publisher's own series statement of that name is its name when a member
+            # carries one ("Sample Saga – 3rd Season" for DNB's "Sample saga – 3rd season"), and the set's
+            # title proper stays a title of the line (it is what links the seasons to one work)
+            stated = collections.Counter(s for r in rs for s, _ in M.series_statements(r)
+                                         if L.fold(s, False) == L.fold(ln["name"], False))
+            if stated:
+                out["name"] = stated.most_common(1)[0][0]
+            real = M.clean(M.first(allparents[key[4:].split("#")[0]], "245", "a"))
+            if real and not script_title(real) and real not in out["titles"]:
+                out["titles"].append(real)
         if any(f == DUP for _, f in l2):
             _review(out, "duplicate_numbers")
         elif not prose and pages and statistics.median(pages) >= WRITER_ONLY_PAGES and \
