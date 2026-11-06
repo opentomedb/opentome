@@ -1,64 +1,86 @@
 # HANDOFF — OpenTome
 
-## KR/CN refresh round OWED — build-only 42139196651 RED on 7 contract rules (2026-11-05 night); nothing published
+## KR/CN refresh round — FIXED LOCALLY 2026-11-06 (main 476816f + this file), NOT PUSHED; nothing published
 
 Nick, 11-05 night: "push both the Opentome fixes and beta 5". The chapter-list fix was pushed (f391b79) and Mangarr
-0.1.0-beta.5 went out, but the catalogue could NOT publish: the build-only run failed at 8c on rules that have
-nothing to do with chapter lists. The two Sunday builds before it were already red and nobody saw it (10-25: 2
-rules, 11-01: 3 rules; both on f755c4c). Cause: library records changed after the 10-20 publish (DNB weekly; LoC in
-today's 4-weekly refresh: 249 live requests, 83 minutes, diagnostic 61 on most first attempts). **The published
-catalogue is still `opentome-2026-10-20`.** Any further commit here needs Nick's push or his word that I may push
-(the sentence above covered the chapter-list fix only).
+0.1.0-beta.5 went out, but the catalogue could NOT publish: build-only run 42139196651 failed 7 contract rules that
+have nothing to do with chapter lists (the Sunday builds of 10-25 and 11-01 were already red on 2 and 3 of them,
+unseen). **The published catalogue is still `opentome-2026-10-20`.** The seven commits below fix every cause; they
+are local only. **Pushing them needs Nick's push or his word** (his sentence covered the chapter-list fix only).
 
-**The 7 rules in CI and what each is (facts checked 11-05 on a local rebuild + the CI log + two live LoC lookups):**
+**NEXT, in order:** (1) push main (GitHub + Forgejo); (2) `gh workflow run catalogue.yml -R opentomedb/opentome --ref main`
+(build-only) and read the log: the LoC follow-up line, any `crossed` / `foreign` warning, the 8c rules; (3) green ->
+the same dispatch with `-f publish=true`; (4) Mangarr Metadata Update on the homelab + its ledger line; (5) measure
+chapter lists against the 10-20 artifact (8,570 English volumes, 29,419 in all languages, pass Mangarr's adjacency
+rule there; 2,014 English lists hold one whole chapter); (6) the short #beta / #announcements note with the numbers.
+Also Nick's: the `DISCORD_ALERT_WEBHOOK` repository secret (a PRIVATE channel's webhook) -- until it exists the new
+failure job posts nothing.
 
-1. `library-created works without a line of explicit KR/CN origin: 2` -- new Ize Press manhwa (CI created
-   w_1c81add0d1fc "Seven Sundays", w_8c6958849f0f "Special Civil Servant", w_727f9c4e6737, w_d7ed37cea85d). Their LoC
-   line has no 041 $h (explicit = 0); the German line of the same cluster IS explicit (dnb:1422827569,
-   dnb:1422466590) but every one of its volumes is `held_future`, so it is `absorbed` and not exported. The planner
-   accepts a cluster when ANY line is explicit (`build_krcn` c2), the gate counts only `exported=1 AND explicit=1`.
-   Decide which side is right (my view: the announced German record is real origin evidence, so the gate should read
-   the cluster; the alternative is to hold the work until the German line exports) and pin it with a test.
-2. `published KR/CN lines absent`: rl_8438f51ce15b "Science battles!" (EN, WS Education, one listed volume: vol 8,
-   ISBN 9789811286315, loc:2025398065), with it `carried ids neither present nor redirected` (rl_8438f51ce15b,
-   v_941d7790ab19, w_76652aa46c96), `carried series integers ...: [169008563]` and `must_create works missing: 1`.
-   The DLC record is still there (245 "Toto, the fungi hero", 490 "Science battles! ; v. 8", 041 eng $h kor, 655
-   Comics). NEW at LoC: a set record 2025459329 "Science battles!" (040 $a OJ4, not DLC) that lists the ISBNs of
-   every volume. Hypothesis, NOT verified (the local rebuild kept its old copy of that result set): the set record
-   takes the DLC volume record as a twin and is then dropped for not being DLC. Reproduce with the fresh set, then
-   fix the line builder so a non-DLC record never displaces a DLC one.
-3. `taken_weak: [['rl_9b3ea88520d6', 'dnb:1380197465', 1, 2]]` -- "The Pawn's Revenge – 3rd Season" (DE, Carlsen).
-   The carried line had vol 1 (9783551624390) and vol 4 (9783551630223); DNB no longer has the vol 1 record (the
-   build retires v_1a962f064793), the line is now vol 4 alone under the same name, publisher, work and volume id.
-   Same line beyond doubt: add `["dnb:1380197465", "rl_9b3ea88520d6"]` to `krcn_linker_labels.json` `taken_ok`
-   with that evidence.
-4. `E1 alias rows lost: 7` -- one cause for six of them: `build_dnb` keeps a volume's 240 (original title) only when
-   at least half of the line's volumes carry it. DNB's 240 on these lines sits on announcement records
-   (`$8 N\p`, publisher-supplied) and is gone from volumes once catalogued, so as a series is published the share
-   drops under half and the romanised title falls out of `work_title`, for the German line and its English
-   sibling: "Cheolhyeolgeomga Sanyanggaeui Hoegwi" (rl_0b0bc085d029 de, rl_f69e4baed6ef en), "Aknyeoraseo
-   Pyeonhago Joheundeyo?" (rl_1a1526ae7a4e), "Jigojisun" (rl_aa5cc6086baf de, rl_2158aaa6e8d0 en), "Dwaejiuri"
-   (rl_3ad0a538c99d), "Yaktal Sinbu" (rl_4a7a6797a1df). The seventh is a gain: rl_0732f374718d "3 body problem"
-   loses the junk aliases "3 Body Problem 06".."10". This recurs every time DNB catalogues a volume, so an
-   `ALIAS_LOSS_OK` row per loss would be a recurring manual step (CLAUDE.md forbids one). Better: a published
-   romanised title of a carried work stays (continuity, like ids), or count the share among volumes that carry a
-   240 at all (measure the linker's change on the whole German market before choosing; `orig` feeds `L.link`).
-5. Not failing, fix in the same round: w_727f9c4e6737 "My secretly hot husband" (EN, Ize) duplicates the existing
-   w_fdd8ef0310ff "Mein verflucht heißer Ehemann" (title key 0.957, same AniList id 124056): a `cluster_with` /
-   `link_work` correction, or the catalogue publishes a second work for one series.
+**What each red rule was -- checked against the live library records on 11-06 (two of the 11-05 guesses were wrong):**
 
-**Do not trust a local rebuild as a mirror of CI for this.** Run locally on 11-05 with CI's refresh settings
-(`DNB_REFRESH_DAYS=6 LOC_REFRESH_DAYS=28 BNF_REFRESH_DAYS=28 LOC_MAX_REQUESTS=260`, carry = the published artifact
-copied from the Mangarr server into `build/manga-metadata.sqlite`; older local files kept as
-`build/*.local-20261002`): LoC came back degraded (`LocIncomplete`, 22 result sets kept their previous copy), so
-rule 2 did not reproduce, and the local DNB state gave two failures CI does not have (78 German volumes retired,
-a shared name in w_dc0f270e3cb4). Rules 1, 3 and 4 match CI. CI's own cache now holds today's LoC read for 28
-days and its DNB read until 11-07, so a build-only run before then takes about 6 minutes and repeats today's state.
+1. `library-created works without a line of explicit KR/CN origin: 2` -- Ize's "Seven Sundays" and "Special Civil
+   Servant" (LoC, origin by imprint, explicit 0). Their German edition states 041 $h kor but every volume is still
+   announced, so that line is `absorbed`. The planner read the cluster (§9 criterion 2), the gate only exported
+   lines. **1b53527:** the gate reads the work's cluster too (docs/krcn-design.md §13 says so now).
+2. `published KR/CN lines absent`: rl_8438f51ce15b "Science battles!" v. 8 (+ its work, volume, series integer,
+   must_create). NOT a set record displacing it (the 11-05 guess): LoC re-catalogued the record on 2026-10-06
+   (lccn 2025398065, 005 20261006): its subjects no longer hold "Comic books, strips, etc.--Korea" nor "Graphic
+   novels" + Korea, and its ISBN (978-981-12-...) is under no §4 stem, so NO channel returns it. The record is
+   still DLC, 041 eng $h kor, 655 Comics. **801c311 / 4a44729:** `loc_sru.follow_up` -- stage 3f (and 8d's reload)
+   asks LoC `bath.isbn=<isbn>` for every ISBN of a carried LoC line that no DLC record of the run carries: a result
+   set like any other (cached, LOC_REFRESH_DAYS), a count and a page each, at most 25 a run, listed in
+   `krcn-report.json` (`loc.follow_up`: asked / found / gone / unanswered). An ISBN it could not ask for, or a
+   follow-up set whose refresh failed, degrades the run (meta `loc:degraded`, no publish). Run live on 11-06: found
+   2025398065, and `loc_lines` builds the same line (key loc:2025398065, v. 8, 9789811286315).
+3. `taken_weak [rl_9b3ea88520d6, dnb:1380197465, 1, 2]` -- "The Pawn's Revenge - 3rd Season" (DE). DNB did NOT
+   delete vol 1 (the 11-05 guess): on 2026-10-30 it re-catalogued vols 1 and 2 (IDN 1307414842, 1362788554) as
+   parts of the multi-part set 1278917055 (245 $n "3rd season" $n "1", 773 $q "13rd 11"). The line is vol 4 alone
+   under the same name, publisher, work and volume id. **476816f:** `taken_ok` + a `taken_ok_why` text.
+4. `E1 alias rows lost: 7` -- six works lost a romanised title because DNB's 240 sits on the publisher-supplied
+   announcement record and is gone once the volume is catalogued; `build_dnb`'s half-of-the-volumes rule then drops
+   it (56 of the 222 German KR/CN lines with any 240 are under half today, each with ONE distinct title, so this
+   would recur every week). **d3769ab:** the export keeps a `romanized` alias row the carry ships on the line that
+   shipped it (works in `krcn:ids` only; never another work's own title; before the curated removals; meta
+   `romanised_aliases_carried`). The seventh loss ("3 Body Problem 06".."10", per-volume 240s) is kept by the same
+   rule: junk, harmless, left alone.
+5. Not failing: "My Secretly Hot Husband" (EN, loc:2024941991) was a second work beside its German edition
+   (dnb:1357946228). **476816f:** a `link_work` to w_fdd8ef0310ff (same original title in two romanisations, same
+   creators).
 
-**Also owed:** the failed Sunday builds went unseen for two weeks -- wire a failure notice (the Discord
-`catalogue` webhook exists; the n8n alert workflows post to #alerts). After a green build: publish, Mangarr
-Metadata Update, FlightLog line, and measure chapter lists against the 10-20 artifact, where 8,570 English volumes
-(29,419 in all languages) pass Mangarr's adjacency rule and 2,014 English lists hold one whole chapter.
+**Found on the way -- LoC answers with another search's records (a crossed result set).** The first live follow-up
+(`bath.isbn=9789811286315`) came back with numberOfRecords 2 and two unrelated records, and with the right two a
+minute later. The local cache holds the same thing from 2026-09-29: the `97807595*` page 101-200 has 50 records
+without any ISBN of the stem. Every record is distinct and the page is full, so every completeness rule passed and
+the search's own records were silently missing. **801c311 / f6fd4c7:** `loc_sru.foreign` checks each page of an ISBN
+search record by record (020 / 024 $a $z: as written, as an ISBN-10 under 978, normalised; on the 4,476 cached
+records the 50 crossed ones are the only misses); a crossed or malformed page is a failed page (`crossed`,
+`malformed`: retried, re-paged, sliced, never stored). `enumerate_loc` counts the foreign records of sets cached
+before the check (`foreign` per channel, a WARNING line): CI's cache of 11-05 was read without the check, so READ
+THAT LINE in the next log -- such a set heals at its 28-day refresh, and the follow-up asks for any published volume
+it hides. A subject search cannot be checked this way (a word match misreads LoC's index; tried, 11 false hits).
+
+**Also done: fe146e8** -- `report-failure`, a second job of catalogue.yml (`needs: build`, `if: failure()`): one
+embed to the `DISCORD_ALERT_WEBHOOK` secret's channel, skipped while the secret is unset. It ships nothing; the
+build job's steps are unchanged.
+
+**Verified:** every suite of stage 0 green. Full `rebuild_all.sh` offline from the cached records (11-06): of CI's
+rules, 1, 3, 4 and the link_work check pass (rule 2 cannot fail locally: the local subject sets predate the
+re-cataloguing, so the follow-up was run by hand instead). It still stops at 8c on the two rules only the LOCAL
+DNB cache produces (78 carried German volumes retired; a shared name in w_dc0f270e3cb4) -- CI's log of 11-05 has
+neither. **A local rebuild is not a mirror of CI**: only the build-only run says green.
+
+**Gotchas / left open:**
+- LoC budget: the 4-weekly refresh used 249 of `LOC_MAX_REQUESTS=260` on 11-05 (many diagnostic-61 retries). A
+  follow-up adds two requests per missing volume; a run over the cap is degraded and does not publish.
+- A curated removal (`corrections/aliases.json` `remove`) of an alias that only the continuity rule keeps goes
+  stale after the next publish (the carry no longer has the row, the removal matches nothing and stops the build):
+  delete the entry once it has shipped.
+- German "The Pawn's Revenge": DNB now files the 2nd / 3rd season volumes under the one set 1278917055 with season
+  numbering, `build_dnb` reads them as duplicate numbers (7 dropped, the set line sits in review) and the published
+  3rd-season lines lose vols 1 and 2 (retired, under the 25-volume threshold). Reading 773 $q seasons is not built.
+- The local `.cache` still holds the crossed `97807595*` page (the warning names it); a local LoC refresh replaces it.
+- `build/manga-metadata.sqlite` locally is the PUBLISHED 10-20 artifact (the id carry); `*.local-20261002` are the
+  older local files; `build/manga-metadata.sqlite.new` and `build/opentome.db` are the 11-06 offline rebuild.
 
 ## Chapter lists read in full — **PUSHED 2026-11-05 (main f391b79, GitHub + Forgejo), NOT PUBLISHED: the build is red on KR/CN drift, section above**
 
