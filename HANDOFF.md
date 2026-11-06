@@ -34,8 +34,17 @@ all languages passing 29,419 -> 35,860; one-chapter lists 5,909 -> 1,328; 427 li
 (`cache-control: max-age=600`). A Metadata Update run in that window says "up to date". Wait until the site
 manifest names the new label, then run it.
 
-**Open, nobody's go-ahead yet:** the short #beta note with the numbers (draft given to Nick 11-06); the items under
-"Left open" below.
+**#beta note posted 11-06** (Mangarr Desk bot, message 1568272446585573387; Nick: "Post it"): the chapter-list
+numbers above. **Open:** only the items under "Gotchas / left open" below; none needs Nick.
+
+**Crossed result sets -- where it stands (Nick asked 11-06):** closed for everything that can be checked. CI's
+stored sets are clean (`foreign` 0). The one crossed page of the LOCAL cache (`97807595*`, 2026-09-29) was refetched
+on 11-06 with `search_set(q, force=True)`: 227 records, 0 foreign (locally `LOC_REFRESH_DAYS` is unset, so nothing
+refreshes by age). What stays unchecked is a crossed page of one of the ten SUBJECT searches. Its effect is bounded:
+the strangers are dropped record by record (`loc_lines` reads DLC, LCCN, print monograph and KR/CN origin from the
+record itself; the channel is never evidence), a published volume the page hides is asked for by ISBN (follow-up) or
+turns the build red (alert), and a NEW record on that page arrives at that search's next 28-day refresh. So the
+worst case is a new KR/CN English volume up to four weeks late. No further guard is planned.
 
 **What each red rule was -- checked against the live library records on 11-06 (two of the 11-05 guesses were wrong):**
 
