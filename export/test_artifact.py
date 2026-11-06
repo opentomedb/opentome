@@ -5,7 +5,9 @@ consumer assumes and the first export violated silently while every unit test
 on both sides stayed green (docs/cleanup-v2.md):
 
   * composition = ORIGINAL volume numbers this volume contains; a series is
-    omnibus iff some volume contains >1 of them
+    omnibus when some volume contains >1 of them -- or, since 2026-11-06, when
+    the line says so itself and lists nothing (its name, or DNB's edition
+    statement): those ids are listed in meta `omnibus_lines_named`
   * volume_count = rows a consumer can read (Mangarr creates Books 1..N)
   * release_date is day precision or NULL (never '2019' -> 1 January)
   * no wiki markup in names, aliases or publishers
@@ -54,10 +56,16 @@ def run(path):
     rule("is_omnibus=0 series with a composition",
          g("""SELECT COUNT(DISTINCT s.gcd_series_id) FROM series s JOIN volumes v USING(gcd_series_id)
               WHERE s.is_omnibus=0 AND v.composition IS NOT NULL"""))
-    rule("is_omnibus=1 series with no multi-entry composition",
-         g("""SELECT COUNT(*) FROM series s WHERE s.is_omnibus=1 AND NOT EXISTS
+    # a flag without a list is allowed only for the lines the export names in meta omnibus_lines_named (flagged
+    # by their own name / the catalogue's line format); the list holds exactly those lines and nothing else
+    named = set(json.loads(g("SELECT COALESCE((SELECT value FROM meta WHERE key='omnibus_lines_named'),'[]')")))
+    listless = {t for (t,) in db.execute("""SELECT s.tome_id FROM series s WHERE s.is_omnibus=1 AND NOT EXISTS
               (SELECT 1 FROM volumes v WHERE v.gcd_series_id=s.gcd_series_id
-               AND v.composition IS NOT NULL AND LENGTH(v.composition)>3)"""))
+               AND v.composition IS NOT NULL AND LENGTH(v.composition)>3)""")}
+    rule("is_omnibus=1 series with no multi-entry composition and no place in omnibus_lines_named", len(listless - named),
+         sorted(listless - named)[:5])
+    rule("omnibus_lines_named names a line that is absent, not flagged, or lists its volumes", len(named - listless),
+         sorted(named - listless)[:5])
     bad_comp = 0
     for (c,) in db.execute("SELECT composition FROM volumes WHERE composition IS NOT NULL"):
         try:

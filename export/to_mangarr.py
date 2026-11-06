@@ -392,6 +392,26 @@ def _first_author(value):
     return None
 
 
+# A line whose own name says that each of its books holds several volumes of the original: an omnibus, an
+# N-in-1, a VizBig, the French "volumes doubles" / "édition double" / "format double" / "intégrale", the German
+# "Massiv" / "Sammelband" / "Mehrfachband" / "Doppelband". Other editions (deluxe, perfect, kanzenban, bunkoban,
+# collector's ...) sometimes renumber and sometimes do not, a box set is a box, and "double issues" can be two
+# stories in one issue: none of them is decided by a word (HANDOFF 2026-11-06 lists them).
+OMNIBUS_NAME = re.compile(
+    r"\bomnibus\b|\b[2-9]\s*-?\s*in\s*-?\s*(?:1|one)\b|\bviz\s?big\b"
+    r"|\bvolumes?\s+doubles?\b|\b[ée]dition\s+double\b|\bformat\s+double\b|\bint[ée]grale\b"
+    r"|\bsammelb[aä]nde?\b|\bmassiv\b|\bmehrfachband\b|\bdoppelband\b", re.I)
+
+
+def omnibus_named(lname, wtitle):
+    """True when the EDITION part of a line's name says omnibus (OMNIBUS_NAME): the name without the work's own
+    title, so a work called 'Omnibus Tales' flags none of its lines."""
+    if not lname or normalize(lname) == normalize(wtitle or ""):
+        return False
+    rest = re.sub(re.escape(wtitle), " ", lname, flags=re.I) if wtitle else lname
+    return OMNIBUS_NAME.search(rest) is not None
+
+
 def _line_raw(lname, wtitle):
     """'Re:Zero (Truth of Zero)' -> 'Truth of Zero'; self-named lines unchanged."""
     if not lname:
@@ -835,6 +855,8 @@ def export(src_path, out_path, carry_ids_from=None):
     transitions, newly_stalled = collections.Counter(), []
     title_drops, n_title_kept = collections.Counter(), 0
     alias_rows = []
+    line_format = dict(src.execute("SELECT id, format FROM release_line"))
+    named_omni = []
     for rid, wid, market, medium, publisher, status, parent_rl, wtitle, lname in lines:
         sid = mapping[rid]
         is_main = 1 if main_of.get((wid, market, medium)) == rid else 0
@@ -897,7 +919,14 @@ def export(src_path, out_path, carry_ids_from=None):
                 # volume; a range-labelled special ('17-18') does not count
                 if c and len(json.loads(c)) > 1:
                     is_omni = 1
-        n_omni += is_omni
+        # is_omni: a volume lists the original volumes it holds. A line can also SAY it is an omnibus and list
+        # nothing -- its name (omnibus_named), or the catalogue's line format (DNB's edition statement, 'Massiv').
+        # It ships flagged all the same (a consumer must not read its 6 books as volumes 1-6 of the original);
+        # no composition is invented for it, and everything below that needs the list still asks is_omni.
+        flagged = 1 if (is_omni or line_format.get(rid) == "omnibus" or omnibus_named(lname, wtitle)) else 0
+        if flagged and not is_omni:
+            named_omni.append(rid)
+        n_omni += flagged
         # A straight-translation line carries no composition in the published file
         # (the pipeline writes `contains` only for omnibus lines; a corrected line
         # writes `[N]` for every volume so the cross-market mapping can see it).
@@ -943,7 +972,7 @@ def export(src_path, out_path, carry_ids_from=None):
              country,local_name)
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (sid, out_name, min(years) if years else w_year, publisher,
-             lang, is_omni, len(ints_written), mangarr_status,
+             lang, flagged, len(ints_written), mangarr_status,
              orig_sid, out_medium, dated, is_main, rid, wid, parent_sid, work_authors.get(wid),
              market, local_name_for(market, is_main, dnb_line_name.get(rid),
                                     official_titles.get((wid, lang)),
@@ -1321,6 +1350,9 @@ def export(src_path, out_path, carry_ids_from=None):
         ("gcd_dump", "opentome-" + NOW[:10]),
         ("volumes_special_count", str(n_special)),
         ("omnibus_lines", str(n_omni)),
+        # the flagged lines that list no original volumes (flagged by name / line format): the contract test
+        # accepts is_omnibus=1 without a multi-entry composition for these ids only
+        ("omnibus_lines_named", json.dumps(sorted(named_omni))),
         ("correction_aliases", str(len(load_aliases()))),
         ("correction_alias_removals", str(n_removed)),
         ("romanised_aliases_carried", str(n_roman)),

@@ -126,6 +126,36 @@ def run():
     eq("no pin: an EN line with no name match falls back to the JP main line (the defect, reproduced)",
        orig_of[unpinned_rid], gcd_of["rl_jp_main"])
 
+    # ---- a line that says it is an omnibus is flagged, composition or not (2026-11-06) ----
+    # is_omnibus was set only where a volume lists the ORIGINAL volumes it holds. A line named "(Omnibus
+    # edition)" whose table gives no such list, and a DNB line whose edition statement says "Massiv", shipped
+    # as an ordinary line, and a consumer read its 6 books as volumes 1-6 of the original.
+    from to_mangarr import omnibus_named
+    eq("omnibus_named: the edition part of a line's name, never the work's own title",
+       [omnibus_named(n, "Sample Saga") for n in ("Sample Saga (Omnibus edition)", "Sample Saga (English omnibus volumes)",
+                                                   "Sample Saga (2014 English release (2-in-1 Edition)", "Sample Saga (3-in-1)",
+                                                   "Sample Saga (VizBig edition)", "Sample Saga (Volumes doubles)",
+                                                   "Sample Saga (Édition double)", "Sample Saga (Format double)",
+                                                   "Sample Saga (Édition intégrale)", "Sample saga massiv",
+                                                   "Sample Saga (Sammelband, deutsche Ausgabe)")],
+       [True] * 11)
+    eq("omnibus_named: other editions, a box, double issues, no name, a title that holds the word -- not decided here",
+       [omnibus_named(n, t) for n, t in (("Sample Saga (Deluxe edition)", "Sample Saga"), ("Sample Saga (Perfect Edition)", "Sample Saga"),
+                                         ("Sample Saga (Kanzenban edition)", "Sample Saga"), ("Sample Saga (Bunkoban edition)", "Sample Saga"),
+                                         ("Sample Saga (Collector's edition)", "Sample Saga"), ("Sample Saga (Box sets)", "Sample Saga"),
+                                         ("Sample Saga (English double issues)", "Sample Saga"), (None, "Sample Saga"),
+                                         ("Sample Saga", "Sample Saga"), ("Omnibus Tales", "Omnibus Tales"),
+                                         ("Omnibus Tales (Deluxe edition)", "Omnibus Tales"), ("Massive Sample", "Sample"))],
+       [False] * 12)
+    om, om_meta = fixture_omnibus_flag()
+    eq("export: flagged by name or by the catalogue's line format; a composition still flags; the rest are not",
+       {t: v[0] for t, v in om.items()},
+       {"rl_main": 0, "rl_omni": 1, "rl_2in1": 1, "rl_big": 1, "rl_fr": 1, "rl_frd": 1, "rl_de": 1, "rl_dem": 1, "rl_comp": 1,
+        "rl_dlx": 0, "rl_dld": 0, "rl_dbl": 0, "rl_box": 0, "rl_b": 0, "rl_bd": 0})
+    eq("export: a line flagged by its name carries no composition (nothing is invented); the one with a list keeps it",
+       ({t for t, v in om.items() if v[1]}, om_meta.get("omnibus_lines"), json.loads(om_meta.get("omnibus_lines_named") or "null")),
+       ({"rl_comp"}, "8", ["rl_2in1", "rl_big", "rl_de", "rl_dem", "rl_fr", "rl_frd", "rl_omni"]))
+
     # ---- a redirected line keeps its consumer-facing integer (2026-09-24, DNB) --------
     # A DNB line whose source key changed (a parent record appeared) gets a new rl_ id and
     # an id_redirect row; the integer a Mangarr stored for the old id must follow it.
@@ -696,6 +726,58 @@ def fixture_roman_continuity():
                                            "source_url": "https://example.org/x", "checked": "2026-11-06"}])
     shutil.rmtree(tmp, ignore_errors=True)
     return {"cold": a0, "carried": a1, "removed": a2, "meta": m1, "meta_removed": m2}
+
+
+def fixture_omnibus_flag():
+    """Lines that say they are an omnibus without saying which original volumes each book holds: by their own
+    name (a Wikipedia section heading) or by the catalogue's line format (DNB's edition statement).
+    -> ({tome_id: (is_omnibus, volumes with a composition)}, meta)"""
+    tmp = tempfile.mkdtemp(prefix="opentome-omni-")
+    src_path, out_path = os.path.join(tmp, "pipeline.db"), os.path.join(tmp, "artifact.sqlite")
+    db = sqlite3.connect(src_path)
+    db.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+    db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_a','Sample Saga','x','x')")
+    db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_b','Omnibus Tales','x','x')")
+    rows = (("rl_main", "w_a", "EN", "en", None, None), ("rl_omni", "w_a", "EN", "en", None, "Sample Saga (Omnibus edition)"),
+            ("rl_2in1", "w_a", "EN", "en", None, "Sample Saga (2014 English release (2-in-1 Edition)"),
+            ("rl_big", "w_a", "EN", "en", None, "Sample Saga (VizBig edition)"),
+            ("rl_fr", "w_a", "FR", "fr", None, "Sample Saga (Édition intégrale)"),
+            ("rl_frd", "w_a", "FR", "fr", None, "Sample Saga (Volumes doubles)"),
+            ("rl_de", "w_a", "DE", "de", "omnibus", "Sample Saga"),              # DNB: the edition statement said so
+            ("rl_dem", "w_a", "DE", "de", None, "Sample saga massiv"),
+            ("rl_comp", "w_a", "EN", "en", None, "Sample Saga (Collected)"),     # says what each book holds
+            ("rl_dlx", "w_a", "EN", "en", None, "Sample Saga (Deluxe edition)"),
+            ("rl_dld", "w_a", "DE", "de", "deluxe", "Sample Saga Deluxe"),
+            ("rl_dbl", "w_a", "EN", "en", None, "Sample Saga (English double issues)"),
+            ("rl_box", "w_a", "EN", "en", None, "Sample Saga (Box sets)"),
+            ("rl_b", "w_b", "EN", "en", None, None), ("rl_bd", "w_b", "EN", "en", None, "Omnibus Tales (Deluxe edition)"))
+    for rid, wid, market, lang, fmt, name in rows:
+        db.execute("""INSERT INTO release_line(id,work_id,medium,market,language,format,created_at,updated_at)
+                      VALUES(?,?,'manga',?,?,?,'x','x')""", (rid, wid, market, lang, fmt))
+        if name:
+            db.execute("""INSERT INTO claim(entity,entity_id,field,value,source,licence,retrieved_at)
+                          VALUES('release_line',?,'line_name',?,'wikipedia','facts_only','x')""", (rid, name))
+        for num in ("1", "2"):
+            db.execute("""INSERT INTO volume(id,release_line_id,number,release_date,release_date_precision,
+                                            created_at,updated_at) VALUES(?,?,?,'2020-01-0' || ?,'day','x','x')""",
+                       ("v_%s_%s" % (rid, num), rid, num, num))
+    db.execute("INSERT INTO composition(volume_id,contains,ref_list) VALUES('v_rl_comp_1','volume','[1, 2]')")
+    db.execute("INSERT INTO composition(volume_id,contains,ref_list) VALUES('v_rl_omni_1','chapter','[1, 2, 3]')")
+    db.commit()
+    db.close()
+    real_dir, corr.DIR = corr.DIR, tempfile.mkdtemp(prefix="opentome-nocorr-", dir=tmp)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            export(src_path, out_path)
+    finally:
+        corr.DIR = real_dir
+    o = sqlite3.connect(out_path)
+    got = {t: (om, n) for t, om, n in o.execute("""SELECT s.tome_id, s.is_omnibus, (SELECT COUNT(*) FROM volumes v
+               WHERE v.gcd_series_id=s.gcd_series_id AND v.composition IS NOT NULL) FROM series s""")}
+    meta = dict(o.execute("SELECT key, value FROM meta WHERE key IN ('omnibus_lines','omnibus_lines_named')"))
+    o.close()
+    shutil.rmtree(tmp, ignore_errors=True)
+    return got, meta
 
 
 def fixture_export_fixes():
