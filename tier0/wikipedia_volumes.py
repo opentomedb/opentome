@@ -481,17 +481,23 @@ _CH_MAX_SPAN = 150      # a longer "range" is two unrelated numbers
 _CH_STRICT = "\x00"
 _CH_HEADING = "\x01"          # read like a strict entry, and never as a bare "File 20": that is the list's heading
 _CH_WRAPPED = re.compile(r"^(?:\s*\{\{[^{}|]*\|)+")       # ':{{Nihongo|Theme 1. "A"|...}}': the head is inside the template
-_CH_NOWIKI = re.compile(r"</?nowiki\s*/?>", re.I)
-_CH_BR = re.compile(r"<br\s*/?>", re.I)
+# Every tag pattern below is bounded: a tag part never runs across another '<' or further than 200
+# characters, whitespace runs are capped. The text is anyone's to edit, and an unbounded "[^>]*" tried
+# from every '<ol' of a page with no '>' in it backtracks for hours (measured: 800 x '<ol start=1 '
+# took 0.65 s and grew with the cube).
+_CH_NOWIKI = re.compile(r"</?nowiki\s{0,10}/?>", re.I)
+_CH_BR = re.compile(r"<br\s{0,10}/?>", re.I)
 _CH_LINE_MARK = re.compile(r"^[ \t]*[:#]+", re.M)
 _CH_ITEM_LISTS = ("Bulleted list", "Unbulleted list", "Ubl")
 # Implicit numbers are read only where the source says where the count starts: {{Numbered list|start=N}}
 # and its real name {{Ordered list}}, <ol start="N">, a '#' list whose item carries <li value="N">.
 _CH_COUNTED_LISTS = ("Numbered list", "Ordered list")
-_CH_OL = re.compile(r"<ol\b[^>]*\bstart\s*=\s*[\"']?(\d+)[^>]*>(.*?)(?=</ol\s*>|<ol\b|\Z)", re.I | re.S)
-_CH_LI = re.compile(r"<li\b[^>]*>", re.I)
+_CH_OL_TAG = re.compile(r"<(/?)ol\b([^<>]{0,200})>", re.I)
+_CH_OL_START = re.compile(r"\bstart\s{0,5}=\s{0,5}[\"']?(\d{1,4})(?!\d)", re.I)
+_CH_LI = re.compile(r"<li\b[^<>]{0,200}>", re.I)
 _CH_ITEM_OWN = re.compile(r"\b(?:Chapter|Chapitre|Episode|[ÉE]pisode)\s+(\d{1,4})\b", re.I)
-_CH_HASH_ITEM = re.compile(r"^[ \t]*#(?![#*:;])[ \t]*(?:<li\s+value\s*=\s*[\"']?(\d+))?", re.M | re.I)
+_CH_HASH_ITEM = re.compile(r"^[ \t]*#(?![#*:;])[ \t]{0,20}(?:<li\s{1,10}value\s{0,5}=\s{0,5}[\"']?(\d{1,4})(?!\d))?",
+                           re.M | re.I)
 # An entry that opens with its number and goes straight into a quoted or templated title, with no
 # separator: '07 "Title"', "Fight 1 {{nihongo|...}}". Markup and at most one word before the number.
 _CH_TITLED = re.compile(r"([\s'\"“”‘’\[\(#.:]*)(?:([^\W\d_]{1,12})[\s.:#]*)?"
@@ -570,6 +576,16 @@ def _worded_range(line):
     return [first] + tail if tail else []
 
 
+def _ol_lists(v):
+    """(start, body) of every <ol start="N">: the body runs to the next <ol> / </ol> tag, else to the end
+    of the cell. One pass over the tags -- no pattern here looks for a closing tag that may not come."""
+    tags = list(_CH_OL_TAG.finditer(v))
+    for k, t in enumerate(tags):
+        s = None if t.group(1) else _CH_OL_START.search(t.group(2))
+        if s:
+            yield int(s.group(1)), v[t.end():tags[k + 1].start() if k + 1 < len(tags) else len(v)]
+
+
 def _counted(v):
     """The numbers a cell states by COUNT: the items of a list that says where it starts."""
     nums = []
@@ -589,14 +605,14 @@ def _counted(v):
                 if part.strip():
                     items += 1
             nums += range(start, start + items)
-    for m in _CH_OL.finditer(v):
-        items = _CH_LI.split(m.group(2))[1:]
+    for start, body in _ol_lists(v):
+        items = _CH_LI.split(body)[1:]
         # an item that names its own chapter ("Chapter 9" as the tenth item, after a prologue) says the
         # positions are not the chapter numbers: such a list is not counted
-        own = [(k, int(x.group(1))) for k, it in enumerate(items, int(m.group(1)))
+        own = [(k, int(x.group(1))) for k, it in enumerate(items, start)
                for x in [_CH_ITEM_OWN.search(it[:120])] if x]
         if all(k == n for k, n in own):
-            nums += range(int(m.group(1)), int(m.group(1)) + len(items))
+            nums += range(start, start + len(items))
     at = None                                            # a '#' list: counted from its first <li value="N">
     for m in _CH_HASH_ITEM.finditer(v):
         if m.group(1):

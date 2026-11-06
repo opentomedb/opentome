@@ -398,8 +398,8 @@ def _first_author(value):
 # collector's ...) sometimes renumber and sometimes do not, a box set is a box, and "double issues" can be two
 # stories in one issue: none of them is decided by a word (HANDOFF 2026-11-06 lists them).
 OMNIBUS_NAME = re.compile(
-    r"\bomnibus\b|\b[2-9]\s*-?\s*in\s*-?\s*(?:1|one)\b|\bviz\s?big\b"
-    r"|\bvolumes?\s+doubles?\b|\b[ée]dition\s+double\b|\bformat\s+double\b|\bint[ée]grale\b"
+    r"\bomnibus\b|\b[2-9]\s?-?\s?in\s?-?\s?(?:1|one)\b|\bviz\s?big\b"
+    r"|\bvolumes?\s{1,3}doubles?\b|\b[ée]dition\s{1,3}double\b|\bformat\s{1,3}double\b|\bint[ée]grale\b"
     r"|\bsammelb[aä]nde?\b|\bmassiv\b|\bmehrfachband\b|\bdoppelband\b", re.I)
 
 

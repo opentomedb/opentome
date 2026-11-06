@@ -1024,6 +1024,28 @@ eq("ch: other brackets after the number are not read past",
 eq("ch: a nowiki '#' before the number", parse_chapters('*<nowiki>#</nowiki>49 {{Nihongo|"A"|x|y}}\n*<nowiki>#</nowiki>50 {{Nihongo|"B"|x|y}}'), [49, 50])
 eq("ch: a full-width colon", parse_chapters('*Round 1： "A"\n*Round 2："B"\n*Round 3: C'), [1, 2, 3])
 eq("ch: a range written with two hyphens", parse_chapters("Chapters 93--99 and a bonus story, from the 2029-12-26 issue on"), list(range(93, 100)))
+# the text is anyone's to edit: a cell made to stall the parser must not (2026-11-06; 800 x '<ol start=1 ' with
+# no '>' took 0.65 s under an unbounded tag pattern, and the time grew with the cube of the repeat)
+import time as _time
+_hostile = {
+    "an '<ol start' that never closes its tag, 20,000 times": "<ol start=1 " * 20000,
+    "the same with the attribute far from the tag": ("<ol " + "x " * 150 + "start=1 ") * 2000,
+    "an '<li' that never closes its tag, 20,000 times": "<li " * 20000,
+    "a '#' list of '<li value' with no number, 20,000 times": "#<li value=\n" * 20000,
+    "a long <ol start> list that is never closed": '<ol start="1">' + "<li>a " * 40000,
+    "closing tags that never close, after an <ol start>": '<ol start="1">' + ("</ol" + " " * 50) * 4000,
+    "nowiki and br tags that never close": ("<nowiki" + " " * 50) * 2000 + ("<br" + " " * 50) * 2000,
+    "a '#' line of spaces only, 20,000 times": ("#" + " " * 30 + "\n") * 20000,
+}
+_t0 = _time.perf_counter()
+_got = {k: len(parse_chapters(v)) for k, v in _hostile.items()}
+_spent = _time.perf_counter() - _t0
+eq("ch: hostile cells are read as nothing, and the one real list as its 40,000 items",
+   _got, dict({k: 0 for k in _hostile}, **{"a long <ol start> list that is never closed": 40000}))
+eq("ch: hostile cells parse in linear time (all eight under 5 s; they take milliseconds)", _spent < 5.0, True)
+eq("ch: a start past four digits, or an attribute past 200 characters, is not a start",
+   (parse_chapters('<ol start="12345"><li>A<li>B</ol>'), parse_chapters("<ol " + "x" * 201 + ' start="3"><li>A</ol>')), ([], []))
+eq("ch: attributes around the start are still read", parse_chapters('<ol class="x" start="7" type="1">\n<li>A\n<li>B\n</ol>\n<ol start=9><li>C</ol>'), [7, 8, 9])
 _ch_rec = parse_volumes("{{Graphic novel list\n | VolumeNumber = 2\n | RelDate = January 5, 2020\n | ISBN = 978-4-06-384276-0\n | ChapterList =\n*Chapters 12–21\n*Bonus\n}}", "List of Test chapters", "en")[0]
 eq("ch: a volume's list and range come from the whole range", (_ch_rec.get("chapters"), _ch_rec.get("chapter_range")), (list(range(12, 22)), [12, 21]))
 

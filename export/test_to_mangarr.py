@@ -147,6 +147,11 @@ def run():
                                          ("Sample Saga", "Sample Saga"), ("Omnibus Tales", "Omnibus Tales"),
                                          ("Omnibus Tales (Deluxe edition)", "Omnibus Tales"), ("Massive Sample", "Sample"))],
        [False] * 12)
+    import time as _time
+    _t0 = _time.perf_counter()
+    eq("omnibus_named: a name made of long runs of spaces is read in no time, and says nothing",
+       ([omnibus_named("Sample Saga (2" + " " * 20000 + "x)", "Sample Saga"), omnibus_named("volumes" + " " * 20000 + "x", "Sample")],
+        _time.perf_counter() - _t0 < 2.0), ([False, False], True))
     om, om_meta = fixture_omnibus_flag()
     eq("export: flagged by name or by the catalogue's line format; a composition still flags; the rest are not",
        {t: v[0] for t, v in om.items()},
