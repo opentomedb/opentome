@@ -1162,6 +1162,108 @@ eq("loc-report.json: announced, distinct, dlc, share, duplicate positions + 001s
 # (served from case B's cached set: 3110 is the genuine duplicate, 3159 the one that masked 3160 at 100)
 LS.CHANNELS, LS.REPORT = _ch, _rp
 del LOCDB["21800815"]
+# ---- carried-volume follow-up (2026-11-06): a published volume no channel delivered is asked for by its ISBN ----
+_fa, _fb, _fc, _fd, _fe = [isbn13("978981128", n) for n in range(1, 6)]
+LOCDB["5001"] = ([_fa], True)                   # the DLC record: re-catalogued, no channel matches it any more
+LOCDB["5002"] = ([_fa, _fb], False)             # a copied (non-DLC) set record that lists the same ISBNs
+_fq = lambda calls: [urllib.parse.parse_qs(urllib.parse.urlparse(u).query)["query"][0] for u in calls]
+recs, rep, k = {}, {}, len(LCALLS)
+fu = LS.follow_up(recs, [_fc, _fa, _fb, _fa], rep)
+eq("follow-up: every ISBN no DLC record of the run carries is asked for by itself, in order (count, then its page)",
+   _fq(LCALLS[k:]), ["bath.isbn=" + _fa] * 2 + ["bath.isbn=" + _fb] * 2 + ["bath.isbn=" + _fc])
+eq("... found: the DLC record; gone: only a copied record answers, or nothing does; the records join the run",
+   (fu["asked"], fu["found"], fu["gone"], fu["unanswered"], sorted(recs)),
+   ([_fa, _fb, _fc], {_fa: ["2000005001"]}, [_fb, _fc], {}, ["5001", "5002"]))
+eq("... and it is in the report", rep["follow_up"], fu)
+k = len(LCALLS)
+eq("follow-up: an ISBN a DLC record of the run carries is not asked for",
+   (LS.follow_up(dict(recs), [_fa])["asked"], len(LCALLS) - k), ([], 0))
+eq("follow-up: a copied record carrying the ISBN does not answer for it (R4)",
+   LS.follow_up({"5002": recs["5002"]}, [_fa])["asked"], [_fa])
+k = len(LCALLS)
+eq("follow-up: a result set like any other -- served from the cache inside the refresh window",
+   (LS.follow_up({}, [_fa])["found"], len(LCALLS) - k), ({_fa: ["2000005001"]}, 0))
+LOCDB["5003"] = ([_fd, _fe], True)              # one DLC record answers for two missing volumes
+k = len(LCALLS)
+fu = LS.follow_up({}, [_fd, _fe])
+eq("follow-up: a record found for one ISBN answers for the others it carries",
+   (fu["asked"], fu["found"], len(LCALLS) - k), ([_fd], {_fd: ["2000005003"]}, 2))
+LS.LOC.offline = True
+fu = LS.follow_up({}, [isbn13("978981128", 6)])
+LS.LOC.offline = False
+eq("follow-up: an offline miss is reported, never raised", (fu["found"], list(fu["unanswered"])), ({}, [isbn13("978981128", 6)]))
+_many = [isbn13("978981129", n) for n in range(LS.MAX_FOLLOW + 3)]
+k = len(LCALLS)
+fu = LS.follow_up({}, _many)
+eq("follow-up: at most MAX_FOLLOW ISBNs are asked for in a run; the rest is reported unanswered",
+   (len(fu["asked"]), len(fu["unanswered"]), len(LCALLS) - k), (LS.MAX_FOLLOW, 3, LS.MAX_FOLLOW))
+LOCDB["5007"] = ([isbn13("978981128", 7)], True)
+LRULE["fail"], LRULE["code"] = (lambda q, start, size, seen: True), "10"
+fu = LS.follow_up({}, [isbn13("978981128", 7), isbn13("978981128", 8)])
+LRULE["fail"], LRULE["code"] = (lambda q, start, size, seen: False), "61"
+eq("follow-up: a failed request is reported and the run goes on (the next ISBN is still asked for)",
+   (list(fu["unanswered"]), fu["gone"], LS.LOC.degraded), ([isbn13("978981128", 7)], [isbn13("978981128", 8)], None))
+eq("follow-up: nothing carried, nothing asked", (LS.follow_up({}, [])["asked"], LS.follow_up({}, [None, ""])["asked"]), ([], []))
+# ---- crossed result sets (2026-11-06): a page of an ISBN search holding another search's records is a failed page ----
+# live: bath.isbn=9789811286315 answered numberOfRecords 2 with two unrelated records, and the right two a minute
+# later; the cached 97807595* page 101-200 of 2026-09-29 holds 50 records without any ISBN of the stem
+_wrap = lambda body: ('<zs:searchRetrieveResponse xmlns:zs="http://www.loc.gov/zing/srw/"><zs:records>%s</zs:records>'
+                      '</zs:searchRetrieveResponse>' % body)
+_pg = lambda *recs: _wrap("".join(LREC % (i, "20%08d" % int(i), "DLC", "".join(
+    '<datafield tag="020" ind1=" " ind2=" "><subfield code="a">%s</subfield></datafield>' % x for x in isb)) for i, isb in recs))
+eq("foreign: a record with an ISBN of the stem answers the search; one without does not",
+   LS.foreign("bath.isbn=979885540*", _pg(("1", [isbn13("979885540", 1)]), ("2", [isbn13("978030640", 1)]), ("3", []))), ["2", "3"])
+eq("foreign: an exact search wants that ISBN", LS.foreign("bath.isbn=" + _fa, _pg(("1", [_fa]), ("2", [_fb]))), ["2"])
+eq("foreign: LoC's index reads what the record says -- a bad check digit, a cancelled ($z) malformed number, an ISBN-10, "
+   "a 024 EAN and a qualifier inside $a all answer",
+   [LS.foreign(q, _wrap(LREC % ("1", "2020000001", "DLC",
+        '<datafield tag="%s" ind1=" " ind2=" "><subfield code="%s">%s</subfield></datafield>' % f)))
+    for q, f in (("bath.isbn=978159816*", ("020", "a", "9781598167294")), ("bath.isbn=97984009*", ("020", "z", "97984009175")),
+                 ("bath.isbn=97807595*", ("020", "a", "0759529574 (pbk.)")), ("bath.isbn=97807595*", ("024", "a", "9780759529571")),
+                 ("bath.isbn=9780759529571", ("020", "a", "0-7595-2957-4")))], [[], [], [], [], []])
+eq("foreign: only ISBN searches are checked (a subject search has no such test)",
+   LS.foreign('dc.subject="webcomics"', _pg(("1", []))), [])
+LOCDB.update({str(6000 + k): ([isbn13("97988661", k)], True) for k in range(120)})
+LOCDB["6999"] = ([isbn13("978030640", 7)], True)                      # another search's record
+_cross = lambda ids: ids[:60] + ["6999"] * 40 + ids[100:]                # positions 61-100 of the first page are crossed
+# 1. transient: the first answer of page 1 is crossed, the retry is right
+LRULE["seq"] = lambda q, ids, sz: _cross(ids) if q == "bath.isbn=97988661*" and sz == 100 and not LSEEN.get((q, 1, 100), 0) else ids
+SLEEPS2.clear()
+n, pages = LS.search_set("bath.isbn=97988661*")
+eq("crossed page: retried like diagnostic 61, then the right page -- no foreign record is stored",
+   (n, LS.LOC.distinct(pages), SLEEPS2.count(10), "6999" in LS._ids([(None, t) for t in pages])), (120, 120, 1, False))
+# 2. crossed at 100 every time, right at 50
+LRULE["seq"] = lambda q, ids, sz: _cross(ids) if q == "bath.isbn=97988661*" and sz == 100 else ids
+n, pages = LS.search_set("bath.isbn=97988661*", force=True)
+eq("crossed page: the range is re-paged at 50", (n, LS.LOC.distinct(pages), sorted({re.search(r"maximumRecords=(\d+)", u).group(1)
+   for u in json.load(open(LS.LOC.sets_path))["bath.isbn=97988661*"]["urls"]})), (120, 120, ["100", "50"]))
+LRULE.pop("seq")
+# 3. the follow-up's own search: a crossed answer is never the volume's fate ("gone") and is never cached
+_fx = isbn13("978981128", 9)
+LOCDB["5009"] = ([_fx], True)
+LRULE["seq"] = lambda q, ids, sz: ["6999", "6999"][:len(ids) + 1] if q == "bath.isbn=" + _fx and sz > 1 else ids
+fu = LS.follow_up({}, [_fx])
+eq("follow-up: a crossed answer leaves the ISBN unanswered (not gone), nothing cached",
+   (fu["gone"], list(fu["unanswered"]), "bath.isbn=" + _fx in json.load(open(LS.LOC.sets_path))), ([], [_fx], False))
+LRULE.pop("seq")
+eq("... and the next run finds it", LS.follow_up({}, [_fx])["found"], {_fx: ["2000005009"]})
+# 4. a set cached before this check: its foreign records are counted in the report (no refetch for them)
+LS.LOC.store_set("bath.isbn=97988662*", 2, [(LS.LOC.url_for("bath.isbn=97988662*", 1, 100),
+    '<zs:searchRetrieveResponse xmlns:zs="http://www.loc.gov/zing/srw/"><zs:numberOfRecords>2</zs:numberOfRecords><zs:records>'
+    + "".join(LREC % (i, "20%08d" % int(i), "DLC", '<datafield tag="020" ind1=" " ind2=" "><subfield code="a">%s</subfield></datafield>' % x)
+              for i, x in (("6500", isbn13("97988662", 1)), ("6999", isbn13("978030640", 7)))) + "</zs:records></zs:searchRetrieveResponse>")])
+LOCDB["21800815"] = (["9781975319434"], True)
+_ch, _rp = LS.CHANNELS, LS.REPORT
+LS.CHANNELS, LS.REPORT = [("isbn 97988662", "bath.isbn=97988662*")], None
+recs, rep = LS.enumerate_loc(verbose=False)
+LS.CHANNELS, LS.REPORT = _ch, _rp
+eq("enumerate_loc: foreign records of a cached ISBN set are counted per channel",
+   (rep["channels"]["isbn 97988662"]["foreign"], rep["foreign"]), (1, 1))
+del LOCDB["21800815"]
+for k in ("5001", "5002", "5003", "5007", "5009", "6999"):
+    del LOCDB[k]
+for k in range(120):
+    del LOCDB[str(6000 + k)]
 for k in range(80):
     del LOCDB[str(3100 + k)], LOCDB[str(3200 + k)]
 for k in range(80):
@@ -2874,6 +2976,36 @@ try:
        sorted((n, _id("v_", r_m, n)) for n in ("2", "3", "4")))
     eq("... the frozen work is not created again (created 1 = The Gamer, not in this carry; frozen 1)",
        (st["works_created"], st["works_frozen"]), (1, 1))
+    eq("carried_isbns: the ISBNs of the carry's library-born lines of one source, sorted",
+       (KI.carried_isbns(KI.read_carry(carry), "loc"), KI.carried_isbns(KI.read_carry(carry), "dnb"), KI.carried_isbns(BK.NO_K, "loc")),
+       (["9798765627549", "9798765627556"], [], []))
+    # the carried-volume follow-up (2026-11-06) is part of the stage: run() hands it the carry's LoC ISBNs, and a
+    # record it brings back is a record of the build -- here vol 4's, which the channels no longer deliver
+    _fu, _asked = LS2.follow_up, []
+
+    def _follow(recs, isbns, report=None):
+        _asked.append(list(isbns))
+        recs.setdefault(MS4["cf"]["001"], MS4)
+        out = {"asked": ["9798765627556"], "found": {"9798765627556": ["2025024337"]}, "gone": [], "unanswered": {}}
+        if report is not None:
+            report["follow_up"] = out
+        return out
+    LS2.follow_up = _follow
+    try:
+        LS2.enumerate_loc = lambda verbose=False: ({r["cf"]["001"]: r for r in (SL, SL1, MS, MS2)}, {"degraded": None})
+        fresh_catalogue(cat)
+        st = BK.run(cat, carry)
+        db = sqlite3.connect(cat)
+        eq("follow-up in stage 3f: asked with the carry's LoC ISBNs; the record it brings back ships under the carried ids",
+           (_asked, sorted(db.execute("SELECT number, id FROM volume WHERE release_line_id=?", (r_m,))),
+            st["loc"]["follow_up"]["found"]),
+           ([["9798765627549", "9798765627556"]], sorted((n, _id("v_", r_m, n)) for n in ("2", "3", "4")),
+            {"9798765627556": ["2025024337"]}))
+        del _asked[:]
+        eq("... and 8d's offline reload asks the same way (same records, same ids)",
+           (BK.same_ids(cat, carry)[0], _asked), (True, [["9798765627549", "9798765627556"]]))
+    finally:
+        LS2.follow_up = _fu
 finally:
     E2.enumerate_krcn, LS2.enumerate_loc, BS2.enumerate_bnf, BK.BUILD = _saved_enum
 

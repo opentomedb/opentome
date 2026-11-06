@@ -46,7 +46,7 @@ LOC.transport_stops = True
 SIZES = (100, 50, 25)
 RETRIES = 3
 RETRY_WAIT = 10
-LADDERED = ("61", "short")         # diagnostic 61 and a short page go down the ladder; others raise
+LADDERED = ("61", "short", "crossed")   # diagnostic 61, a short page and a crossed page go down the ladder; others raise
 MAX_DEPTH = 2
 WINDOW = 500                       # reachable positions per result set (R7, diag 61 past ~500); a larger
                                    # ISBN stem is sliced before any page (C0 ruling 2026-09-29)
@@ -108,6 +108,42 @@ def _count(query):
     return SRU.count(_retry61(lambda: LOC.get(LOC.url_for(query, 1, 1), force=True)))
 
 
+_ISBN_QUERY = re.compile(r"bath\.isbn=(\d+)(\*?)")
+_NUMBER = re.compile(r"[0-9][0-9\- ]*[0-9Xx]")
+
+
+def foreign(query, text):
+    """The 001s of the records on a page that cannot answer an ISBN search: a crossed result set.
+
+    The gateway sometimes answers a search with the right numberOfRecords and ANOTHER search's
+    records (live 2026-11-06: bath.isbn=9789811286315 came back as two hymn records, and as the right
+    two a minute later; the 97807595* page 101-200 cached on 2026-09-29 holds 50 records without any
+    ISBN of the stem). Every record is distinct and the page is full, so the completeness rules pass
+    and the search's own records are silently missing. An ISBN search can be checked: a record
+    answers it when a 020 / 024 $a or $z starts with the stem (equals the ISBN, for an exact search)
+    -- as written (LoC indexes a bad check digit and a malformed cancelled number as they stand), as
+    an ISBN-10 under 978, or normalised. Measured on the cached sets: 4,476 records, the 50 crossed
+    ones are the only misses. A subject search has no such test ([] always)."""
+    m = _ISBN_QUERY.fullmatch(query)
+    if not m:
+        return []
+    stem, wild = m.group(1), bool(m.group(2))
+    out = []
+    for r in M.records(text):
+        forms = set()
+        for tag in ("020", "024"):
+            for f in M.fields(r, tag):
+                for c, v in f:
+                    if c in ("a", "z") and v:
+                        n = _NUMBER.match(v.strip())
+                        raw = re.sub(r"[- ]", "", n.group(0)) if n else ""
+                        forms |= {raw, "978" + raw[:9] if len(raw) == 10 else "", M._isbn13(v) or ""}
+        forms.discard("")
+        if not any(x.startswith(stem) if wild else (x == stem or (len(x) == 12 and stem.startswith(x))) for x in forms):
+            out.append(r["cf"]["001"])
+    return out
+
+
 def _fetch_page(query, u, start, size, last):
     """One live page; a page holding fewer records than its range is a failed page ('short'),
     laddered like diagnostic 61. A page announcing another count than the set's means the set
@@ -126,6 +162,10 @@ def _fetch_page(query, u, start, size, last):
         raise LocIncomplete("%r changed during paging: %d announced, page says %d" % (query, last, SRU.count(text)))
     if got < want:
         raise SRU.SourceDiagnostic("short", "%d records, the range holds %d" % (got, want), u)
+    bad = foreign(query, text)
+    if bad:                            # a crossed result set: a failed page, never stored (see foreign)
+        raise SRU.SourceDiagnostic("crossed", "%d of %d records carry no ISBN the search asks for (001 %s)"
+                                   % (len(bad), got, ", ".join(bad[:5])), u)
     return text
 
 
@@ -345,23 +385,91 @@ def enumerate_loc(verbose=True):
             for r in M.records(t):
                 got[r["cf"]["001"]] = r
         dlc = sum(1 for r in got.values() if LM.is_dlc(r))
+        # a set cached before pages were checked (foreign): counted here, replaced at its next refresh
+        strangers = sorted({i for t in pages for i in foreign(q, t)})
+        if strangers:
+            print("    WARNING loc %s: %d record(s) of the cached set answer another search (a crossed result set, "
+                  "001 %s) -- its own records at those positions are missing until the set is refreshed"
+                  % (name, len(strangers), ", ".join(strangers[:5])), flush=True)
         # duplicate positions (ruling 2026-09-27) of the channel's set and of its ISBN slices
         dups = {k: v for k, v in _dups().items() if _family(q, k)}
         report["channels"][name] = {"query": q, "records": n, "distinct": len(got), "dlc": dlc,
                                     "dlc_share": round(dlc / len(got), 3) if got else None,
-                                    "duplicates": dups, "degraded": q in LOC.degraded_queries}
+                                    "duplicates": dups, "degraded": q in LOC.degraded_queries,
+                                    "foreign": len(strangers)}
         if verbose:
             print("    loc %-14s %5d  distinct %5d  dlc %5d  (live requests so far %d)" % (
                 name, n, len(got), dlc, LOC.live), flush=True)
         for k, r in got.items():
             recs.setdefault(k, r)
     report.update(distinct=len(recs), live_requests=LOC.live, degraded=LOC.degraded,
-                  degraded_queries=list(LOC.degraded_queries))
+                  degraded_queries=list(LOC.degraded_queries),
+                  foreign=sum(c["foreign"] for c in report["channels"].values()))
     if REPORT:                         # None: build_krcn.same_ids (8d) reads the channels, it does not report
         os.makedirs(os.path.dirname(REPORT), exist_ok=True)
         with open(REPORT, "w", encoding="utf8") as f:
             json.dump(report, f, indent=1, sort_keys=True)
     return recs, report
+
+
+MAX_FOLLOW = 25                    # carried ISBNs asked for in one run (a count and a page each). More than
+                                   # this is an enumeration problem, not drift: the rest is reported
+
+
+def follow_up(recs, isbns, report=None):
+    """Carried volumes the channels did not deliver, asked for by ISBN (2026-11-06).
+
+    A published LoC volume is found again only while its record still matches a channel. LoC
+    re-catalogued "Science battles!" v. 8 (lccn 2025398065, 005 of 2026-10-06): new subject headings,
+    no "Comic books, strips, etc.--Korea", an ISBN under no §4 stem. No channel returned the record
+    any more and the published line vanished from the build (run 42139196651). A one-read set that
+    did not deliver a record (ruling 2026-09-29) loses a volume the same way.
+
+    isbns: the ISBNs of the carry's LoC lines (krcn_identity.carried_isbns). Each one that no DLC
+    record of this run carries is asked for by itself, `bath.isbn=<isbn>`: a result set like any
+    other (cached whole, refreshed with LOC_REFRESH_DAYS, the ladder). The answer's records join
+    `recs` (the first copy of a record wins); R4 stays krcn_lines.loc_lines' -- a copied record is
+    dropped there, and here it neither answers for an ISBN nor spares the request. A record found
+    for one ISBN answers for the others it carries (a set record). At most MAX_FOLLOW ISBNs a run.
+
+    Never raises for the source: an ISBN that cannot be asked (an offline miss, LoC degraded or
+    failing, the request cap) is listed under `unanswered` and the run goes on -- the volume stays
+    absent, and 8c's carried-id rules fail the build exactly as before this function existed.
+    -> {"asked": [isbn], "found": {isbn: [lccn]}, "gone": [isbn], "unanswered": {isbn: why}}; `gone`:
+    answered, and no DLC record carries the ISBN any more. Also stored as report["follow_up"]."""
+    def dlc_isbns(rs):
+        return {i for r in rs if LM.is_dlc(r) for _, i, _ in LM.qualified_isbns(r)}
+
+    have = dlc_isbns(recs.values())
+    out = {"asked": [], "found": {}, "gone": [], "unanswered": {}}
+    for isbn in sorted({i for i in isbns if i}):
+        if isbn in have:
+            continue
+        if len(out["asked"]) >= MAX_FOLLOW:
+            out["unanswered"][isbn] = "not asked: over the %d follow-ups of a run" % MAX_FOLLOW
+            continue
+        out["asked"].append(isbn)
+        try:
+            got = [r for t in search_set("bath.isbn=%s" % isbn)[1] for r in M.records(t)]
+        except SRU.FAIL as e:
+            out["unanswered"][isbn] = "%s: %s" % (type(e).__name__, str(e)[:160])
+            continue
+        for r in got:
+            recs.setdefault(r["cf"]["001"], r)
+        mine = sorted({LM.lccn(r) for r in got if LM.lccn(r) and isbn in dlc_isbns([r])})
+        if mine:
+            out["found"][isbn] = mine
+            have |= dlc_isbns(got)
+        else:
+            out["gone"].append(isbn)
+    if out["asked"] or out["unanswered"]:
+        print("    loc follow-up: %d carried ISBN(s) no channel delivered -- found %d %s, gone %d %s, unanswered %d %s" % (
+            len(out["asked"]) + len(out["unanswered"]) - sum(1 for i in out["unanswered"] if i in out["asked"]),
+            len(out["found"]), sorted(out["found"].items())[:5], len(out["gone"]), out["gone"][:5],
+            len(out["unanswered"]), sorted(out["unanswered"].items())[:3]), flush=True)
+    if report is not None:
+        report.update(follow_up=out, live_requests=LOC.live)
+    return out
 
 
 def probe(candidates=(("dc.date", "%s not dc.date>0"), ("bath.date", "%s not bath.date>0"), ("date", "%s not date>0"))):

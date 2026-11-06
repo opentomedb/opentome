@@ -76,6 +76,14 @@ def read_carry(carry):
     return K
 
 
+def carried_isbns(K, source):
+    """The ISBNs on the volumes of the carry's library-born lines of one source ('loc' | 'dnb' | 'bnf';
+    K["lines"] is {tome_id: source}), sorted. loc_sru.follow_up asks LoC for the ones a run lacks."""
+    K = K or {}
+    return sorted({i for t, s in (K.get("lines") or {}).items() if s == source
+                   for _, i in (K.get("line_vols") or {}).get(t, ()) if i})
+
+
 def older(ids, K):
     """The older of several published ids: the lower id_map integer (issue order, carried,
     deterministic, §9). A work's integer is the minimum over its carried lines."""

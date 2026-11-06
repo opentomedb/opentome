@@ -1222,7 +1222,11 @@ def run(dbpath, carry=None):
     gaps = {k: v for k, v in d_tally.items() if k.endswith("_slice_gap") and v}
     if gaps and not d_tally.get("degraded"):
         raise SystemExit("DNB KR/CN enumeration incomplete -- slices miss records: %s" % gaps)
+    K = KI.read_carry(carry) or NO_K
     l_recs, l_report = LS.enumerate_loc(verbose=False)            # the canary first; fails the stage on a bad canary
+    # a published LoC volume no channel delivered this run (its record was re-catalogued out of every channel, or
+    # a one-read set skipped it) is asked for by ISBN, so a line never vanishes for the way it is searched
+    LS.follow_up(l_recs, KI.carried_isbns(K, "loc"), l_report)
     b_recs, b_tally = BS.enumerate_bnf(verbose=False)
     lines, lost, src_stats = [], [], {}
     for name, (ls_, lo, st_) in (("dnb", KL.dnb_lines(d_recs, d_parents)), ("loc", KL.loc_lines(l_recs)),
@@ -1245,7 +1249,6 @@ def run(dbpath, carry=None):
                                      ON rl.id=v.release_line_id WHERE v.isbn13 IS NOT NULL
                                      ORDER BY rl.id DESC, v.id DESC"""))   # deterministic: the lowest line wins
     KL.resolve_media(lines, isbn_medium)
-    K = KI.read_carry(carry) or NO_K
     id_rep = KI.line_ids(lines, K, reserved=reserved)
     line_medium, E_all = {}, {}
     for market in ("DE", "EN", "FR"):
@@ -1269,7 +1272,7 @@ def run(dbpath, carry=None):
     roles = collections.Counter((l["market"], l["role"]) for l in lines)
     exported = collections.Counter(l["market"] for l in lines if l["exported"])
     stats = {"sources": src_stats, "dnb_tally": d_tally,
-             "loc": {k: l_report.get(k) for k in ("distinct", "live_requests", "degraded", "degraded_queries")},
+             "loc": {k: l_report.get(k) for k in ("distinct", "live_requests", "degraded", "degraded_queries", "follow_up")},
              "bnf": b_tally, "ids": id_rep, "roles": {"%s %s" % k: n for k, n in sorted(roles.items())},
              "exported_lines": dict(exported), "volume_fates": dict(fates),
              "works_created": sum(1 for e in plan["works"].values() if e["created"]),
@@ -1307,9 +1310,11 @@ def same_ids(catalogue, carry):
     S.OFFLINE = True
     LS.LOC.offline = BS.BNF.offline = True
     report, LS.REPORT = LS.REPORT, None       # stage 3f's build/loc-report.json is not this gate's to rewrite
+    K = KI.read_carry(carry) or NO_K
     try:
         d_recs, d_parents, _ = E.enumerate_krcn(verbose=False)
         l_recs = LS.enumerate_loc(verbose=False)[0]
+        LS.follow_up(l_recs, KI.carried_isbns(K, "loc"))        # as run(): from the cache, an uncached one is skipped
         b_recs = BS.enumerate_bnf(verbose=False)[0]
     except SRU.FAIL as e:           # an offline miss, a failed canary, an incomplete set
         return False, "the cached records are incomplete (%s: %s)" % (type(e).__name__, e)
@@ -1322,7 +1327,7 @@ def same_ids(catalogue, carry):
     except sqlite3.OperationalError:
         jp_rows = []
     lines, _, reserved = defer_jp_round(lines, jp_rows)
-    KI.line_ids(lines, KI.read_carry(carry) or NO_K, reserved=reserved)
+    KI.line_ids(lines, K, reserved=reserved)
     now = {l["key"]: l["tome_id"] for l in lines}
     was = dict(C.execute("SELECT key, rl_id FROM krcn_line WHERE exported=1 AND role NOT IN ('merged','adopting')"))
     moved = sorted(k for k, rid in was.items() if now.get(k) != rid)
