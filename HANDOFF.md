@@ -1,6 +1,66 @@
 # HANDOFF — OpenTome
 
-## Chapter lists read in full — **on main (local), awaiting Nick's push + a build-only run** (2026-11-05)
+## KR/CN refresh round OWED — build-only 42139196651 RED on 7 contract rules (2026-11-05 night); nothing published
+
+Nick, 11-05 night: "push both the Opentome fixes and beta 5". The chapter-list fix was pushed (f391b79) and Mangarr
+0.1.0-beta.5 went out, but the catalogue could NOT publish: the build-only run failed at 8c on rules that have
+nothing to do with chapter lists. The two Sunday builds before it were already red and nobody saw it (10-25: 2
+rules, 11-01: 3 rules; both on f755c4c). Cause: library records changed after the 10-20 publish (DNB weekly; LoC in
+today's 4-weekly refresh: 249 live requests, 83 minutes, diagnostic 61 on most first attempts). **The published
+catalogue is still `opentome-2026-10-20`.** Any further commit here needs Nick's push or his word that I may push
+(the sentence above covered the chapter-list fix only).
+
+**The 7 rules in CI and what each is (facts checked 11-05 on a local rebuild + the CI log + two live LoC lookups):**
+
+1. `library-created works without a line of explicit KR/CN origin: 2` -- new Ize Press manhwa (CI created
+   w_1c81add0d1fc "Seven Sundays", w_8c6958849f0f "Special Civil Servant", w_727f9c4e6737, w_d7ed37cea85d). Their LoC
+   line has no 041 $h (explicit = 0); the German line of the same cluster IS explicit (dnb:1422827569,
+   dnb:1422466590) but every one of its volumes is `held_future`, so it is `absorbed` and not exported. The planner
+   accepts a cluster when ANY line is explicit (`build_krcn` c2), the gate counts only `exported=1 AND explicit=1`.
+   Decide which side is right (my view: the announced German record is real origin evidence, so the gate should read
+   the cluster; the alternative is to hold the work until the German line exports) and pin it with a test.
+2. `published KR/CN lines absent`: rl_8438f51ce15b "Science battles!" (EN, WS Education, one listed volume: vol 8,
+   ISBN 9789811286315, loc:2025398065), with it `carried ids neither present nor redirected` (rl_8438f51ce15b,
+   v_941d7790ab19, w_76652aa46c96), `carried series integers ...: [169008563]` and `must_create works missing: 1`.
+   The DLC record is still there (245 "Toto, the fungi hero", 490 "Science battles! ; v. 8", 041 eng $h kor, 655
+   Comics). NEW at LoC: a set record 2025459329 "Science battles!" (040 $a OJ4, not DLC) that lists the ISBNs of
+   every volume. Hypothesis, NOT verified (the local rebuild kept its old copy of that result set): the set record
+   takes the DLC volume record as a twin and is then dropped for not being DLC. Reproduce with the fresh set, then
+   fix the line builder so a non-DLC record never displaces a DLC one.
+3. `taken_weak: [['rl_9b3ea88520d6', 'dnb:1380197465', 1, 2]]` -- "The Pawn's Revenge – 3rd Season" (DE, Carlsen).
+   The carried line had vol 1 (9783551624390) and vol 4 (9783551630223); DNB no longer has the vol 1 record (the
+   build retires v_1a962f064793), the line is now vol 4 alone under the same name, publisher, work and volume id.
+   Same line beyond doubt: add `["dnb:1380197465", "rl_9b3ea88520d6"]` to `krcn_linker_labels.json` `taken_ok`
+   with that evidence.
+4. `E1 alias rows lost: 7` -- one cause for six of them: `build_dnb` keeps a volume's 240 (original title) only when
+   at least half of the line's volumes carry it. DNB's 240 on these lines sits on announcement records
+   (`$8 N\p`, publisher-supplied) and is gone from volumes once catalogued, so as a series is published the share
+   drops under half and the romanised title falls out of `work_title`, for the German line and its English
+   sibling: "Cheolhyeolgeomga Sanyanggaeui Hoegwi" (rl_0b0bc085d029 de, rl_f69e4baed6ef en), "Aknyeoraseo
+   Pyeonhago Joheundeyo?" (rl_1a1526ae7a4e), "Jigojisun" (rl_aa5cc6086baf de, rl_2158aaa6e8d0 en), "Dwaejiuri"
+   (rl_3ad0a538c99d), "Yaktal Sinbu" (rl_4a7a6797a1df). The seventh is a gain: rl_0732f374718d "3 body problem"
+   loses the junk aliases "3 Body Problem 06".."10". This recurs every time DNB catalogues a volume, so an
+   `ALIAS_LOSS_OK` row per loss would be a recurring manual step (CLAUDE.md forbids one). Better: a published
+   romanised title of a carried work stays (continuity, like ids), or count the share among volumes that carry a
+   240 at all (measure the linker's change on the whole German market before choosing; `orig` feeds `L.link`).
+5. Not failing, fix in the same round: w_727f9c4e6737 "My secretly hot husband" (EN, Ize) duplicates the existing
+   w_fdd8ef0310ff "Mein verflucht heißer Ehemann" (title key 0.957, same AniList id 124056): a `cluster_with` /
+   `link_work` correction, or the catalogue publishes a second work for one series.
+
+**Do not trust a local rebuild as a mirror of CI for this.** Run locally on 11-05 with CI's refresh settings
+(`DNB_REFRESH_DAYS=6 LOC_REFRESH_DAYS=28 BNF_REFRESH_DAYS=28 LOC_MAX_REQUESTS=260`, carry = the published artifact
+copied from the Mangarr server into `build/manga-metadata.sqlite`; older local files kept as
+`build/*.local-20261002`): LoC came back degraded (`LocIncomplete`, 22 result sets kept their previous copy), so
+rule 2 did not reproduce, and the local DNB state gave two failures CI does not have (78 German volumes retired,
+a shared name in w_dc0f270e3cb4). Rules 1, 3 and 4 match CI. CI's own cache now holds today's LoC read for 28
+days and its DNB read until 11-07, so a build-only run before then takes about 6 minutes and repeats today's state.
+
+**Also owed:** the failed Sunday builds went unseen for two weeks -- wire a failure notice (the Discord
+`catalogue` webhook exists; the n8n alert workflows post to #alerts). After a green build: publish, Mangarr
+Metadata Update, FlightLog line, and measure chapter lists against the 10-20 artifact, where 8,570 English volumes
+(29,419 in all languages) pass Mangarr's adjacency rule and 2,014 English lists hold one whole chapter.
+
+## Chapter lists read in full — **PUSHED 2026-11-05 (main f391b79, GitHub + Forgejo), NOT PUBLISHED: the build is red on KR/CN drift, section above**
 
 - **Why.** Mangarr's chapter builder found that about 17 % of the English chapter lists held only a volume's
   FIRST chapter (v1 `[1]`, v2 `[12]`). Cause, in `tier0/wikipedia_volumes.py` `parse_chapters`: an entry's first
