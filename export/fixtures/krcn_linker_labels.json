@@ -182,5 +182,13 @@
    "name": "Bastard (Korean webtoon; DNB authors Kim, Carnby / Hwang, Youngchan) is not the Japanese Bastard!! (authors differ)"
   }
  ],
- "taken_ok": []
+ "taken_ok": [
+  [
+   "dnb:1380197465",
+   "rl_9b3ea88520d6"
+  ]
+ ],
+ "taken_ok_why": {
+  "dnb:1380197465 rl_9b3ea88520d6": "The Pawn's Revenge - 3rd Season (DE, Carlsen / Hayabusa). The published line held vol 1 (978-3-551-62439-0) and vol 4 (978-3-551-63022-3). DNB re-catalogued vol 1 on 2026-10-30 (IDN 1307414842) as a part of the multi-part set 1278917055 ('The pawn's revenge', 245 $n '3rd season' $n '1'), so it left this line; the line is now vol 4 alone, keyed on its record 1380197465, under the same name, publisher, work (w_d3f523b8f8a4) and volume id (v_8d78d563bb76). 1 of 2 carried ISBNs is no strict majority, the line is the same one. Checked against the live DNB records 2026-11-06."
+ }
 }

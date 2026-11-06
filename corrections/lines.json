@@ -638,5 +638,12 @@
     "source_url": "https://d-nb.info/1379905052",
     "checked": "2026-10-01",
     "why": "Payback. Ich will dich vernichten vols 4-6 (DNB 240 'Payback 04-06') by SAMK and Fujoking continue Payback vols 1-3, same creators and publisher (Altraverse)"
+  },
+  {
+    "line_key": "loc:2024941991",
+    "link_work": "w_fdd8ef0310ff",
+    "source_url": "https://lccn.loc.gov/2024941991",
+    "reason": "My Secretly Hot Husband (Ize Press, 7 vols) is the English edition of the work the German line 'Mein verflucht heißer Ehemann' (Altraverse, dnb:1357946228) already ships under: one original title in two romanisations (LoC 240 'Nampyeon-i Mimo-reul Sumgim', DNB 'Nam pyeon i mi mo leul sum gim'), the same creators (Harara, Jungyeon), both 041 $h kor. Romanised titles join lines of one library only, so the build created a second work (w_727f9c4e6737, never published; build/krcn-duplicates.tsv title ratio 0.957)",
+    "checked": "2026-11-06"
   }
 ]
