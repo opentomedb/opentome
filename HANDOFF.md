@@ -1,5 +1,29 @@
 # HANDOFF — OpenTome
 
+## Parked data items -- **PUBLISHED 2026-11-06 (second publish of the day) as `opentome-2026-11-06`** (main 368fa14; sha 448a1018; build-only 42261912642, publish 42263016184; Mangarr pulled it 11:53 CST)
+
+Nick, 11-06: "3. yes" to pushing the five commits 0e9dc54..368fa14 (a one-time word; the rule that Nick pushes main is
+unchanged). Build-only green, published, public manifest and opentomedb.com both carry sha 448a1018 (same label as
+the morning's publish; Mangarr compares the sha for an equal label).
+
+**What CI showed:** `artifact contract ok`, library gate ok, every 8d floor ok. Against the morning's publish
+(sha 71a79453): 13,464 -> 13,469 lines (the five new ones are the German season lines of two series), 125,468 ->
+125,493 volumes, 0 lines gone, 0 carried ids moved or retired, v_14bfad9af2dc present again; library works 428 -> 429
+(created 1); omnibus-flagged lines 161 -> 194, of which 33 are published lines that flipped (the offline rebuild
+said 31; CI's records are fresher). Measure-gate moves are the season lines only (DE lines 1,782 -> 1,787, DE
+exported lines 325 -> 330).
+
+**Chapter lists on the published file:** English volumes passing Mangarr's adjacency rule 10,477 -> 10,917 (8,570 on
+10-20); English one-chapter lists 165 -> 109; all languages passing 35,860 -> 37,493.
+
+**Gotcha, corrected:** after a publish the site's `catalogue/version.json` can lag by the full cache lifetime
+(`max-age=600`): this time about 10 minutes, not 4. Compare its sha with the release's before running Mangarr's
+Metadata Update.
+
+**Still open (nobody's go-ahead):** the items the section below lists as left (3rd-season vol 1's retired id is not
+re-pointed to its new id; the same season layout in five JP-origin German sets; 123 deluxe / perfect / collector's
+lines stay unflagged; about 44 English one-chapter lists read a number out of a title).
+
 ## Parked data items -- **FIXED LOCALLY 2026-11-06 (main 5c32881 + this file), NOT PUSHED; nothing published**
 
 Nick, 11-06 after the publish: "Can you work on those?" (the parked list). Four commits on top of 1e77bfd, local only.
