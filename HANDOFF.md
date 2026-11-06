@@ -1,5 +1,121 @@
 # HANDOFF — OpenTome
 
+## Parked data items -- **FIXED LOCALLY 2026-11-06 (main 5c32881 + this file), NOT PUSHED; nothing published**
+
+Nick, 11-06 after the publish: "Can you work on those?" (the parked list). Four commits on top of 1e77bfd, local only.
+**Pushing them needs Nick's push or his word.** The published catalogue is still `opentome-2026-11-06` (sha 71a79453).
+
+**NEXT, in order:** (1) push main (GitHub + Forgejo); (2) `gh workflow run catalogue.yml -R opentomedb/opentome --ref main`
+(build-only) and read the log against "What CI must confirm" below; (3) green -> the same dispatch with
+`-f publish=true`; (4) wait until opentomedb.com/catalogue/version.json names the new label, then Mangarr Metadata
+Update on the homelab + its ledger line; (5) measure chapter lists on the published file against `opentome-2026-11-06`
+(English volumes passing Mangarr's adjacency rule 10,477; all languages 35,860; English one-chapter lists 165).
+
+**1. German sets filed in sections -- 0e9dc54** (`krcn_lines.split_sections`, KR/CN round only; docs/krcn-design.md §8).
+DNB keeps a series published in seasons under ONE set record and numbers each season from 1: 245 $n '[1st season]'
+$n '1' ... $n '2nd season' $n '1' (773 $q '11st 11', '12nd 11'), or 245 $n '[...]' $p 'Season II' $n '1'. Read as one
+line, every number after the first season's was a duplicate and the set sat in review. A section whose numbers repeat
+another's is now its own line, keyed `dnb:<set IDN>#<folded section>`, named `<set title> – <section>` (the
+publisher's own series statement of that name wins), with the set's title, original title and creators kept so the
+seasons land in one work. `build_dnb.cluster` / `shape_line` are untouched: the sections reach them as pseudo-sets.
+- Why the key is never a member's IDN: the IDN of the 3rd season's vol. 1 is the natural key that minted
+  rl_9b3ea88520d6, the line of the OTHER publisher name; continuity would hand that id over and re-key both lines
+  (test "S:" in test_krcn.py).
+- Nothing published is re-keyed. A set splits only when numbers collide across sections, and a collision has always
+  meant review `duplicate_numbers` (never exported). A plain number above the volume number is not a section (a
+  group over a running count; the volume number above a part of an arc).
+- Cached records: 2 sets, 6 section lines, 15 volumes that were dropped as duplicates. "The Pawn's Revenge": the
+  3rd-season section line takes rl_9e8ed759862f (shares vols 3, 5), so vol. 2 is back under its ORIGINAL id
+  v_14bfad9af2dc (7b drops its retired redirect); vol. 1 is back under a NEW id v_6468d08af096 -- its old id
+  v_1a962f064793 lived on the other publisher-name line (rl_9b3ea88520d6, which keeps vol. 4) and stays a `retired`
+  redirect to that line. New lines: 1st season (5 vols), 2nd season (5 vols), and "Killing stalking" Season I / II /
+  III (4 / 4 / 5 vols; that set was never exported at all).
+- **Not done, on purpose:** the German JP round has the same shape in 5 sets (13 section lines, 41 volumes: Wonderful
+  Wonder World - Country of Clubs, Pokémon - die großen Abenteuer, Record of Lodoss War, Gorgeous Carat, The Legend
+  of Zelda). Those lines are published with the first volume seen per number, so a split there moves published
+  volumes: a deliberate round with redirects, not a side effect. Measured, not applied.
+
+**2. Omnibus flag -- c8691e6.** `is_omnibus` was set only where a volume lists the original volumes it holds
+(`composition`). A line that only SAYS it is an omnibus shipped as an ordinary line: a Wikipedia section named
+"(Omnibus edition)" / "(2-in-1 Edition)" / "(VizBig edition)" / "(Volumes doubles)" / "(Édition double)" / "(Format
+double)" / "(Édition intégrale)" whose table gives no list, and every DNB line whose edition statement says "Massiv" /
+"Sammelband" (the catalogue has `release_line.format = 'omnibus'` for these; the export never read it). Such a line
+is flagged now: 31 published lines (DE 14, EN 6, FR 4, JP 7), `omnibus_lines` 161 -> 192. No composition is invented,
+the status rule still asks the composition, and meta `omnibus_lines_named` lists the ids so the contract test keeps
+refusing any other flag without a list (two rules replace the old one).
+- What it does in Mangarr (read, not changed): `IsCollectedEdition` is true for the line, so the origin market's
+  volume total is no longer shown as "X of Y" and no Coming Soon rows are invented for it (13 of the 31 have no
+  page-count tell and could get them: DE 4, EN 1, FR 1, JP 7); a same-ranked non-omnibus line is preferred at lookup; a line already tracked keeps
+  its id, volumes and name.
+- **Judgment calls, NOT decided** (123 published lines: JP 86, EN 20, FR 17; 115 without Mangarr's page-count tell):
+  deluxe, perfect, kanzenban, bunkoban / bunko, aizōban, shinsōban, wideban, collector's, "new edition", "complete",
+  master / anniversary / special editions. Some renumber (a kanzenban usually holds more than a tankōbon), some do
+  not, and the name does not say. Also left: "(Box sets)", "(Collected editions)", "(English double issues)" (two
+  stories in one issue, same count as the main line). Recommendation: leave them until a volume list (composition)
+  says so; flagging by name would hide real Coming Soon rows on editions that follow the original count.
+
+**3. Chapter lists -- 84951fd + 5c32881** (`tier0/wikipedia_volumes.py`; 40 new parser tests).
+- Entries that are not `*` bullets: a line opening with `:` or `#`, an HTML `<li>`, a `<br>` in a cell with no list
+  markup (the French articles' usual shape), the items of `{{Bulleted list}}` / `{{Unbulleted list}}`. Such an entry
+  gives a number only at its HEAD (a `:` line is often a note), only under the word the cell's first numbered entry
+  uses ("Parallel 1." after "06." "07." is numbered apart), and the text before such a list is its heading ("File 20").
+- Counted lists, only where the source says where the count starts: `{{Ordered list|start=N}}` (the numbered-list
+  template's real name, also inside `{{columns-list}}`), `<ol start="N">`, a `#` list with `<li value="N">` (every
+  Naruto volume was unread). Not counted: a list with its own marker (`list_style_type`), an HTML list whose items
+  name another chapter than their place ("Chapter 9" as item 10, after a prologue).
+- An entry numbered apart gives no number: special, extra, bonus, side, omake, short, prologue, epilogue, interlude,
+  intermission, gaiden, ex, spécial, hors -- as the word before the number or one word earlier ("Special Chapter 2",
+  "Extra Scene 3."). NOT vol / part / book / tome / season / arc (Tokyo Babylon numbers its chapters "Vol 2").
+  311 lists lose such a number (EN 227, FR 84); 23 more lose a number that had been read out of a title or a
+  heading (each one looked at).
+- Small readings: `<nowiki>#</nowiki>49`, a full-width colon, `93--99`, `Chapter 2 (Part 1): ...`.
+- **5c32881 (review finding, verified):** the first `<ol start>` pattern tried an unbounded `[^>]*` twice from every
+  `<ol`; 800 x `<ol start=1 ` with no `>` took 0.65 s and the time grew with the cube (20,000 would run for hours),
+  `<li` without `>` was quadratic. Every tag pattern is bounded now (no `<` inside, at most 200 characters, capped
+  whitespace), `<ol>` / `</ol>` are collected in one pass, the omnibus name pattern is capped too; 20,000 repeats
+  parse in 0.015 s (tests "hostile cells"). All 40,469 cached cells read exactly as with 84951fd.
+- **Measured, cache only** (stage 2 built into scratch databases before and after; comic lines): lists of one whole
+  chapter 1,252 -> 536 (EN market 143 -> 98, FR 455 -> 157, JP 636 -> 268); volumes passing Mangarr's adjacency rule
+  36,066 -> 37,698 (EN 10,516 -> 10,949, FR 7,025 -> 7,385, JP 18,497 -> 19,331); whole chapters claimed by two
+  volumes of a line 3,092 -> 2,783; raw cells that parse to nothing 3,082 -> 2,591 (EN articles). On the artifact of
+  the offline rebuild, against the published 11-06 file: English one-chapter lists 165 -> 109, English volumes
+  passing 10,477 -> 10,917, all languages 35,860 -> 37,493; `volume_chapters` changed on 1,913 volumes.
+- **The 165 English one-chapter lists, classified** (167 volume records in 49 articles at the parser): 59 were parse
+  misses fixed here. Of the 108 left: about 30 are genuine as listed (one long chapter, an open range "Chapters
+  144-", a last volume); about 44 are a number read out of a TITLE ("X/1999 - ...", "365-Step March", "(2–3)" part
+  ranges, "Class 2-B"); 19 are Denma's webtoon links; about 15 are shapes still unread (below).
+
+**Verified:** every stage-0 suite green. One full offline rebuild (11-06, after 3 of the 4 commits; the fourth reads
+every cached cell and every line name the same): it stops at 8c on the two rules only the LOCAL DNB cache produces
+(55 carried German volumes retired; a shared name in w_dc0f270e3cb4) -- the same two as the morning rebuild, and the
+only ones. 3f: `dropped_duplicate_number` 29, ids "kept 546, taken 2 (weak 0), left 1" (the one left, rl_cff0e88346db,
+is local-cache drift, there before the change); 7b dropped the redirect of v_14bfad9af2dc; no line changed its name,
+work, integer or AniList id against the published file. **8d (measure gate, library gate) was not reached locally.**
+
+**What CI must confirm (a local rebuild is not a mirror of CI):**
+- 8c green, with the two new rules `is_omnibus=1 ... no place in omnibus_lines_named` and `omnibus_lines_named names
+  a line that is absent ...`; export line `omnibus_lines 192` (161 + 31).
+- 3f: `dropped_duplicate_number` 44 -> 29; DE exported lines 325 -> 330; `taken 2 (weak 0 ...)`, `left 0`. The
+  `taken_ok` entry for dnb:1380197465 in the linker fixture is no longer needed (the carry holds only vol. 4 of that
+  line now) and harmless.
+- 7b: v_14bfad9af2dc among the dropped redirects; nothing German retired beyond what 11-06 already had.
+- 8d: every floor, and the LIBRARY gate -- its ranking puts a non-omnibus line before an omnibus one, so 31 flipped
+  flags can move a pick; if the gate moves, read build/measure-library.log (never printed) before publishing.
+
+**Left open:**
+- 7b never re-points a `retired` volume redirect when the volume returns under another id (v_1a962f064793 resolves
+  to its old line, not to the new vol. 1).
+- One season under two publisher names stays two lines (Hayabusa is Carlsen's imprint; the announcement records name
+  either). It converges as DNB files each deposited volume into the set; a `hayabu -> carlse` publisher family would
+  merge them now but changes JP-round clustering too. Not done.
+- Chapter lists: a number inside a title is still read from a `*` entry (requiring the number at the head of every
+  entry was tried: it would drop 818 English and 1,543 French numbers, most of them real -- "{{N°}}45 :",
+  "Reincarnation 216.", "Kill-17 :"); unread shapes: Roman numerals ("Chapter IV:"), ordinals ("24th day"), a quoted
+  label ("Mission:01"), an entry that is a bare number ("* 25"), "Episode 1, part 1–3", "01 Title" with no separator;
+  counted lists that restart per arc or case (7 Seeds, Kindaichi, Higurashi, Umineko) are read as the source numbers
+  them and overlap inside a line, which Mangarr's rule already refuses; "two lists for one volume" is unchanged.
+- The JP-round sections and the edition judgment calls above.
+
 ## KR/CN refresh round + chapter lists -- **PUBLISHED 2026-11-06 as `opentome-2026-11-06`** (main 974ae80; sha 71a79453; build-only 42225539914, publish 42226810075; Mangarr pulled it 07:46 CST)
 
 Nick, 11-06 morning: "Push the fixed" (the nine commits 726fc91..974ae80; a one-time word, the rule that Nick
@@ -105,12 +221,12 @@ neither. **A local rebuild is not a mirror of CI**: only the build-only run says
 - A curated removal (`corrections/aliases.json` `remove`) of an alias that only the continuity rule keeps goes
   stale after the next publish (the carry no longer has the row, the removal matches nothing and stops the build):
   delete the entry once it has shipped.
-- German "The Pawn's Revenge": DNB now files the 2nd / 3rd season volumes under the one set 1278917055 with season
-  numbering, `build_dnb` reads them as duplicate numbers (7 dropped, the set line sits in review) and the published
-  3rd-season lines lose vols 1 and 2 (retired, under the 25-volume threshold). Reading 773 $q seasons is not built.
-- The local `.cache` still holds the crossed `97807595*` page (the warning names it); a local LoC refresh replaces it.
-- `build/manga-metadata.sqlite` locally is the PUBLISHED 10-20 artifact (the id carry); `*.local-20261002` are the
-  older local files; `build/manga-metadata.sqlite.new` and `build/opentome.db` are the 11-06 offline rebuild.
+- German "The Pawn's Revenge" (seasons under one DNB set, read as duplicate numbers): FIXED locally in 0e9dc54,
+  top section.
+- The local `.cache`: the crossed `97807595*` page was refetched on 11-06 (227 records, 0 foreign).
+- `build/manga-metadata.sqlite` locally is the PUBLISHED 11-06 artifact (sha 71a79453, the id carry; put there on
+  11-06, the 10-20 one is `build/manga-metadata.sqlite.published-20261020`); `*.local-20261002` are older local
+  files; `build/manga-metadata.sqlite.new` and `build/opentome.db` are the second 11-06 offline rebuild (top section).
 
 ## Chapter lists read in full — **PUBLISHED 2026-11-06 in `opentome-2026-11-06`** (pushed 2026-11-05 as main f391b79; numbers in the section above)
 
@@ -153,7 +269,8 @@ neither. **A local rebuild is not a mirror of CI**: only the build-only run says
   Mangarr Metadata Update -> FlightLog line. Then re-measure on the published artifact before any public wording
   (Mangarr beta.5 notes) quotes a number.
 
-### Chapter lists: measured leftovers (not fixed)
+### Chapter lists: measured leftovers (as of 11-05; the 11-06 round at the top fixed the numbered-apart words, the
+### `<br>` / `#` / `:` shapes and the counted lists -- what is still open is listed there)
 
 - **Two lists for one volume** (646 volumes: the English and the French article describe the same original
   volume and disagree). `export/to_mangarr.py` keeps whichever row comes last (`comp_ch[vid] = ref_list`), in 468
@@ -169,8 +286,8 @@ neither. **A local rebuild is not a mirror of CI**: only the build-only run says
 - Still expanded, by the reviewer's made-up inputs only (no list in the corpus): "Chapter 1-2: Title" (a part
   number, unpadded, alone in its list), "1-1. A / 2-5. B", "issues 12–20 of a magazine" in a sentence;
   `Top 10 "Things"` and `1945 "Title"` read their number.
-- Edition lines without the omnibus flag ("(Omnibus edition)", "(Collector's Edition)", "(Bunkoban edition)" with
-  `is_omnibus = 0`): seen from Mangarr on 2026-11-05, not looked at here.
+- Edition lines without the omnibus flag: looked at on 11-06 (top section, item 2). Lines that say omnibus are
+  flagged locally (c8691e6); collector's / bunkoban / kanzenban and the like are judgment calls, listed there.
 
 ## Labelled-run lines + Re:Zero spin-off aliases — **on main, awaiting Nick's push + a build** (2026-10-20)
 
