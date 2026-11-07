@@ -107,6 +107,13 @@ burst. After the enrichment the batches see the same ISBN set.
    **retired** (fell back to the work's main line) numbers are never used -- the main line's vol 1
    is a different book than an arc's vol 1 -- only a unique ISBN in the market, else `retired`
    to the line. A volume redirected to a line is never labelled `correction`.
+   **A carried row that retired a volume to its line is re-read every build, and re-pointed (step 1c,
+   2026-11-07) when the volume is back on a same-named twin line** of the same work, market and medium
+   (one edition under two publisher names -- The Pawn's Revenge's 3rd season -- whose volume was
+   filed under the other name once deposited): the old id was minted as `v_<hash(line, number)>`, so
+   the number is read back from it, and the twin's volume of that number is the successor (reason
+   `correction`). Only while the line itself still lacks that number and exactly one twin holds it;
+   a volume back on its own line is the stale case above.
 5. **Ties.** Every "strict majority" above is ordered by (votes, id), never by dict or set order
    (which follows the hash seed). A tie at the top goes to the one candidate that is **new** in
    this build, when exactly one is: a line re-keyed beside a published same-edition twin ties

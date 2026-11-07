@@ -441,6 +441,65 @@ eq("... a sibling whose ISBN is nowhere retires to the line",
    (rl(WN, "JP", "Undated"), "retired"))
 db.close()
 
+# ---- 1c (2026-11-07): a retired volume id comes back on a same-named twin line -------------------
+# One edition under two publisher names: "Sample Saga – 3rd Season" (vols 1, 4) and "Sample Saga - 3rd season"
+# (vols 2, 3, 5). Vol 1 vanishes (retired to its line); a build later it is filed under the other name.
+WT = "en:Twin"
+L1, L2 = "Sample Saga – 3rd Season", "Sample Saga - 3rd season"
+c0 = artifact(catalogue("twin0", [(WT, "Sample Saga", [("JP", "manga", L1, [("1", "9784000000013", None), ("4", "9784000000044", None)]),
+                                                        ("JP", "manga", L2, [("2", "9784000000020", None), ("3", "9784000000037", None), ("5", "9784000000051", None)])])]))
+mid = catalogue("twin1", [(WT, "Sample Saga", [("JP", "manga", L1, [("4", "9784000000044", None)]),
+                                               ("JP", "manga", L2, [("2", "9784000000020", None), ("3", "9784000000037", None), ("5", "9784000000051", None)])])])
+db = sqlite3.connect(mid)
+K.redirects(db, c0, excluded=set())
+old_v1 = _id("v_", rl(WT, "JP", L1), "1")
+eq("the vanished volume retires to its line", db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (old_v1,)).fetchone(),
+   (rl(WT, "JP", L1), "retired"))
+db.close()
+c1 = artifact(mid, c0)
+after = catalogue("twin2", [(WT, "Sample Saga", [("JP", "manga", L1, [("4", "9784000000044", None)]),
+                                                 ("JP", "manga", L2, [("1", "9784000000013", None), ("2", "9784000000020", None), ("3", "9784000000037", None), ("5", "9784000000051", None)])])])
+db = sqlite3.connect(after)
+rep = K.redirects(db, c1, excluded=set())
+eq("1c: the retired id is re-pointed to the twin's volume of its number (reason correction)",
+   (db.execute("SELECT new_id, entity, reason FROM id_redirect WHERE old_id=?", (old_v1,)).fetchone(), rep["repointed"]),
+   ((_id("v_", rl(WT, "JP", L2), "1"), "volume", "correction"), [old_v1]))
+db.close()
+art_t = artifact(after, c1)
+eq("1c: the artifact resolves the old id to the present volume, and the gate passes",
+   (sqlite3.connect(art_t).execute("SELECT new_tome_id, reason FROM id_redirect WHERE old_tome_id=?", (old_v1,)).fetchone(), ids_ok(art_t, c1)),
+   ((_id("v_", rl(WT, "JP", L2), "1"), "correction"), []))
+# not when the line holds the number again (the row is stale and dropped), not for another name, not for two twins
+back = catalogue("twin3", [(WT, "Sample Saga", [("JP", "manga", L1, [("1", "9784000000013", None), ("4", "9784000000044", None)]),
+                                                ("JP", "manga", L2, [("2", "9784000000020", None)])])])
+db = sqlite3.connect(back)
+rep = K.redirects(db, c1, excluded=set())
+eq("1c: a volume back on its own line is the stale case, not a re-point", (db.execute("SELECT COUNT(*) FROM id_redirect WHERE old_id=?", (old_v1,)).fetchone()[0], rep["repointed"], old_v1 in rep["stale"]), (0, [], True))
+db.close()
+other = catalogue("twin4", [(WT, "Sample Saga", [("JP", "manga", L1, [("4", "9784000000044", None)]),
+                                                 ("JP", "manga", "Sample Saga (Deluxe)", [("1", "9784000000013", None)]),
+                                                 ("JP", "manga", L2, [("2", "9784000000020", None)])])])
+db = sqlite3.connect(other)
+rep = K.redirects(db, c1, excluded=set())
+eq("1c: a line of another name is no twin: the row stays retired",
+   (db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (old_v1,)).fetchone(), rep["repointed"]), ((rl(WT, "JP", L1), "retired"), []))
+db.close()
+two = catalogue("twin5", [(WT, "Sample Saga", [("JP", "manga", L1, [("4", "9784000000044", None)]),
+                                               ("JP", "manga", L2, [("1", "9784000000013", None), ("2", "9784000000020", None)]),
+                                               ("JP", "manga", "Sample Saga: 3rd Season", [("1", "9784000000068", None)])])])
+mid_b = catalogue("twin1b", [(WT, "Sample Saga", [("JP", "manga", L1, [("4", "9784000000044", None)]),
+                                                  ("JP", "manga", L2, [("2", "9784000000020", None)]),
+                                                  ("JP", "manga", "Sample Saga: 3rd Season", [("6", "9784000000068", None)])])])
+db = sqlite3.connect(mid_b)
+K.redirects(db, c0, excluded=set())
+db.commit(); db.close()
+c1b = artifact(mid_b, c0)
+db = sqlite3.connect(two)
+rep = K.redirects(db, c1b, excluded=set())
+eq("1c: two twins holding the number: the row stays retired",
+   (db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (old_v1,)).fetchone(), rep["repointed"]), ((rl(WT, "JP", L1), "retired"), []))
+db.close()
+
 # ---- an excluded work is retired on purpose; any other vanished work is an orphan ----------------
 WX, WG = "en:Excluded", "en:Gone"
 before = catalogue("gone1", [(WN, "Undated", [("JP", "manga", "Undated", vols(8, 2))]),

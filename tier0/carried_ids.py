@@ -50,6 +50,12 @@ resolve forever through id_redirect. Two stages keep it, for any market, any ent
          line of that market + medium (reason retired). Two candidates tied at the top: the
          one NEW in this build wins when exactly one is (a re-key beside its published twin);
          otherwise AMBIGUOUS at every step: reported as an orphan (the gate fails);
+      1c. a carried volume row that RETIRED to its line (the volume was gone) whose number is now
+         held by a same-named twin line of the same work, market and medium -- one edition under
+         two publisher names, the volume filed under the other name once deposited (The Pawn's
+         Revenge, 2026-11-06) -- is re-pointed to that volume (reason correction): the id was
+         minted from the line and the number, v_<hash(line, n)>, so the number is known. Only
+         when the line itself still lacks that number and exactly one twin holds it;
       4. a carried VOLUME this build lost -> the one volume of its line's successor with its
          ISBN, else the volume of the same number there, else the one volume of its market with
          its ISBN, else the successor LINE (reason retired: the volume is gone, the id still
@@ -61,7 +67,7 @@ resolve forever through id_redirect. Two stages keep it, for any market, any ent
       target is an orphan: reported here, and export/test_artifact.py run_ids fails on it.
       Ids 3e (build_dnb.redirects) already redirected are left as they are.
 """
-import collections, datetime, json, os, sqlite3, sys
+import collections, datetime, json, os, re, sqlite3, sys, unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -80,24 +86,32 @@ def _cols(db, table):
     return {r[1] for r in db.execute("PRAGMA table_info(%s)" % table)}
 
 
+def _fold(name):
+    """A line name as a twin test: case, accents and punctuation aside."""
+    s = unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^0-9a-z]+", "", s)
+
+
 def read_carry(carry):
     """The carried artifact's ids, or None when there is none.
-    lines {tome_id: (work, market, medium)}; vols {tome_id: (line, number, isbn13, date)};
-    redirects [(old, new, entity, reason)]."""
+    lines {tome_id: (work, market, medium)}; names {tome_id: series.name}; vols {tome_id: (line, number,
+    isbn13, date)}; redirects [(old, new, entity, reason)]."""
     if not carry or not os.path.exists(carry):
         return None
     A = sqlite3.connect(carry)
     sc, vc = _cols(A, "series"), _cols(A, "volumes")
     if "tome_id" not in sc:
         return None
-    lines, by_int = {}, {}
-    q = "SELECT gcd_series_id, tome_id, %s, %s, language, %s FROM series" % (
+    lines, names, by_int = {}, {}, {}
+    q = "SELECT gcd_series_id, tome_id, %s, %s, language, %s, %s FROM series" % (
         "tome_work_id" if "tome_work_id" in sc else "NULL",
         "country" if "country" in sc else "NULL",
-        "medium" if "medium" in sc else "NULL")
-    for sid, tid, wid, country, lang, medium in A.execute(q):
+        "medium" if "medium" in sc else "NULL",
+        "name" if "name" in sc else "NULL")
+    for sid, tid, wid, country, lang, medium, name in A.execute(q):
         if tid:
             lines[tid] = (wid, country or MARKET_OF_LANG.get(lang, (lang or "").upper()), medium)
+            names[tid] = name
             by_int[sid] = tid
     vols = {}
     if "tome_id" in vc:
@@ -116,7 +130,7 @@ def read_carry(carry):
             "SELECT value FROM meta WHERE key='merged_lines'").fetchone()[0])}
     except (sqlite3.OperationalError, TypeError, ValueError):
         merged = {}
-    return {"lines": lines, "vols": vols, "redirects": red, "merged": merged}
+    return {"lines": lines, "names": names, "vols": vols, "redirects": red, "merged": merged}
 
 
 def _table(db, name):
@@ -355,7 +369,7 @@ def redirects(db, carry, excluded=None):
     """Stage 7b. -> report dict (counts by entity / reason / market, orphans, exempt)."""
     C = read_carry(carry)
     rep = {"rows": collections.Counter(), "by_market": collections.Counter(), "orphans": [],
-           "excluded": 0, "carried_rows": 0, "written": [], "stale": [], "ambiguous": []}
+           "excluded": 0, "carried_rows": 0, "written": [], "stale": [], "ambiguous": [], "repointed": []}
     if not C:
         return rep
     if excluded is None:
@@ -408,6 +422,26 @@ def redirects(db, carry, excluded=None):
     dated_in = collections.defaultdict(set)
     for v, l, n, d in db.execute("SELECT id, release_line_id, number, release_date FROM volume WHERE release_date IS NOT NULL"):
         dated_in[l].add((n, d))
+
+    # 1c. a carried volume row that retired to its line, whose number a same-named twin line of the work
+    # (same market, same medium) holds now: the twin's volume of that number is its successor. The old
+    # id was minted as v_<hash(line, number)>, so the number is read back from the id; the line itself
+    # must still lack that number, and exactly one twin must hold it.
+    names = C.get("names") or {}
+    twins = collections.defaultdict(list)
+    for l, (w, m, d) in lines_now.items():
+        if l in C["lines"] and names.get(l):
+            twins[(w, m, d, _fold(names[l]))].append(l)
+    entity_of = dict(db.execute("SELECT old_id, entity FROM id_redirect"))
+    for old, tgt in sorted(red.items()):
+        if reason_of.get(old) != "retired" or entity_of.get(old) != "volume" or tgt not in lines_now:
+            continue
+        w, m, d = lines_now[tgt]
+        sibs = [l for l in twins.get((w, m, d, _fold(names.get(tgt) or "")), []) if l != tgt]
+        found = [v for (l, n), v in num_in.items() if l in sibs and (tgt, n) not in num_in and _id("v_", tgt, n) == old]
+        if len(found) == 1:
+            put(old, found[0], "volume", "correction", m)
+            rep["repointed"].append(old)
 
     # 1b. round C merges (stage 4c2, tier0/round_c_merge.py meta roundc:merged): the decision is on
     # record, so it names the successor before any vote -- a tail or section line without ISBNs
@@ -578,6 +612,9 @@ def main(argv):
         return
     rep = redirects(db, carry)
     print("  carried id_redirect rows re-read: %d new" % rep["carried_rows"])
+    if rep["repointed"]:
+        print("  re-pointed %d retired volume id(s) to the same-numbered volume of a same-named twin line: %s"
+              % (len(rep["repointed"]), rep["repointed"][:10]))
     if rep["stale"]:
         print("  dropped %d redirect(s) whose old id is present again (a reverted re-key): %s"
               % (len(rep["stale"]), rep["stale"][:10]))
