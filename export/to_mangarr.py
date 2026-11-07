@@ -403,6 +403,41 @@ OMNIBUS_NAME = re.compile(
     r"|\bsammelb[aä]nde?\b|\bmassiv\b|\bmehrfachband\b|\bdoppelband\b", re.I)
 
 
+# An edition that MAY collect several volumes into one book, or may not -- the name does not say: deluxe,
+# perfect, kanzenban, bunkoban, aizōban, shinsōban, wideban, collector's, "new edition", complete, master,
+# anniversary, special, star ... For these the DATA decides (collects_by_count): fewer books than the main line of
+# the work and thicker ones.
+EDITION_NAME = re.compile(
+    r"deluxe|perfect|kanzenban|collector|bunko|aiz[oō]ban|shins[oō]ban|wide-?ban|new edition|complete|"
+    r"master\s?(?:piece|edition)|anniversary|remaster|ultimate|library edition|hardcover|luxe|star edition|"
+    r"collected edition|special edition|re-?edition", re.I)
+
+
+def edition_named(lname, wtitle):
+    """True when the edition part of a line's name names an edition that may or may not collect (EDITION_NAME)."""
+    if not lname or normalize(lname) == normalize(wtitle or ""):
+        return False
+    rest = re.sub(re.escape(wtitle), " ", lname, flags=re.I) if wtitle else lname
+    return EDITION_NAME.search(rest) is not None
+
+
+def collects_by_count(mine, theirs):
+    """The data's own tell that an edition collects: mine / theirs = [(volume number, page count or None)] of the
+    edition line and of the main line it is measured against. True when the edition has clearly fewer books
+    (at most three quarters of a main line of at least 4) and thicker ones: at least 3 known page counts with
+    a median 1.3 times the main line's (3+ counts), or at least 320 pages when the main line's are unknown.
+    Measured on the published catalogue (2026-11-07): 10 of 123 edition lines, every one a collected edition
+    (Parasyte kanzenban 8 for 12, Sailor Moon shinsōban 12 for 18, Ranma ½ Perfect Edition 20 for 38 ...);
+    95 have fewer than 3 page counts and 10 no main line to compare, and stay as they are."""
+    vc, mvc = len({n for n, _ in mine}), len({n for n, _ in theirs})
+    pe = sorted(p for _, p in mine if p)
+    pm = sorted(p for _, p in theirs if p)
+    if mvc < 4 or vc > 0.75 * mvc or len(pe) < 3:
+        return False
+    med = pe[len(pe) // 2]
+    return med >= 1.3 * pm[len(pm) // 2] if len(pm) >= 3 else med >= 320
+
+
 def omnibus_named(lname, wtitle):
     """True when the EDITION part of a line's name says omnibus (OMNIBUS_NAME): the name without the work's own
     title, so a work called 'Omnibus Tales' flags none of its lines."""
@@ -857,6 +892,20 @@ def export(src_path, out_path, carry_ids_from=None):
     alias_rows = []
     line_format = dict(src.execute("SELECT id, format FROM release_line"))
     named_omni = []
+    # every line's integer volumes with their resolved page counts: an edition line that may or may not collect is
+    # measured against its work's main line of the market, else the origin line (collects_by_count)
+    line_vols = collections.defaultdict(list)
+    for vid, rid_, num in src.execute("SELECT id, release_line_id, number FROM volume"):
+        try:
+            line_vols[rid_].append((int(num), pages.get(vid)))
+        except (TypeError, ValueError):
+            pass
+
+    def collects(rid, wid, market, medium):
+        main = main_of.get((wid, market, medium))
+        if main in (None, rid):
+            main = orid_of.get(rid)
+        return bool(main) and main != rid and collects_by_count(line_vols.get(rid, []), line_vols.get(main, []))
     for rid, wid, market, medium, publisher, status, parent_rl, wtitle, lname in lines:
         sid = mapping[rid]
         is_main = 1 if main_of.get((wid, market, medium)) == rid else 0
@@ -923,7 +972,8 @@ def export(src_path, out_path, carry_ids_from=None):
         # nothing -- its name (omnibus_named), or the catalogue's line format (DNB's edition statement, 'Massiv').
         # It ships flagged all the same (a consumer must not read its 6 books as volumes 1-6 of the original);
         # no composition is invented for it, and everything below that needs the list still asks is_omni.
-        flagged = 1 if (is_omni or line_format.get(rid) == "omnibus" or omnibus_named(lname, wtitle)) else 0
+        flagged = 1 if (is_omni or line_format.get(rid) == "omnibus" or omnibus_named(lname, wtitle)
+                        or (edition_named(lname, wtitle) and collects(rid, wid, market, medium))) else 0
         if flagged and not is_omni:
             named_omni.append(rid)
         n_omni += flagged

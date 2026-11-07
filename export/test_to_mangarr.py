@@ -152,14 +152,26 @@ def run():
     eq("omnibus_named: a name made of long runs of spaces is read in no time, and says nothing",
        ([omnibus_named("Sample Saga (2" + " " * 20000 + "x)", "Sample Saga"), omnibus_named("volumes" + " " * 20000 + "x", "Sample")],
         _time.perf_counter() - _t0 < 2.0), ([False, False], True))
+    from to_mangarr import collects_by_count, edition_named
+    thin8 = [(n, 190) for n in range(1, 9)]
+    eq("collects_by_count: fewer and thicker; not when the main line is short, not when the counts are unknown, "
+       "320 pages when the main line's are",
+       [collects_by_count([(n, 400) for n in range(1, 5)], thin8), collects_by_count([(n, 400) for n in range(1, 5)], thin8[:3]),
+        collects_by_count([(1, 400), (2, 400), (3, None), (4, None)], thin8), collects_by_count([(n, 330) for n in range(1, 5)], [(n, None) for n in range(1, 9)]),
+        collects_by_count([(n, 300) for n in range(1, 5)], [(n, None) for n in range(1, 9)]), collects_by_count([(n, 240) for n in range(1, 5)], thin8)],
+       [True, False, False, True, False, False])
+    eq("edition_named: the editions the name alone cannot decide; never the work's own title",
+       [edition_named(n, "Sample Saga") for n in ("Sample Saga (Deluxe edition)", "Sample Saga (Kanzenban)", "Sample Saga (Édition Shinsōban)",
+                                                   "Sample Saga (Star Edition)", "Sample Saga", "Sample Saga (Omnibus edition)")],
+       [True, True, True, True, False, False])
     om, om_meta = fixture_omnibus_flag()
     eq("export: flagged by name or by the catalogue's line format; a composition still flags; the rest are not",
        {t: v[0] for t, v in om.items()},
        {"rl_main": 0, "rl_omni": 1, "rl_2in1": 1, "rl_big": 1, "rl_fr": 1, "rl_frd": 1, "rl_de": 1, "rl_dem": 1, "rl_comp": 1,
-        "rl_dlx": 0, "rl_dld": 0, "rl_dbl": 0, "rl_box": 0, "rl_b": 0, "rl_bd": 0})
-    eq("export: a line flagged by its name carries no composition (nothing is invented); the one with a list keeps it",
+        "rl_dlx": 1, "rl_dlx7": 0, "rl_dlx_thin": 0, "rl_dlx_few": 0, "rl_dld": 0, "rl_dbl": 0, "rl_box": 0, "rl_b": 0, "rl_bd": 0})
+    eq("export: a line flagged by its name or its count carries no composition (nothing is invented); the one with a list keeps it",
        ({t for t, v in om.items() if v[1]}, om_meta.get("omnibus_lines"), json.loads(om_meta.get("omnibus_lines_named") or "null")),
-       ({"rl_comp"}, "8", ["rl_2in1", "rl_big", "rl_de", "rl_dem", "rl_fr", "rl_frd", "rl_omni"]))
+       ({"rl_comp"}, "9", ["rl_2in1", "rl_big", "rl_de", "rl_dem", "rl_dlx", "rl_fr", "rl_frd", "rl_omni"]))
 
     # ---- a redirected line keeps its consumer-facing integer (2026-09-24, DNB) --------
     # A DNB line whose source key changed (a parent record appeared) gets a new rl_ id and
@@ -743,6 +755,10 @@ def fixture_omnibus_flag():
     db.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
     db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_a','Sample Saga','x','x')")
     db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_b','Omnibus Tales','x','x')")
+    # per line: (volumes, pages each) -- the main line has 8 thin books; a deluxe line of 4 thick books collects,
+    # one of 7 thick books does not (not clearly fewer), one of 4 thin books does not, one with 2 known page
+    # counts cannot be told
+    shape = {"rl_main": (8, 190), "rl_dlx": (4, 400), "rl_dlx7": (7, 400), "rl_dlx_thin": (4, 200), "rl_dlx_few": (4, None)}
     rows = (("rl_main", "w_a", "EN", "en", None, None), ("rl_omni", "w_a", "EN", "en", None, "Sample Saga (Omnibus edition)"),
             ("rl_2in1", "w_a", "EN", "en", None, "Sample Saga (2014 English release (2-in-1 Edition)"),
             ("rl_big", "w_a", "EN", "en", None, "Sample Saga (VizBig edition)"),
@@ -752,6 +768,9 @@ def fixture_omnibus_flag():
             ("rl_dem", "w_a", "DE", "de", None, "Sample saga massiv"),
             ("rl_comp", "w_a", "EN", "en", None, "Sample Saga (Collected)"),     # says what each book holds
             ("rl_dlx", "w_a", "EN", "en", None, "Sample Saga (Deluxe edition)"),
+            ("rl_dlx7", "w_a", "EN", "en", None, "Sample Saga (Perfect edition)"),
+            ("rl_dlx_thin", "w_a", "EN", "en", None, "Sample Saga (Kanzenban edition)"),
+            ("rl_dlx_few", "w_a", "EN", "en", None, "Sample Saga (Collector's edition)"),
             ("rl_dld", "w_a", "DE", "de", "deluxe", "Sample Saga Deluxe"),
             ("rl_dbl", "w_a", "EN", "en", None, "Sample Saga (English double issues)"),
             ("rl_box", "w_a", "EN", "en", None, "Sample Saga (Box sets)"),
@@ -762,10 +781,15 @@ def fixture_omnibus_flag():
         if name:
             db.execute("""INSERT INTO claim(entity,entity_id,field,value,source,licence,retrieved_at)
                           VALUES('release_line',?,'line_name',?,'wikipedia','facts_only','x')""", (rid, name))
-        for num in ("1", "2"):
+        n_vols, pp = shape.get(rid, (2, None))
+        for k in range(1, n_vols + 1):
+            num = str(k)
             db.execute("""INSERT INTO volume(id,release_line_id,number,release_date,release_date_precision,
-                                            created_at,updated_at) VALUES(?,?,?,'2020-01-0' || ?,'day','x','x')""",
-                       ("v_%s_%s" % (rid, num), rid, num, num))
+                                            created_at,updated_at) VALUES(?,?,?,?,'day','x','x')""",
+                       ("v_%s_%s" % (rid, num), rid, num, "2020-01-%02d" % k))
+            if pp and (rid != "rl_dlx_few" or k <= 2):          # resolved page counts (the export reads `resolution`)
+                db.execute("INSERT INTO resolution(entity,entity_id,field,value,confidence,basis) VALUES('volume',?,'page_count',?,1.0,'single_source')",
+                           ("v_%s_%s" % (rid, num), str(pp)))
     db.execute("INSERT INTO composition(volume_id,contains,ref_list) VALUES('v_rl_comp_1','volume','[1, 2]')")
     db.execute("INSERT INTO composition(volume_id,contains,ref_list) VALUES('v_rl_omni_1','chapter','[1, 2, 3]')")
     db.commit()
