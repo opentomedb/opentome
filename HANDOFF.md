@@ -1,5 +1,86 @@
 # HANDOFF — OpenTome
 
+## The backlog of the parked round -- **FIXED LOCALLY 2026-11-07 (main 1b3099b + this file), NOT PUSHED; nothing published**
+
+Nick, 11-06: "do the backlog" (the four items the section below lists as still open). Four commits on top of bf6b664,
+local only. **Pushing them needs Nick's push or his word.** The published catalogue is `opentome-2026-11-06`
+(sha 448a1018, the second publish of 11-06), which is also the local id carry now (`build/manga-metadata.sqlite`;
+the morning's 71a79453 file is `build/manga-metadata.sqlite.published-20261106a`).
+
+**NEXT, in order:** (1) push main (GitHub + Forgejo); (2) `gh workflow run catalogue.yml -R opentomedb/opentome --ref main`
+(build-only) and read the log against "What CI must confirm" below; (3) green -> the same dispatch with
+`-f publish=true`; (4) wait until opentomedb.com/catalogue/version.json carries the new sha (up to 10 minutes), then
+Mangarr Metadata Update on the homelab + its ledger line; (5) measure chapter lists on the published file against
+sha 448a1018 (English volumes passing Mangarr's adjacency rule 10,917; all languages 37,493; English one-chapter
+lists 109).
+
+**1. 7b re-points a retired volume id -- 1562e0e** (`carried_ids.redirects` step 1c; docs/carried-ids.md). A carried
+row that retired a volume to its line was only re-read; when the volume is filed again under the other publisher
+name of the same edition (one season as two lines), the old id `v_<hash(line, number)>` gives the number back and the
+twin's volume of that number is the successor (reason `correction`). Only while the line itself still lacks the
+number and exactly one same-named twin of the work, market and medium holds it; a volume back on its own line is the
+stale case. On the carry: one row, v_1a962f064793 -> v_6468d08af096 (The Pawn's Revenge, 3rd season vol 1).
+
+**2. The JP-origin German sets with the season layout -- 26a7614** (`build_dnb.split_sections(home=True)`, moved from
+krcn_lines and shared; docs/dnb-design.md). The five sets split: Wonderful Wonder World - Country of Clubs, Pokémon -
+die großen Abenteuer, Record of Lodoss War, Gorgeous Carat, The Legend of Zelda. The section catalogued first (the
+set's lowest-IDN numbered volume) stays the set under its published key and name, because the published line holds
+exactly that section's volumes (checked: Pokémon vols 1-3 = Rot, Blau und Gelb 1-3; Gorgeous Carat 1-4 = Der Reiz der
+Finsternis 1-4); only the other sections move. **Moved ids: none.** No published line or volume id changes, no
+redirect is written; 8 new section lines (2 of them in published, linked sets: "Pokémon™ - die großen Abenteuer –
+Gold und Silber" 2 vols, "Gorgeous carat – La esperanza : die Madonna der Hoffnung" 2 vols; the other 3 sets are
+unlinked, as before). Duplicates dropped in the JP round 226 -> 207. The KR/CN round keeps `home=False` (every
+section moves) because its section keys are published. The set's title proper is a title of every section line
+(shape_line) so the sections link to one work.
+
+**3. The 123 edition lines -- 02c7cdc.** Not by name. `is_omnibus` is set (and the id listed in `omnibus_lines_named`)
+only where the data says the line collects: clearly fewer books than its work's main line of the market, else the
+origin line (at most three quarters of a main line of at least 4), and thicker ones (at least 3 known page counts
+with a median 1.3 times the main line's, or 320 pages when the main line's are unknown). On the published artifact
+10 of the 123 pass, in the offline rebuild 9 lines flip, every one a collected edition on inspection: Parasyte
+kanzenban (8 for 12), Sailor Moon shinsōban (12 for 18), Lone Wolf and Cub aizōban (4 x 697 pp), Soul Eater Perfect
+Edition, Spriggan deluxe, Nodame Cantabile deluxe, Racaille Blues Masterpiece, Shaman King and YuYu Hakusho Star
+Editions. Of the rest: 95 have fewer than 3 page counts, 10 no main line to compare, 8 pass one half of the test
+(Hikaru no Go deluxe: fewer, not thicker; Maison Ikkoku Collector's: thicker, but the JP main line the catalogue
+holds has 2 volumes). They stay as they are; the evidence is too thin for a cleaner rule.
+
+**4. Chapter lists -- 1b3099b** (`tier0/wikipedia_volumes.py`, 15 new tests).
+- A number inside a title is left alone: glued to a slash ("X/1999 - ..."), hyphenated to a word ("365-Step",
+  "Class 2-B,", "1-Karat", "6-toshi"; not a label and its separator, "15-R :", "1-A."), deep inside an open quote
+  ("The Guardians of Desire (2–3)"), in a later argument of {{nihongo}} / {{japonais}}. Measured on every cached
+  cell: 141 English and 42 French lists lose a number, each one read out of a title (looked at one by one; two
+  Maburaho lists lose a real "Dai 7-wa"), no list gains one by this rule. Requiring every number at the head of its
+  entry was tried earlier and rejected (it drops "{{N°}}45 :", "Reincarnation 216.", "Kill-17 :").
+- Shapes read only in a run of entries that follow each other: a quoted label and number ('"Mission:14"', three
+  or more), an ordinal and a word ("24th day", "44th Night", "1st Life"), a zero-padded number and a title ("01
+  Sample"), an entry that is a bare number ("* 25"); never a year, never under a word for things numbered apart; a
+  heading ordinal before a chapter range ("2nd Stage: Chapters 9–17") no longer stops the range; <div> wrappers are
+  dropped (the last entry of a French cell carried "</div>"). 252 English and 138 French lists gain numbers.
+- Not done: Roman numerals ("Chapter IV:") -- light novels only, whose chapters restart per volume; the "two lists
+  for one volume" pick (Air Gear's JP line loses 2 trusted volumes where the French cell's list now wins over the
+  English one).
+- **Measured** (stage 2 built into scratch databases before and after, cache only; comic lines): lists of one whole
+  chapter EN 98 -> 50, FR 157 -> 139, JP 268 -> 218; volumes passing Mangarr's adjacency rule EN 10,949 -> 11,126,
+  FR 7,385 -> 7,529, JP 19,331 -> 19,641; whole chapters claimed by two volumes of a line EN 643 -> 586. On the
+  rebuilt artifact against the published 448a1018 file: English one-chapter lists 109 -> 61 (165 on the morning's
+  publish, 2,014 on 10-20), English volumes passing 10,917 -> 11,112, all languages 37,493 -> 38,160.
+  English-market volume records whose list is one chapter, at the parser: 108 -> 61 (167 before the 11-06 round).
+
+**Verified:** every stage-0 suite green. One full offline rebuild against the 448a1018 carry: it stops at 8c on the
+two rules only the LOCAL DNB cache produces (55 carried German volumes retired; a shared name in w_dc0f270e3cb4),
+and only those; the two omnibus rules pass; 7b prints `re-pointed 1 retired volume id(s)`; 3f ids "kept 551, taken 2
+(weak 0), left 1" (the one left is local-cache drift, there before); no name, work, integer or AniList id of a
+published line changes; 0 lines or volumes gone without a redirect. **8d (measure gate, library gate) was not reached
+locally.**
+
+**What CI must confirm:**
+- 8c green with `omnibus_lines` 194 -> about 203 (the 9 count-rule flips; CI's records are fresher).
+- 3e: `dropped_duplicate_number` 226 -> 207 in the German JP round; DE lines +2 exported (the Pokémon and Gorgeous
+  Carat sections, if the linker links them as it links their sets); no German line retired for it.
+- 7b: `re-pointed 1 retired volume id(s) ... ['v_1a962f064793']`; against 448a1018, 0 carried ids moved.
+- 8d: every floor, and the library gate (9 flags flipped; a non-omnibus line ranks before an omnibus one).
+- Then the chapter-list numbers above on the published file.
+
 ## Parked data items -- **PUBLISHED 2026-11-06 (second publish of the day) as `opentome-2026-11-06`** (main 368fa14; sha 448a1018; build-only 42261912642, publish 42263016184; Mangarr pulled it 11:53 CST)
 
 Nick, 11-06: "3. yes" to pushing the five commits 0e9dc54..368fa14 (a one-time word; the rule that Nick pushes main is
@@ -20,9 +101,7 @@ exported lines 325 -> 330).
 (`max-age=600`): this time about 10 minutes, not 4. Compare its sha with the release's before running Mangarr's
 Metadata Update.
 
-**Still open (nobody's go-ahead):** the items the section below lists as left (3rd-season vol 1's retired id is not
-re-pointed to its new id; the same season layout in five JP-origin German sets; 123 deluxe / perfect / collector's
-lines stay unflagged; about 44 English one-chapter lists read a number out of a title).
+**Still open as of this publish:** the four items the section at the top of this file took on 11-07 (fixed locally there).
 
 ## Parked data items -- **FIXED LOCALLY 2026-11-06 (main 5c32881 + this file), NOT PUSHED; nothing published**
 
