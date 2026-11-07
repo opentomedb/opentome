@@ -1,5 +1,35 @@
 # HANDOFF — OpenTome
 
+## The 11-07 DNB refresh -- **FIXED LOCALLY 2026-11-07 (main 587d71a + this file), NOT PUSHED; nothing published**
+
+Nick, 11-07: "1. Push" for the parked round's five commits. Pushed (GitHub + Forgejo main 601168c), build-only run
+42413457514 **red** on two contract rules -- not the round's code: the run made 155 live DNB requests (`DNB_REFRESH_DAYS: 6`,
+2022-2024 re-paged, 28,110 -> 28,308 records) where the 11-06 green runs made 0, and the same tree rebuilt locally
+with the same refresh reproduces the failure exactly (same 37 redirects, same first ids). The "two rules only the
+local DNB cache produces" of the sections below were this: the local cache had been refreshed first. One commit,
+587d71a, fixes the three causes (its message carries the measurements):
+- **Continuity for the JP round** (`build_dnb.adopt_published_ids`): nine published lines re-keyed by new DNB set
+  records now keep their ids and names; 4 adopt on this data, the other 5 are stray volumes DNB linked to their set
+  lines (legitimate, redirected). docs/id-scheme.md has the row, docs/dnb-design.md the paragraph.
+- **A new edition line named with its edition** (`build_dnb.name_new_editions`): the 2026 Loewe hardcover of Mein
+  Buchcafé in einer anderen Welt (`250 Perfect edition`) and three more new edition lines; published names unchanged.
+- **Carried-ISBN recovery** (`dnb_enumerate.recover_carried`): Das Biest des Königs Bd. 2-16, 18 (DNB dropped their
+  041$h; `spo=jpn` lost them, `num=` returns them) are back; 31 of 54 asked ISBNs found, at most 60 new lookups a run.
+- **Tried and reverted:** the Kazé family in the imprint channel (+862 records, 15 new same-name pairs, 340 volumes
+  moved). A round of its own; measurement in docs/dnb-design.md.
+
+**Offline rebuild on the refreshed cache: `artifact contract ok`** (German volumes gone 9, cap 25; E1/E3 0; same-name
+pairs 0; moved 15; retired volumes 1). Local 8d stops at the library fixture (a CI secret), as always.
+
+**NEXT:** Nick's push word for 587d71a (+ this file) -> build-only run -> green -> publish -> Mangarr Metadata Update +
+FlightLog line -> measure -> #beta note. **What CI must confirm** on top of the list in the section below: 3e prints
+`recovery 54 carried ISBN(s) ...: 31 found` (or fewer missing: CI's cache may still hold some), `continuity: 4 line(s)`,
+`new edition lines named with their edition: [4]`; 8c German cap ok; 8d every floor and the library gate. The refreshed
+cache is saved (opentome-cache-42413457514-1), so the next run refreshes nothing for six days.
+
+**Gotcha, learned:** a local rebuild is a mirror of CI only when the local cache is as fresh; before calling a failure
+"local-only", run `DNB_REFRESH_DAYS=1` once and compare the `records` line with CI's.
+
 ## The backlog of the parked round -- **FIXED LOCALLY 2026-11-07 (main 1b3099b + this file), NOT PUSHED; nothing published**
 
 Nick, 11-06: "do the backlog" (the four items the section below lists as still open). Four commits on top of bf6b664,
