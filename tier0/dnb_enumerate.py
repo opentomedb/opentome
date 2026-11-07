@@ -217,7 +217,8 @@ def recover_carried(recs, isbns, verbose=True):
     and the volume retires as before. -> ({idn: record}, tally)."""
     have = {i for r in recs.values() for i in M.isbns(r)}
     missing = sorted(i for i in isbns if i and i not in have)
-    out, tally = {}, {"recover_missing": len(missing), "recover_found": 0, "recover_failed": 0, "recover_deferred": 0}
+    out, tally = {}, {"recover_missing": len(missing), "recover_found": 0, "recover_failed": 0, "recover_deferred": 0,
+                      "recover_asked": missing}
     looked = 0
     for isbn in missing:
         q = "num=%s and bbg=A*" % isbn

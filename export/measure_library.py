@@ -245,23 +245,40 @@ def measure_de(art_path, catalogue=None):
 
 def same_ids(catalogue):
     """Rebuild the DNB line keys from the cached records (offline) and compare them with the
-    catalogue's: the same member records must land in the same lines, under the same ids."""
+    catalogue's: the same member records must land in the same lines, under the same ids. The
+    reload repeats what the build did from the cache: the carried-ISBN recovery for the ISBNs the
+    build asked (meta dnb:stats recover_asked -- an answer the cache lacks fails here, never goes
+    live), and a line that adopted a published id (adopted_ids) is compared against that id."""
     os.environ["DNB_OFFLINE"] = "1"
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     sys.path.insert(0, os.path.join(root, "tier0"))
     import build_dnb as B, dnb_enumerate as E
+    C = sqlite3.connect(catalogue)
+    try:
+        stats = json.loads(C.execute("SELECT value FROM meta WHERE key='dnb:stats'").fetchone()[0])
+    except (TypeError, ValueError, sqlite3.OperationalError):
+        stats = {}
     recs, parents, _ = E.enumerate_all(verbose=False)
+    asked = set(stats.get("tally", {}).get("recover_asked") or [])
+    if asked:
+        recovered, _ = E.recover_carried(recs, asked, verbose=False)
+        recs.update(recovered)
+        want = {p for r in recovered.values() if not B.M.is_parent(r) for p in B.M.parent_idns(r)} - set(recs) - set(parents)
+        if want:
+            parents.update(E.fetch_parents(recs, want, verbose=False))
+    adopted = {k: rid for rid, k in stats.get("adopted_ids") or []}
     allparents = dict(parents)
     allparents.update({k: r for k, r in recs.items() if B.M.is_parent(r)})
     kept, _ = B.select(recs, allparents)
     groups, _ = B.twins(kept)
+    allparents.update(B.split_sections(groups, allparents, home=True))     # as build() does (2026-11-07)
     now = {m["idn"]: key for key, gs in B.cluster(groups, allparents).items() for g in gs for m in g["members"]}
-    C = sqlite3.connect(catalogue)
     was = dict(C.execute("SELECT idn, line_key FROM dnb_member"))
-    # a merged line IS its Wikipedia line and carries that id by design
+    # a merged line IS its Wikipedia line and carries that id by design; an adopted line carries the
+    # published id it took (build_dnb.adopt_published_ids)
     ids = dict(C.execute("SELECT key, rl_id FROM dnb_line WHERE role<>'merged'"))
     moved = sum(1 for i, k in now.items() if was.get(i) != k)
-    rekeyed = sum(1 for k, rid in ids.items() if B._id("rl_", k) != rid)
+    rekeyed = sum(1 for k, rid in ids.items() if B._id("rl_", k) != rid and adopted.get(k) != rid)
     return (moved == 0 and rekeyed == 0 and len(now) == len(was),
             "%s member records, %d in another line, %d line ids re-keyed" % (format(len(now), ","), moved, rekeyed))
 
