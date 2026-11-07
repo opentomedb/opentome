@@ -140,7 +140,7 @@ reserved in `id_map` (kind `retired`).
 - every work, line and volume id of the carry, **every market** -- and every id the carry's own
   `id_redirect` already resolved -- is present or resolves through the artifact's `id_redirect`
   to an id that is; ids of works in `meta.excluded_works` are exempt;
-- unchanged: more than `MAX_RETIRED_DE_VOLUMES` = 25 carried German volumes gone fails;
+- unchanged: more than `MAX_RETIRED_DE_VOLUMES` = 25 carried German volumes gone fails (gone = not present, redirected or not: a re-key counts, which is what caught the 11-07 refresh -- nine lines re-keyed by new DNB set records, 37 volumes moved with redirects; since then the JP round keeps a published id across a key change, `build_dnb.adopt_published_ids`, docs/dnb-design.md);
 - new: more than `MAX_RETIRED_VOLUMES` = 100 carried volumes, or more than `MAX_RETIRED_LINES` =
   10 carried lines, **retired** in one build, any market, fails — retired = no longer resolving
   to an id of its own kind, or reason `retired`, or not resolving; ids a re-key or a merge moved

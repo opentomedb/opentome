@@ -6,7 +6,9 @@ German Wikipedia documents ~35 manga lines with volume tables (docs/german-marke
 legal deposit puts every German print volume in DNB, CC0. This stage turns DNB's
 Japanese-origin print manga and light novels into DE release lines:
 
-  1. records     tier0/dnb_enumerate.py (three channels, cached; zero network on a rerun)
+  1. records     tier0/dnb_enumerate.py (three channels, cached; zero network on a rerun), plus
+                 the carried-ISBN recovery: a published German volume the channels no longer
+                 return is fetched by ISBN once (recover_carried, 2026-11-07)
   2. select      Japanese origin; manga or light novel (tier0/dnb_marc.classify); print
                  only (the queries say bbg=A*); bundles, box sets, artbooks, guides and
                  combined "1 - 3" records are not volumes in v1
@@ -17,7 +19,11 @@ Japanese-origin print manga and light novels into DE release lines:
                  else folded bare title + publisher; series/title clusters fold into the
                  parent line of the same folded name + publisher + edition. Line id =
                  hash of 'dnb:<parent IDN>' / 'dnb:<lowest member IDN>' -- source data
-                 only, so relinking a line to another work never re-keys it
+                 only, so relinking a line to another work never re-keys it. A line whose
+                 key changed (DNB catalogued a set record for a series keyed by its lowest
+                 member) keeps the published id of the carried line whose ISBNs it still
+                 holds by a strict majority (adopt_published_ids; docs/id-scheme.md
+                 "continuity first") -- the id stays, no redirect is needed
   5. merge       with the German Wikipedia lines: an ISBN shared with a Wikipedia volume
                  attaches to that volume (it gains dnb claims); a DNB line holding the
                  majority of a Wikipedia line's shared ISBNs merges into it and keeps its
@@ -476,8 +482,10 @@ def wiki_lines(db):
     """The German lines already in the catalogue (Wikipedia): {rl_id: {work, vols}} and
     {isbn: (rl_id, volume_id)}."""
     W, by_isbn = {}, {}
-    for rid, wid in db.execute("SELECT id, work_id FROM release_line WHERE market='DE'"):
-        W[rid] = {"work": wid, "vols": {}}
+    for rid, wid, med, name in db.execute("""SELECT rl.id, rl.work_id, rl.medium,
+            (SELECT value FROM claim WHERE entity='release_line' AND entity_id=rl.id AND field='line_name'
+             ORDER BY retrieved_at DESC LIMIT 1) FROM release_line rl WHERE rl.market='DE'"""):
+        W[rid] = {"work": wid, "vols": {}, "medium": med, "name": name}
     for vid, rid, num, isbn in db.execute("""SELECT v.id, v.release_line_id, v.number, v.isbn13 FROM volume v
                                              JOIN release_line rl ON rl.id=v.release_line_id
                                              WHERE rl.market='DE'"""):
@@ -506,13 +514,98 @@ def assign_roles(lines, W, w_isbn):
             ln["role"], ln["wiki_line"] = ("merged" if i == 0 else "sibling"), rid
 
 
+def adopt_published_ids(lines, carried_isbns, W, carried_names=None):
+    """Continuity for the JP round (2026-11-07; docs/id-scheme.md "continuity first", the rule the
+    KR/CN round runs in krcn_identity.line_ids). A line's natural key moves when DNB catalogues a
+    set record for a series that was keyed by its lowest member, or re-files its members: the 11-07
+    refresh re-keyed nine published lines (Mission: Yozakura Family, Heart Gear, ...) and their 37
+    volumes that way, each with a redirect, which tripped the German retired-volume cap. The line
+    is the same line, so it keeps the published id instead:
+      1. continuity -- a line whose own-key id is in the carry keeps it (nothing to do here);
+      2. lookup -- a line whose own-key id was never published takes the published German line
+         (not a Wikipedia line: assign_roles merges into those; not a KR/CN-born one: carried_isbns
+         leaves them out) that no built line keeps by its own key, when it holds a STRICT majority
+         of that line's published ISBNs. Several lines for one id: the most ISBNs held, then the
+         lowest own key; one line for several ids: the most held, then the lowest id. The rest is
+         7b's (carried_ids.redirects: a redirect by majority, a retirement, or a loud orphan).
+    A merged line ships under the Wikipedia id and never adopts. An adopted line keeps its PUBLISHED
+    name (carried_names; a consumer's, and the carry's alias rows must survive -- E1); the set record's
+    own title joins its titles, so it is an alias and a linker title. -> [(published id, key)]."""
+    if not carried_isbns:
+        return []
+    minted = {ln["rl_id"] for ln in lines}
+    free = {t: s for t, s in carried_isbns.items() if s and t not in minted and t not in W}
+    if not free:
+        return []
+    by_isbn = collections.defaultdict(set)
+    for t, s in free.items():
+        for i in s:
+            by_isbn[i].add(t)
+    pairs = []
+    for ln in lines:
+        if ln["rl_id"] in carried_isbns or ln["role"] == "merged":
+            continue
+        shared = collections.Counter(t for g in ln["vols"] for i in set(g["isbns"]) for t in by_isbn.get(i, ()))
+        pairs += [(-n, idn_key(ln["key"][4:]), t, ln) for t, n in shared.items() if 2 * n > len(free[t])]
+    taken, adopted = set(), []
+    for _, _, t, ln in sorted(pairs, key=lambda p: (p[0], p[1], p[2])):
+        if t in taken or ln["rl_id"] in carried_isbns:      # the id is taken, or the line already adopted one
+            continue
+        ln["rl_id"], ln["own_id"] = t, ln["rl_id"]
+        published = (carried_names or {}).get(t)
+        if published and published != ln["name"]:
+            if ln["name"] and ln["name"] not in ln["titles"]:
+                ln["titles"].append(ln["name"])
+            ln["name"] = published
+        taken.add(t)
+        adopted.append((t, ln["key"]))
+    return adopted
+
+
+EDITION_LABEL = {"deluxe": "Deluxe Edition", "massiv": "Massiv", "mehrfachband": "Mehrfachband",
+                 "perfect": "Perfect Edition", "collector": "Collector's Edition",
+                 "limited": "Limitierte Ausgabe", "kanzenban": "Kanzenban"}
+
+
+def name_new_editions(lines, W, carried):
+    """A NEW edition line (its id never published) whose set record is titled exactly like another
+    exported line of its work and medium is named '<title> – <edition>', the section lines' shape
+    (split_sections): the 2026 'Perfect edition' hardcover of Mein Buchcafé in einer anderen Welt
+    (2026-11-07) is its own line by its 250 marker, and DNB titles its set like the paperback's. One
+    work never has two lines of one language and medium with the same name (docs/round-c.md;
+    export/test_artifact.py name_collisions). A published line keeps its name: 144 such pairs
+    shipped before that rule, and a published name is a consumer's. A title that already names its
+    edition ('Dr. Slump Massiv') is left alone. -> [(key, new name)]."""
+    taken = collections.defaultdict(set)
+    for rid, w in W.items():
+        if w.get("name"):
+            taken[(w["work"], w.get("medium"), L.fold(w["name"], False))].add(rid)
+    for ln in lines:
+        if ln["work"] and ln["role"] in ("merged", "sibling", "linked", "kept"):
+            taken[(ln["work"], ln["medium"], L.fold(ln["name"], False))].add(ln["rl_id"])
+    named = []
+    for ln in lines:
+        label = EDITION_LABEL.get(ln["edition"])
+        if not label or not ln["work"] or ln["role"] not in ("sibling", "linked", "kept") or ln["rl_id"] in (carried or {}):
+            continue
+        if not (taken[(ln["work"], ln["medium"], L.fold(ln["name"], False))] - {ln["rl_id"]}):
+            continue
+        if L.fold(label, False) in L.fold(ln["name"], False):
+            continue
+        ln["name"] = "%s – %s" % (ln["name"], label)
+        named.append((ln["key"], ln["name"]))
+    return named
+
+
 # ---- the build (pure: records in, lines out) -----------------------------------------------
 
-def build(recs, parents, idx, W, w_isbn, carried=None, link_work=None):
+def build(recs, parents, idx, W, w_isbn, carried=None, link_work=None, carried_isbns=None, carried_names=None):
     """-> (lines, stats, lost [(group, fate, line key)]). carried: {tome_id: work_id} of the
     German lines in the last published artifact -- a line that shipped there keeps shipping
     (role 'kept', under its published work) when only the linker's answer changed: ids are a
-    public contract, and a consumer may already store it."""
+    public contract, and a consumer may already store it. carried_isbns: {tome_id: {isbn13}} of
+    those lines (carried_isbns()) and carried_names: {tome_id: name} (carried_names()), for
+    adopt_published_ids."""
     allparents = dict(parents)
     allparents.update({k: r for k, r in recs.items() if M.is_parent(r)})
     vols, drop = select(recs, allparents)
@@ -529,6 +622,7 @@ def build(recs, parents, idx, W, w_isbn, carried=None, link_work=None):
         ln.update(tier=tier, link_work=work, candidates=cands, via=via)
         lines.append(ln)
     assign_roles(lines, W, w_isbn)
+    adopted = adopt_published_ids(lines, carried_isbns, W, carried_names)
     for ln in lines:
         if ln["role"] in ("merged", "sibling"):
             ln["truth_work"] = W[ln["wiki_line"]]["work"]
@@ -561,10 +655,11 @@ def build(recs, parents, idx, W, w_isbn, carried=None, link_work=None):
             if ln["role"] in ("review", "unlinked") and not counter and \
                     (carried or {}).get(ln["rl_id"]) in idx.name:
                 ln["role"], ln["work"] = "kept", carried[ln["rl_id"]]
+    edition_named = name_new_editions(lines, W, carried)
     stats = {"records": len(recs), "parents_known": len(allparents), "kept_records": len(vols),
              "dropped": dict(sorted(drop.items())), "volume_groups": len(groups),
              "twin_records_merged": len(vols) - len(groups), "boxset_isbns": len(boxset),
-             "lines": len(lines)}
+             "lines": len(lines), "adopted": len(adopted), "adopted_ids": adopted, "edition_named": edition_named}
     return lines, stats, lost
 
 
@@ -728,6 +823,41 @@ def carried_lines(carry):
         return {}
 
 
+def carried_isbns(carry):
+    """{tome_id: {isbn13}} of the German lines in the carried artifact that the JP round may adopt
+    (adopt_published_ids): KR/CN-born lines (meta krcn_ids) are left out -- their own continuity
+    rule keeps them (krcn_identity.line_ids), and the two rounds' ids must stay disjoint."""
+    if not carry or not os.path.exists(carry):
+        return {}
+    C = sqlite3.connect(carry)
+    try:
+        rows = C.execute("SELECT s.tome_id, v.isbn13 FROM series s JOIN volumes v USING(gcd_series_id) "
+                         "WHERE s.language='de' AND s.tome_id IS NOT NULL").fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    try:
+        krcn = set(json.loads(C.execute("SELECT value FROM meta WHERE key='krcn_ids'").fetchone()[0]).get("lines", {}))
+    except (sqlite3.OperationalError, TypeError, ValueError, AttributeError):
+        krcn = set()
+    out = collections.defaultdict(set)
+    for t, i in rows:
+        if t not in krcn and i:
+            out[t].add(i)
+    return dict(out)
+
+
+def carried_names(carry):
+    """{tome_id: name} of the German lines in the carried artifact (adopt_published_ids keeps a
+    published name)."""
+    if not carry or not os.path.exists(carry):
+        return {}
+    try:
+        return {t: n for t, n in sqlite3.connect(carry).execute(
+            "SELECT tome_id, name FROM series WHERE language='de' AND tome_id IS NOT NULL") if n}
+    except sqlite3.OperationalError:
+        return {}
+
+
 def redirects(db, carry):
     """Retired ids resolve forever (docs/id-scheme.md). From the carried artifact:
       1. its own id_redirect rows are re-read, so a redirect survives every later build;
@@ -833,6 +963,16 @@ def run(dbpath, carry=None):
     db = sqlite3.connect(dbpath, timeout=60)
     print("  enumerating (cached; live requests are logged to build/dnb-netlog.tsv)", flush=True)
     recs, parents, tally = E.enumerate_all(verbose=False)
+    # carried-ISBN recovery (dnb_enumerate.recover_carried): a published German volume the channels no
+    # longer return is fetched by ISBN once; its set record too, when it is new
+    c_isbns = carried_isbns(carry)
+    recovered, rtally = E.recover_carried(recs, {i for s_ in c_isbns.values() for i in s_}, verbose=True)
+    if recovered:
+        recs.update(recovered)
+        want = {p for r in recovered.values() if not M.is_parent(r) for p in M.parent_idns(r)} - set(recs) - set(parents)
+        if want:
+            parents.update(E.fetch_parents(recs, want, verbose=False))
+    tally.update(rtally)
     gaps = {k: v for k, v in tally.items() if k.endswith("_slice_gap") and v}
     degraded = tally.get("degraded")
     if gaps and not degraded:
@@ -856,7 +996,13 @@ def run(dbpath, carry=None):
     idx = L.Index(db)
     W, w_isbn = wiki_lines(db)
     lines, stats, lost = build(recs, parents, idx, W, w_isbn, carried_lines(carry),
-                               link_work=CORR.load_link_work())
+                               link_work=CORR.load_link_work(), carried_isbns=c_isbns,
+                               carried_names=carried_names(carry))
+    if stats["adopted"]:
+        print("  continuity: %d line(s) keep their published id under a new key: %s"
+              % (stats["adopted"], ["%s <- %s" % (t, k) for t, k in stats["adopted_ids"][:6]]), flush=True)
+    if stats["edition_named"]:
+        print("  new edition lines named with their edition: %s" % stats["edition_named"][:6], flush=True)
     fates = load(db, lines, lost, W, w_isbn)
     moved, orphans = redirects(db, carry)
     os.makedirs(BUILD, exist_ok=True)

@@ -382,11 +382,11 @@ B.load(cat2, l_before, lost_b, W2, wi2)
 tmp = tempfile.mkdtemp()
 art = os.path.join(tmp, "carry.sqlite")
 A = sqlite3.connect(art)
-A.executescript("CREATE TABLE series (gcd_series_id INTEGER PRIMARY KEY, tome_id TEXT, tome_work_id TEXT, language TEXT);"
+A.executescript("CREATE TABLE series (gcd_series_id INTEGER PRIMARY KEY, tome_id TEXT, tome_work_id TEXT, language TEXT, name TEXT);"
                 "CREATE TABLE volumes (id INTEGER PRIMARY KEY, gcd_series_id INTEGER, volume_number INTEGER,"
                 " tome_id TEXT, isbn13 TEXT);")
 old_rl = l_before[0]["rl_id"]
-A.execute("INSERT INTO series VALUES(1, ?, 'w_se', 'de')", (old_rl,))
+A.execute("INSERT INTO series VALUES(1, ?, 'w_se', 'de', 'Snowball Earth')", (old_rl,))
 for n, (vid, isbn) in enumerate(cat2.execute("SELECT id, isbn13 FROM volume ORDER BY number"), 1):
     A.execute("INSERT INTO volumes VALUES(?, 1, ?, ?, ?)", (n, n, vid, isbn))
 A.commit()
@@ -405,6 +405,73 @@ eq("the old line id is redirected to the new one",
 eq("its volumes follow by number",
    cat2.execute("SELECT COUNT(*) FROM id_redirect WHERE entity='volume'").fetchone()[0], 2)
 eq("no orphaned ids", orphans, [])
+
+# Continuity (2026-11-07, docs/id-scheme.md "continuity first" for the JP round): built WITH the carried
+# artifact, the same key change keeps the published id -- the line still holds a strict majority of
+# the published line's ISBNs -- so nothing is redirected and the volume ids do not move either.
+cat5 = sqlite3.connect(":memory:")
+cat5.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+cat5.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_se','Snowball Earth',?,?)", (T, T))
+cat5.execute("INSERT INTO claim VALUES('work','w_se','author',?,'wikipedia',NULL,'facts_only',?)",
+             (json.dumps(["Yuhiro Tsujitsugu"]), T))
+W5, wi5 = B.wiki_lines(cat5)
+carried_isbns = B.carried_isbns(art)
+eq("carried_isbns: the published German line's ISBNs", carried_isbns, {old_rl: {"9783753936000", "9783753936017"}})
+eq("carried_names: the published name", B.carried_names(art), {old_rl: "Snowball Earth"})
+l_cont, st_cont, lost_c = B.build(after, {}, L.Index(cat5), W5, wi5, carried={old_rl: "w_se"}, carried_isbns=carried_isbns,
+                                  carried_names=B.carried_names(art))
+eq("the line is keyed by the new parent but keeps its published id",
+   [(ln["key"], ln["rl_id"]) for ln in l_cont], [("dnb:1650000000", old_rl)])
+eq("... and its published name; the set record's title is an alias",
+   [(ln["name"], "Snowball earth" in ln["titles"]) for ln in l_cont], [("Snowball Earth", True)])
+eq("the adoption is counted", st_cont["adopted"], 1)
+B.load(cat5, l_cont, lost_c, W5, wi5)
+eq("its volumes keep their published ids", sorted(r[0] for r in cat5.execute("SELECT id FROM volume")),
+   sorted(r[0] for r in A.execute("SELECT tome_id FROM volumes WHERE gcd_series_id=1")))
+moved_c, orphans_c = B.redirects(cat5, art)
+eq("nothing moved, nothing orphaned", (cat5.execute("SELECT COUNT(*) FROM id_redirect").fetchone()[0], orphans_c), (0, []))
+# a line holding a MINORITY of the published line's ISBNs mints its own id (7b decides the published one)
+A.execute("INSERT INTO volumes VALUES(3, 1, 3, 'v_old3', '9783753936024')")
+A.execute("INSERT INTO volumes VALUES(4, 1, 4, 'v_old4', '9783753936031')")
+A.commit()
+l_min, _, _ = B.build(after, {}, L.Index(cat5), W5, wi5, carried={old_rl: "w_se"}, carried_isbns=B.carried_isbns(art))
+eq("2 of 4 is no majority: the line mints its own id", [ln["rl_id"] == B._id("rl_", ln["key"]) for ln in l_min], [True])
+A.execute("DELETE FROM volumes WHERE id IN (3, 4)")
+# a published id the KR/CN round minted is never a candidate (its own continuity rule keeps it)
+A.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
+A.execute("INSERT INTO meta VALUES('krcn_ids', ?)", (json.dumps({"lines": {old_rl: "dnb"}}),))
+A.commit()
+eq("a KR/CN-born line is left out of the candidates", B.carried_isbns(art), {})
+A.execute("DROP TABLE meta")
+A.commit()
+
+# A NEW edition line whose set record is titled exactly like a published line of the same work (the 2026
+# 'Perfect edition' hardcover of Mein Buchcafé in einer anderen Welt, 2026-11-07) is named with its
+# edition, the section lines' shape; the published line keeps its name.
+perfect = dict(after)
+perfect["1660000000"] = rec("1660000000", JPN, TS, ("245", [("a", "Snowball earth")]), ("250", [("a", "Perfect edition")]),
+                            ("264", [("b", "Altraverse GmbH")]), parent=True)
+perfect["1660000001"] = vol("1660000001", "1", "9783753936100", parent="1660000000", extra=[TS, ("250", [("a", "1. Auflage")])])
+perfect["1660000002"] = vol("1660000002", "2", "9783753936117", parent="1660000000", extra=[TS, ("250", [("a", "1. Auflage")])])
+l_pe, st_pe, _ = B.build(perfect, {}, L.Index(cat5), W5, wi5, carried={old_rl: "w_se"}, carried_isbns=B.carried_isbns(art))
+eq("the hardcover is its own line (edition marker) under the same work",
+   sorted((ln["key"], ln["edition"], ln["work"]) for ln in l_pe),
+   [("dnb:1650000000", None, "w_se"), ("dnb:1660000000", "perfect", "w_se")])
+eq("the new edition line is named with its edition; the published line keeps its name",
+   sorted((ln["key"], ln["name"]) for ln in l_pe),
+   [("dnb:1650000000", "Snowball earth"), ("dnb:1660000000", "Snowball earth – Perfect Edition")])
+eq("the renaming is counted", st_pe["edition_named"], [("dnb:1660000000", "Snowball earth – Perfect Edition")])
+# the same hardcover already published under that name is not renamed (a published name is kept)
+l_pe2, st_pe2, _ = B.build(perfect, {}, L.Index(cat5), W5, wi5,
+                           carried={old_rl: "w_se", B._id("rl_", "dnb:1660000000"): "w_se"}, carried_isbns=B.carried_isbns(art))
+eq("a published edition line keeps its published name", sorted(ln["name"] for ln in l_pe2), ["Snowball earth", "Snowball earth"])
+# a new edition line that already carries its marker in the title ('Dr. Slump Massiv') is left alone
+massiv = dict(after)
+massiv["1670000000"] = rec("1670000000", JPN, TS, ("245", [("a", "Snowball earth Massiv")]), ("264", [("b", "Altraverse GmbH")]), parent=True)
+massiv["1670000001"] = vol("1670000001", "1", "9783753936200", series="Snowball earth Massiv", parent="1670000000", extra=[TS])
+l_ma, st_ma, _ = B.build(massiv, {}, L.Index(cat5), W5, wi5, carried={old_rl: "w_se"}, carried_isbns=B.carried_isbns(art))
+eq("a title that names its edition is not renamed (and does not clash)",
+   (sorted(ln["name"] for ln in l_ma), st_ma["edition_named"]), (["Snowball earth", "Snowball earth Massiv"], []))
 
 # the carried artifact's own redirects survive, and chain
 A.execute("CREATE TABLE id_redirect (old_tome_id TEXT PRIMARY KEY, new_tome_id TEXT, entity TEXT, reason TEXT,"
@@ -518,15 +585,21 @@ def fake_urlopen(req, timeout=None):
         return _Resp('<searchRetrieveResponse><diag:diagnostic xmlns:diag="x"><diag:message>bad</diag:message>'
                      '</diag:diagnostic></searchRetrieveResponse>')
     query = q["query"][0]
-    if query.startswith("idn="):
+    if query.startswith("num="):
+        idn = SERVER.get("isbn", {}).get(query[4:].split(" ")[0])
+        ids = [idn] if idn else []
+    elif query.startswith("idn="):
         want = {x.strip()[4:] for x in query.split(" or ")}
         ids = sorted(i for xs in SERVER["years"].values() for i in xs if i in want)
     else:
         cond = query[len("BASE"):].strip()
         ids = sorted(i for y, xs in SERVER["years"].items() for i in xs if _matches(y, cond))
     start, maxr = int(q["startRecord"][0]), int(q["maximumRecords"][0])
+    isbn_of = {v: k for k, v in SERVER.get("isbn", {}).items()}
     body = "".join('<record xmlns="http://www.loc.gov/MARC21/slim"><leader>00000pam a2200000 cc4500</leader>'
-                   '<controlfield tag="001">%s</controlfield></record>' % i for i in ids[start - 1:start - 1 + maxr])
+                   '<controlfield tag="001">%s</controlfield>%s</record>'
+                   % (i, '<datafield tag="020" ind1=" " ind2=" "><subfield code="a">%s</subfield></datafield>' % isbn_of[i]
+                      if i in isbn_of else "") for i in ids[start - 1:start - 1 + maxr])
     return _Resp('<searchRetrieveResponse><numberOfRecords>%d</numberOfRecords><records>%s</records>'
                  '</searchRetrieveResponse>' % (len(ids), body))
 
@@ -744,6 +817,31 @@ try:
     eq("get(): a refresh where every attempt raises IncompleteRead degrades onto the cached "
        "response (not a crash)", (txt == before, "IncompleteRead" in (S.DEGRADED[0] or "")), (True, True))
     S.DEGRADED[0], S.REFRESH_DAYS = None, 0
+
+    # carried-ISBN recovery (2026-11-07): a carried German volume the channels no longer return is fetched
+    # by ISBN once; a record DNB no longer has returns nothing; a cached answer costs no request
+    S.urllib.request.urlopen = fake_urlopen
+    SERVER["isbn"] = {"9783753936024": "r1", "9783753936031": "r2"}
+    have = {"x1": {"leader": "", "cf": {"001": "x1"}, "df": [("020", " ", " ", [("a", "9783753936000")])]}}
+    n0 = len(CALLS)
+    got, tally = E.recover_carried(have, {"9783753936000", "9783753936024", "9783753936031", "9789999999990"}, verbose=False)
+    eq("recover_carried: the ISBNs no record carries are fetched, one request each (the one present is not)",
+       (sorted(got), tally["recover_missing"], tally["recover_found"], len(CALLS) - n0), (["r1", "r2"], 3, 2, 3))
+    eq("... the record carries its ISBN", M.isbns(got["r1"]), ["9783753936024"])
+    n1 = len(CALLS)
+    got2, tally2 = E.recover_carried(have, {"9783753936024", "9789999999990"}, verbose=False)
+    eq("... a second run is served from the cache", (sorted(got2), len(CALLS) - n1), (["r1"], 0))
+    E.RECOVER_MAX, n2 = 1, len(CALLS)
+    got3, tally3 = E.recover_carried({}, {"9783753936024", "9783753936031", "9783753936050", "9783753936067"}, verbose=False)
+    eq("... at most RECOVER_MAX new lookups a run, lowest ISBNs first (cached answers are free); the rest are counted",
+       (sorted(got3), tally3["recover_found"], tally3["recover_deferred"], len(CALLS) - n2), (["r1", "r2"], 2, 1, 1))
+    E.RECOVER_MAX = 60
+    S.urllib.request.urlopen = always_incomplete_get           # DNB failing on every attempt
+    got4, tally4 = E.recover_carried({}, {"9783753936074"}, verbose=False)
+    eq("... a DNB failure skips the lookup (counted) and never fails the build", (got4, tally4["recover_failed"]), ({}, 1))
+    S.urllib.request.urlopen = fake_urlopen
+    S.DEGRADED[0], S.DEGRADED_QUERIES[:] = None, []
+    del SERVER["isbn"]
 finally:
     (S.CACHE, S.STAMP, S.NETLOG, S.OFFLINE, S.REFRESH_DAYS, S.urllib.request.urlopen, S.time.sleep,
      E.CURRENT_YEAR, S.time.time, E.PARENT_INDEX) = saved

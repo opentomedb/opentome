@@ -202,6 +202,48 @@ def enumerate_all(verbose=True):
     return recs, parents, tally
 
 
+RECOVER_MAX = 60
+
+
+def recover_carried(recs, isbns, verbose=True):
+    """Carried-ISBN recovery (2026-11-07). A German volume the published artifact carries whose ISBN no
+    record of this run holds is fetched by `num=<isbn> and bbg=A*`, once: DNB re-catalogues records and
+    the channels lose them (Das Biest des Königs Bd. 2-16, 18 on 2026-11-07: the Pegasus Manga records
+    lost their 041$h, so `spo=jpn` no longer returns them, while `num=` still does). The answer is a
+    cached result set like any other, never refreshed, so a rerun costs nothing; at most RECOVER_MAX new
+    lookups a run (lowest ISBNs first; the rest are counted and come next run); a DNB failure skips the
+    lookup and never fails or degrades the build (the volume is then absent, as it was). build_dnb judges
+    a recovered record like every other (select, origin_in_scope): a record DNB deleted returns nothing
+    and the volume retires as before. -> ({idn: record}, tally)."""
+    have = {i for r in recs.values() for i in M.isbns(r)}
+    missing = sorted(i for i in isbns if i and i not in have)
+    out, tally = {}, {"recover_missing": len(missing), "recover_found": 0, "recover_failed": 0, "recover_deferred": 0}
+    looked = 0
+    for isbn in missing:
+        q = "num=%s and bbg=A*" % isbn
+        cached = S._cached_set(q) is not None
+        if not cached and looked >= RECOVER_MAX:
+            tally["recover_deferred"] += 1
+            continue
+        try:
+            _, seen = _page(q)
+        except Exception as ex:               # a 5xx, a throttle, offline without a cache: skip, say so
+            tally["recover_failed"] += 1
+            if verbose:
+                print("    recovery %s skipped: %s" % (isbn, ex.__class__.__name__), flush=True)
+            continue
+        if not cached:
+            looked += 1
+        for k, r in seen.items():
+            if k not in recs:
+                out.setdefault(k, r)
+        tally["recover_found"] += bool(seen)
+    if verbose and missing:
+        print("    recovery   %d carried ISBN(s) absent from the channels: %d found, %d failed, %d deferred"
+              % (len(missing), tally["recover_found"], tally["recover_failed"], tally["recover_deferred"]), flush=True)
+    return out, tally
+
+
 def enumerate_krcn(verbose=True):
     """-> (recs, parents, tally) for the KR/CN round: the two KR/CN channels, plus the imprint
     channel's records with no 041$h that dnb_marc.krcn_in_scope admits (§4.3 -- the JP round's
