@@ -1046,6 +1046,25 @@ eq("ch: hostile cells parse in linear time (all eight under 5 s; they take milli
 eq("ch: a start past four digits, or an attribute past 200 characters, is not a start",
    (parse_chapters('<ol start="12345"><li>A<li>B</ol>'), parse_chapters("<ol " + "x" * 201 + ' start="3"><li>A</ol>')), ([], []))
 eq("ch: attributes around the start are still read", parse_chapters('<ol class="x" start="7" type="1">\n<li>A\n<li>B\n</ol>\n<ol start=9><li>C</ol>'), [7, 8, 9])
+# ---- a number inside a title (2026-11-07): "X/1999", "365-Step", "Class 2-B", "(2–3)", a Japanese title ----
+eq("ch: a number glued to a slash is a title's", parse_chapters('* {{nihongo|"Sample"|x|y}}\n* {{nihongo|"X/1999 - Sample"|x|y}}'), [])
+eq("ch: a number hyphenated to a word is a title's", parse_chapters('* "365-Step March"\n* "Class 2-B, Sample"\n* {{nihongo|"1-Karat Gem"||1 Karatto}}\n* {{nihongo|"Sample"|x|6-toshi ni}}'), [])
+eq("ch: deep inside an open quote", parse_chapters('* {{Nihongo|"The Sample of Desire (2–3)"|x|y}}\n* "Sample Story Part 4: A"'), [])
+eq("ch: a later argument of a title template", parse_chapters('* {{Nihongo|"Act II: Sample (3)"|ACT. 2: サンプル (3)}} [Chapter 6]\n* {{japonais|Sample|サンプル 8歳|Sanpuru 8-sai}}'), [])
+eq("ch: a label and its separator keep their number", parse_chapters("* 15-R : {{japonais||x|y}}\n* 16-R : A\n*MISSION-017: B\n* 18-A. C"), [15, 16, 17, 18])
+eq("ch: a number at the head of a quote or a template is still the entry's",
+   parse_chapters('* "Navigation 56: {{nihongo|Sample"|x|y}}\n* {{nihongo|57. A Bitter Gift|x|y}}\n* {{langue|en|Episode 58 : Sample}}\n* Sect.059 -The Sample-'), [56, 57, 58, 59])
+# ---- shapes read only in a run (2026-11-07) ----------------------------------------------------
+eq("ch: a quoted label and number, in a run", parse_chapters('* "Mission:14"\n* "Mission:15"\n* "Mission:16"\n* {{Nihongo|"Another"|x|y}}'), [14, 15, 16])
+eq("ch: a label alone, two of them, or labels that do not follow, say nothing",
+   parse_chapters('* "Mission:14"\n* "Access:3"\n* "Mission:20"') + parse_chapters("*Fragment 1 *Fragment 2 *Sect.001 -The Biter-"), [1])
+eq("ch: a div around the cell is no part of its last entry", parse_chapters("<div> * Trick:1 * Trick:2 * Trick:3 </div>"), [1, 2, 3])
+eq("ch: an ordinal and a word, in a run", parse_chapters('*24th day {{nihongo|"A"|x|y}}\n*25th day {{nihongo|"B"|x|y}}\n* 1st Edition: C'), [24, 25])
+eq("ch: an ordinal before a chapter range is not the number", parse_chapters("* ''2nd Stage'': Chapters 9–11\n* ''3rd Stage'': Chapters 12–14"), [9, 10, 11, 12, 13, 14])
+eq("ch: a zero-padded number and a title, in a run", parse_chapters("* 01 Sample and Other\n* 02 Junior High, Class 2-B\n* 03 King Time"), [1, 2, 3])
+eq("ch: a bare number beside numbered entries, in a run", parse_chapters('* 24. {{nihongo|"A"|x|y}}\n* 25\n* 26\n* 27'), [24, 25, 26, 27])
+eq("ch: years are no run; a lone bare number says nothing", parse_chapters("* 2012\n* 2013\n* 2014") + parse_chapters("* 25"), [])
+eq("ch: a run under a word for things numbered apart says nothing", parse_chapters("* Vol 1\n* Vol 2\n* 1st Special: A\n* 2nd Special: B"), [])
 _ch_rec = parse_volumes("{{Graphic novel list\n | VolumeNumber = 2\n | RelDate = January 5, 2020\n | ISBN = 978-4-06-384276-0\n | ChapterList =\n*Chapters 12–21\n*Bonus\n}}", "List of Test chapters", "en")[0]
 eq("ch: a volume's list and range come from the whole range", (_ch_rec.get("chapters"), _ch_rec.get("chapter_range")), (list(range(12, 22)), [12, 21]))
 

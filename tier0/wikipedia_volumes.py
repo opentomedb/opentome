@@ -486,6 +486,7 @@ _CH_WRAPPED = re.compile(r"^(?:\s*\{\{[^{}|]*\|)+")       # ':{{Nihongo|Theme 1.
 # from every '<ol' of a page with no '>' in it backtracks for hours (measured: 800 x '<ol start=1 '
 # took 0.65 s and grew with the cube).
 _CH_NOWIKI = re.compile(r"</?nowiki\s{0,10}/?>", re.I)
+_CH_WRAP_TAGS = re.compile(r"</?(?:div|span|small|center|p)\b[^<>]{0,200}>", re.I)   # '<div> * Trick:1 ... </div>'
 _CH_BR = re.compile(r"<br\s{0,10}/?>", re.I)
 _CH_LINE_MARK = re.compile(r"^[ \t]*[:#]+", re.M)
 _CH_ITEM_LISTS = ("Bulleted list", "Unbulleted list", "Ubl")
@@ -537,7 +538,7 @@ def _range_tail(line, m):
         return []
     label = words[-1] if words else ""
     after_chapter_word = (_one_of(label, _CH_WORDS) and re.search(r"[^\W\d_][\s.:#]*\Z", head)
-                          and not re.search(r"\d", re.sub(r"\{\{[^{}]*\}\}", "", head)))
+                          and not re.search(r"\d", re.sub(r"\{\{[^{}]*\}\}|\b\d{1,4}(?:st|nd|rd|th)\b", "", head)))
     if not (_CH_HEAD.fullmatch(head) or after_chapter_word):
         return []
     t = _CH_END.match(line, m.end())
@@ -586,6 +587,76 @@ def _ol_lists(v):
             yield int(s.group(1)), v[t.end():tags[k + 1].start() if k + 1 < len(tags) else len(v)]
 
 
+# A number that is part of a TITLE, not the entry's number (2026-11-07; measured on every cached cell: 141 English
+# and 42 French lists change, every number they lose had been read out of a title -- "X/1999", "365-Step March",
+# "Class 2-B", "The Guardians of Desire (2–3)", the Japanese title of a {{nihongo}} -- and none is gained).
+_T_SLASH = re.compile(r"/$")
+_T_QUOTES = re.compile(r"[\"\u201c]")
+_T_SUFFIX = re.compile(r"([^\W\d_]+)(.{0,3})")
+_T_TITLE_TEMPLATE = re.compile(r"\{\{\s*(?:nihongo|japonais)", re.I)
+
+
+def _in_title(line, m):
+    """True when the number _CH_FIRST found sits inside a title: glued to a slash ("X/1999"); hyphenated to a
+    word ("365-Step", "2-B," -- not "15-R :" or "1-A.", a label and its separator); deep inside an open quote
+    ("Sample (2–3)"); in a later argument of {{nihongo}} / {{japonais}} (the Japanese title, the romanisation)."""
+    head = line[:m.start(1)]
+    if _T_SLASH.search(head):
+        return True
+    if m.group(3) in "–-" and m.start(3) == m.end(2 if m.group(2) else 1):
+        t = _T_SUFFIX.match(line[m.end():])
+        if t and (len(t.group(1)) > 1 or not re.search(r"[:.–-]", t.group(2))):
+            return True
+    inner = _CH_WRAPPED.sub("", head)
+    if len(_T_QUOTES.findall(inner)) % 2 == 1:
+        last = max(inner.rfind('"'), inner.rfind("\u201c"))
+        if not _CH_HEAD.fullmatch(inner[last + 1:]):
+            return True
+    tpl = head.rfind("{{")
+    return (tpl >= 0 and head.count("{{") > head.count("}}") and head[tpl:].count("|") >= 2
+            and _T_TITLE_TEMPLATE.match(head[tpl:]) is not None)
+
+
+# Shapes read only in a RUN (2026-11-07): two or more entries of the cell of one shape whose numbers follow each
+# other. A quoted label and number ('"Mission:01"', '"Mission:02"'), an ordinal and a word ("24th day", "25th day"),
+# a zero-padded number and a title ("01 Sample", "02 Other"), an entry that is a bare number ("* 25", "* 26"). One
+# such entry alone says nothing; a run is the series' own numbering. Years are never a run.
+_CH_LABELLED = re.compile(r"['\"\u201c\s]*([^\W\d_]{2,12})[\s.:#]*(\d{1,4})['\"\u201d\s]*$")
+_CH_ORDINAL = re.compile(r"['\"\u201c\s]*(\d{1,4})(?:st|nd|rd|th)\s+([^\W\d_]+)")
+_CH_PADDED = re.compile(r"(0\d)\s+(?=[^\W\d_])")
+_CH_BARE_INT = re.compile(r"(\d{1,4})$")
+_CH_CHAPTERS_AFTER = re.compile(r"\b(?:chapters?|chapitres?|[ée]pisodes?)\s*\d", re.I)   # "2nd Stage: Chapters 9–17"
+
+
+def _run_shape(line):
+    """(key, number) when the entry is one of the run shapes, else None."""
+    m = _CH_BARE_INT.fullmatch(line)
+    if m:
+        return ("bare", int(m.group(1)))
+    m = _CH_PADDED.match(line)
+    if m:
+        return ("padded", int(m.group(1)))
+    m = _CH_ORDINAL.match(line)
+    if m and not _one_of(m.group(2).lower(), _CH_NOT_CHAPTERS | _CH_APART | {"edition", "printing", "print"}) \
+            and not _CH_CHAPTERS_AFTER.search(line[m.end():]):
+        return ("ordinal " + m.group(2).lower().rstrip("s"), int(m.group(1)))
+    m = _CH_LABELLED.fullmatch(line)
+    if m and not _one_of(m.group(1).lower(), _CH_NOT_CHAPTERS | _CH_APART | _CH_WORDS):
+        return ("label " + m.group(1).lower().rstrip("s"), int(m.group(2)))
+    return None
+
+
+def _runs(cands):
+    """The numbers of every shape whose entries form one ascending run of two or more (three for a label and
+    number: "Fragment 1", "Fragment 2" are parts), no year among them."""
+    out = []
+    for key, ns in cands.items():
+        least = 3 if key.startswith("label ") else 2
+        if len(ns) >= least and all(b == a + 1 for a, b in zip(ns, ns[1:])) and not any(1900 <= n <= 2100 for n in ns):
+            out += ns
+    return out
+
+
 def _counted(v):
     """The numbers a cell states by COUNT: the items of a list that says where it starts."""
     nums = []
@@ -627,7 +698,7 @@ def _entries(v):
     """A chapter cell as [(mark, entry)]: mark '*' for a bullet (and the text before the first one),
     _CH_STRICT for an entry of another shape (a ':' / '#' line, a <li>, a '<br>' piece, a list-template
     item), _CH_HEADING for the text before the first entry of such a list ("File 20", then a '#' list)."""
-    v = _CH_DASH_FORMS.sub("–", _CH_NOWIKI.sub("", v).replace("：", ":"))
+    v = _CH_DASH_FORMS.sub("–", _CH_WRAP_TAGS.sub(" ", _CH_NOWIKI.sub("", v)).replace("：", ":"))
     for name in _CH_ITEM_LISTS:
         for pos, body in reversed(list(_templates(v, name))):
             items = [p for p in _split_params(body[2:-2])[1:] if p.strip() and not re.match(r"\s*\w+\s*=", p)]
@@ -661,13 +732,17 @@ def parse_chapters(v):
     nums = _counted(v)
     if nums:
         return sorted(set(nums))
-    bare, tails, words, pair_starts, lead = [], [], set(), {}, None
+    bare, tails, words, pair_starts, lead, runs = [], [], set(), {}, None, {}
     for mark, line in _entries(v):
         line = line.strip()
         m = _CH_BARE.fullmatch(line)
         if m:
             if mark != _CH_HEADING:
                 bare.append(m)
+            continue
+        shape = _run_shape(line) if mark != _CH_HEADING else None
+        if shape:
+            runs.setdefault(shape[0], []).append(shape[1])
             continue
         worded = _worded_range(line)
         if worded:
@@ -691,6 +766,8 @@ def parse_chapters(v):
             continue                # "103.5 A Title", "24.12.2029": a decimal point or a date, no separator
         first = _chapter_number(m.group(1), m.group(2))
         head = line[:m.start(1)]
+        if _in_title(line, m):
+            continue                # "X/1999", "365-Step", "Sample (2–3)": a title's number, not the entry's
         if any(_one_of(w, _CH_APART) for w in _words(head)[-2:]):
             continue                # "Bonus 1: ...", "Special Chapter 2: ...": numbered apart, no chapter
         if mark != "*" and not _CH_HEAD.fullmatch(_CH_WRAPPED.sub("", head)):
@@ -719,6 +796,7 @@ def parse_chapters(v):
     for m in bare:
         if all(w == m.group(1).lower() for w in words):
             nums.append(_chapter_number(m.group(2), m.group(3)))
+    nums += _runs(runs)
     return sorted(set(nums))
 
 
