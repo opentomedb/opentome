@@ -81,12 +81,90 @@ CREATE TABLE IF NOT EXISTS dnb_member (     -- one row per DNB volume record kep
 
 
 def url(idn):
-    return "https://d-nb.info/" + idn
+    """A record's url; a section key's IDN ('136474614X#goldundsilber', split_sections) is the set record's."""
+    return "https://d-nb.info/" + idn.split("#")[0]
 
 
 def idn_key(i):
     """IDNs are digit strings with an optional X check character; compare as numbers."""
     return (len(i), i)
+
+
+# A set filed in sections (2026-11-06). DNB keeps a series published in seasons under ONE set record and numbers
+# each season from 1: 245 $n '[1st season]' $n '1' ... $n '2nd season' $n '1' (773 $q '11st 11', '12nd 11'), or
+# 245 $n '[...]' $p 'Season II' $n '1' (773 $q 'se12 11'). Read as one line, every number after the first season's
+# is a duplicate and the set sits in review for good; the publisher sells each season as its own series ('<Title> –
+# 3rd Season', the announcement records' 490). So a section whose numbers repeat another's is its own line.
+PLACEHOLDER = re.compile(r"^\[?\s*(?:\.\.\.|…)\s*\]?$")           # '[...]': DNB's "no designation at this level"
+
+
+def _bare(s):
+    """A designation without its statement of responsibility and the cataloguer's brackets ('[Season I]')."""
+    return re.sub(r"^\[\s*|\s*\]$", "", M.clean(s).split(" / ")[0].strip()).strip()
+
+
+def section(r):
+    """The section of its set a DNB volume record is filed under, or None: what stands in 245 BEFORE the last $n
+    (the volume number) -- the first leading $n that is a designation in words ('2nd season'), else, when every
+    leading $n is the placeholder '[...]', the first leading $p ('Season II'). A leading $n that is a plain number
+    is not a section: it groups a running count ('1' over volumes 1-5, '3' over 11-15) or IS the volume number above
+    a part of an arc ('Teil 10.' $p ... $n 'Teil 1.'), and both stay as they were."""
+    f = next(iter(M.fields(r, "245")), None)
+    ns = [k for k, (c, _) in enumerate(f or ()) if c == "n"]
+    if len(ns) < 2:
+        return None
+    lead = f[:ns[-1]]
+    for n in (M.clean(v).split(" / ")[0].strip() for c, v in lead if c == "n"):
+        if PLACEHOLDER.match(n):
+            continue
+        if M._NUM.match(n) or not re.search(r"[^\W\d_]", n):
+            return None
+        return _bare(n) or None
+    return next((_bare(v) for c, v in lead if c == "p" and _bare(v)), None)
+
+
+def split_sections(groups, parents, home=False):
+    """Re-file the volumes of a set whose sections repeat the volume numbers: each section's groups move from
+    'parent' <set IDN> to the pseudo-set '<set IDN>#<folded section>', and the pseudo-set records come back
+    ({pseudo id: the set record with 245 $a '<set title> – <section>'}) for cluster / shape_line, which then
+    treat a section like any set: its key is 'dnb:<set IDN>#<section>' (source data only, never a member's
+    IDN -- a member's IDN can be the natural key that minted ANOTHER published line of the season, and continuity
+    would hand that line's id over), and the publisher's own announcement line of the same name and publisher
+    family folds into it. Nothing moves in a set whose numbers do not collide across sections (one designation for
+    the whole set, seasons that keep counting). A volume with no section stays with the set.
+
+    home=False (the KR/CN round, 2026-11-06): every section moves; a collision had always meant review
+    'duplicate_numbers', so no exported line changes. home=True (the German JP round, 2026-11-07): the section
+    that was catalogued first -- the one holding the set's lowest-IDN numbered volume -- stays the set itself,
+    under 'dnb:<set IDN>' and the set's name, because that line is published with exactly that section's
+    volumes (the first volume seen per number: Pokémon - die großen Abenteuer, Gorgeous Carat); only the other
+    sections move. Ids are a public contract: this keeps every published line and volume id, with no redirect."""
+    by_parent = collections.defaultdict(list)
+    for g in groups:
+        if g["parent"] in parents:
+            sec = next((s for s in (section(v["r"]) for v in g["members"] if g["parent"] in M.parent_idns(v["r"])) if s), None)
+            by_parent[g["parent"]].append((g, sec, L.fold(sec, False) if sec else ""))
+    pseudo = {}
+    for pidn, gs in sorted(by_parent.items()):
+        holders = collections.defaultdict(set)
+        for g, _, slug in gs:
+            if g["num"]:
+                holders[g["num"]].add(slug)
+        if not any(len(h) > 1 for h in holders.values()):
+            continue
+        p = parents[pidn]
+        title = M.clean(M.first(p, "245", "a"))
+        ordered = sorted(gs, key=lambda x: idn_key(x[0]["primary"]))
+        stay = next((slug for g, _, slug in ordered if slug and g["num"]), "") if home else ""
+        for g, sec, slug in ordered:
+            if not slug or slug == stay:
+                continue
+            sid = "%s#%s" % (pidn, slug)
+            g["parent"] = sid
+            if sid not in pseudo:
+                pseudo[sid] = dict(p, df=[(t, i1, i2, [(c, "%s – %s" % (title, sec) if c == "a" else v) for c, v in sf]
+                                           if t == "245" else sf) for t, i1, i2, sf in p["df"]])
+    return pseudo
 
 
 # One German manga publisher under successive names -- a series keeps its numbering across a
@@ -369,6 +447,12 @@ def shape_line(key, gs, parents):
         if a and (r is p or not (M.parent_idns(r) or M.series_statements(r))):
             titles.append(a)
         titles += [s for s, _ in M.series_statements(r)]
+    # a section line of a set (split_sections): the set's own title proper is a title of the line too --
+    # it is what links the sections to one work
+    if "#" in key[4:] and key[4:].split("#")[0] in parents:
+        a = M.clean(M.first(parents[key[4:].split("#")[0]], "245", "a"))
+        if a and a not in titles:
+            titles.append(a)
     authors = []
     for r in recs:
         authors += [a for a in M.creators(r) if a not in authors]
@@ -433,6 +517,7 @@ def build(recs, parents, idx, W, w_isbn, carried=None, link_work=None):
     allparents.update({k: r for k, r in recs.items() if M.is_parent(r)})
     vols, drop = select(recs, allparents)
     groups, boxset = twins(vols)
+    allparents.update(split_sections(groups, allparents, home=True))
     clusters = cluster(groups, allparents)
     lines, lost = [], []
     for key in sorted(clusters):

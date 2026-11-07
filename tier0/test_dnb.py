@@ -800,6 +800,41 @@ TA.FAILS[:] = []
 TA.run_ids(art, carry)
 eq("20 retired: within the allowance", TA.FAILS, [])
 
+# ---- a set filed in sections, German JP round (2026-11-07): the first-catalogued section stays the set ----
+# Pokémon / Gorgeous Carat shape: 245 $n '[...]' $p '<arc>' $n '1' ... each arc counted from 1. The published line
+# holds the first-seen volume per number, which is the arc catalogued first: that arc keeps 'dnb:<set IDN>', its
+# name and every id; the later arc is a new line 'dnb:<set IDN>#<arc>'.
+SP = "1800000000"
+sparent = rec(SP, ("245", [("a", "Sample arcs")]), ("264", [("b", "Altraverse GmbH")]), parent=True)
+def svol(idn, arc, num, isbn):
+    return vol(idn, None, isbn, series="Sample arcs", parent=SP,
+               extra=(("245", [("a", "Sample arcs"), ("n", "[...]"), ("p", arc), ("n", num)]),))
+srecs = {r["cf"]["001"]: r for r in (svol("1800000011", "Rot und Blau", "1", "9783753900011"),
+                                     svol("1800000012", "Rot und Blau", "2", "9783753900028"),
+                                     svol("1800000013", "Rot und Blau", "3", "9783753900035"),
+                                     svol("1800000021", "Gold", "1", "9783753900042"),
+                                     svol("1800000022", "Gold", "2", "9783753900059"))}
+for r in srecs.values():                                   # vol() wrote a plain 245 first: the sectioned one counts
+    r["df"] = [f for f in r["df"] if not (f[0] == "245" and len(f[3]) == 1)]
+sk, _ = B.select(srecs, {SP: sparent})
+sg, _ = B.twins(sk)
+sp_all = {SP: sparent}
+sp_all.update(B.split_sections(sg, sp_all, home=True))
+scl = B.cluster(sg, sp_all)
+slines = {k: B.shape_line(k, gs, sp_all)[0] for k, gs in scl.items()}
+eq("JP round: the first-catalogued arc stays the set, the other arc is a section line",
+   {k: (ln["name"], sorted(v["number"] for v in ln["vols"])) for k, ln in slines.items()},
+   {"dnb:1800000000": ("Sample arcs", ["1", "2", "3"]), "dnb:1800000000#gold": ("Sample arcs – Gold", ["1", "2"])})
+eq("JP round: the set's own title is a title of the section line; its ids are its own key's",
+   ("Sample arcs" in slines["dnb:1800000000#gold"]["titles"], slines["dnb:1800000000"]["rl_id"] == B._id("rl_", "dnb:1800000000")),
+   (True, True))
+sg2, _ = B.twins(sk)                                      # fresh groups: split_sections re-files them in place
+sp_k = {SP: sparent}
+sp_k.update(B.split_sections(sg2, sp_k, home=False))
+eq("KR/CN round (home=False): every section moves, as published on 11-06",
+   sorted(B.cluster(sg2, sp_k)), ["dnb:1800000000#gold", "dnb:1800000000#rotundblau"])
+eq("a section key's url is the set record's", B.url("1800000000#gold"), "https://d-nb.info/1800000000")
+
 print()
 if FAILS:
     print("%d FAILED: %s" % (len(FAILS), FAILS))

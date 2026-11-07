@@ -66,6 +66,17 @@ Merge with the existing ~35 Wikipedia DE lines: majority-ISBN match reuses the `
 number) merge and gain `dnb` claims; one Wikipedia line ↔ several DNB lines: most-ISBN keeps the id, others are new
 siblings; several ↔ one: keep the larger, redirect the rest. The 35 current DE line ids must survive.
 
+**Sets filed in sections (2026-11-07, `build_dnb.split_sections(home=True)`).** DNB keeps a series published in arcs
+or seasons under one set record and numbers each arc from 1 (`245 $n '[...]' $p 'Gold und Silber' $n '1'`). Read as
+one line, every number after the first arc's was a duplicate. A section whose numbers repeat another's is now its own
+line, keyed `dnb:<set IDN>#<folded section>` and named `<set title> – <section>`, with the set's title kept as a title
+of the line (the linker needs it). The section catalogued first -- the one holding the set's lowest-IDN numbered
+volume -- stays the set itself under `dnb:<set IDN>` and the set's name, because the published line holds exactly
+that section's volumes (the first volume seen per number): Pokémon - die großen Abenteuer and Gorgeous Carat keep
+every line and volume id, no redirect. Measured on the cached records: 5 sets, 8 new section lines, 19 volumes that
+were dropped as duplicates; 3 of the 5 sets are unlinked and stay so. The KR/CN round (`home=False`, 2026-11-06) moves
+every section, as published in `opentome-2026-11-06`.
+
 ## Linking to works (no ISBNs)
 Title keys (fold case, macrons, ou/oo/uu, wo→o, the non-sort markers, trailing volume numbers on the DNB side only;
 stripped + unstripped) from `240`/`245$b`/`246`, `245$a`, `490`/`830` WITH `$v` only (a `490` without `$v` is an imprint
