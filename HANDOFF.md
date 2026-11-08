@@ -1,6 +1,6 @@
 # HANDOFF — OpenTome
 
-## The 11-07 DNB refresh -- **PUSHED 2026-11-07 evening (main 74e797e + this file); build-only run owed, nothing published**
+## The 11-07 DNB refresh -- **PUBLISHED 2026-11-07 19:25 CST as `opentome-2026-11-08` (main b4d8e38); Mangarr pulled it**
 
 Nick, 11-07: "1. Push" for the parked round's five commits. Pushed (GitHub + Forgejo main 601168c), build-only run
 42413457514 **red** on two contract rules -- not the round's code: the run made 155 live DNB requests (`DNB_REFRESH_DAYS: 6`,
@@ -28,8 +28,18 @@ makes the reload repeat the build: `recover_carried` for the ISBNs the build ask
 `split_sections(home=True)` before clustering, and the adoptions from meta `dnb:stats` (an adopted line's own key
 maps to the published id it kept). Local: `21,757 member records, 0 in another line, 0 line ids re-keyed`.
 
-**NEXT:** build-only run on 74e797e -> green -> publish -> Mangarr Metadata Update + FlightLog line -> measure ->
-#beta note. **What CI must confirm** on top of the list in the section below: 3e prints
+**Done 11-07 evening:** build-only run 42433336733 on b4d8e38 green on every gate (3e `recovery 54 carried ISBN(s) ...:
+31 found, 0 failed, 0 deferred`, `continuity: 4 line(s)`, 4 new edition lines named, `live requests: DNB 0`; 8c
+`artifact contract ok`, 0 German volumes retired over the cap, moved 15, 37 redirects; 8d every floor, library gate ok,
+`DNB reload gives the same ids: 21,757 member records, 0 in another line, 0 line ids re-keyed`). Publish run
+42433848174; site manifest `opentome-2026-11-08`, sha f5962a7f, 37,425,152 bytes. Mangarr pulled it at once
+(MetadataUpdate cmd 424279, file sha matched, integrity ok; FlightLog line + backup
+`mangarr-manga-metadata.sqlite.before-20261108-opentome`). **Measured on the published file against 448a1018
+(11-06):** volumes passing Mangarr's adjacency rule EN 10,917 -> 11,112, FR 7,364 -> 7,508, JP 19,159 -> 19,496, all
+37,493 -> 38,160; one-whole-chapter lists EN 109 -> 61, FR 157 -> 139, JP 267 -> 224; KO 40 -> 31 passing (6 lists fewer,
+the KR/CN side of the parked round). The refreshed DNB cache is saved; the next refresh falls on or after 11-13.
+
+**NEXT:** nothing of this round is open once the #beta note is posted (draft offered to Nick 11-07 evening). **What CI must confirm** on top of the list in the section below: 3e prints
 `recovery 54 carried ISBN(s) ...: 31 found` (or fewer missing: CI's cache may still hold some), `continuity: 4 line(s)`,
 `new edition lines named with their edition: [4]`; 8c German cap ok; 8d every floor and the library gate. The refreshed
 cache is saved (opentome-cache-42413457514-1), so the next run refreshes nothing for six days.
