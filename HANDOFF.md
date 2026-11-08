@@ -1,6 +1,6 @@
 # HANDOFF — OpenTome
 
-## The 11-07 DNB refresh -- **FIXED LOCALLY 2026-11-07 (main 587d71a + this file), NOT PUSHED; nothing published**
+## The 11-07 DNB refresh -- **PUSHED 2026-11-07 evening (main 74e797e + this file); build-only run owed, nothing published**
 
 Nick, 11-07: "1. Push" for the parked round's five commits. Pushed (GitHub + Forgejo main 601168c), build-only run
 42413457514 **red** on two contract rules -- not the round's code: the run made 155 live DNB requests (`DNB_REFRESH_DAYS: 6`,
@@ -21,8 +21,15 @@ local DNB cache produces" of the sections below were this: the local cache had b
 **Offline rebuild on the refreshed cache: `artifact contract ok`** (German volumes gone 9, cap 25; E1/E3 0; same-name
 pairs 0; moved 15; retired volumes 1). Local 8d stops at the library fixture (a CI secret), as always.
 
-**NEXT:** Nick's push word for 587d71a (+ this file) -> build-only run -> green -> publish -> Mangarr Metadata Update +
-FlightLog line -> measure -> #beta note. **What CI must confirm** on top of the list in the section below: 3e prints
+**Second push word, 11-07 evening:** 587d71a + 74b143c went up on Nick's word; build-only run 42420214817 was green
+through 8c and the library gate and **red on 8d's "DNB reload gives the same ids"** -- `measure_library.same_ids` reloaded
+the cache without the build's three new steps, so it saw 54 member records in other lines and 4 ids re-keyed. 74e797e
+makes the reload repeat the build: `recover_carried` for the ISBNs the build asked (offline, cache only), the JP
+`split_sections(home=True)` before clustering, and the adoptions from meta `dnb:stats` (an adopted line's own key
+maps to the published id it kept). Local: `21,757 member records, 0 in another line, 0 line ids re-keyed`.
+
+**NEXT:** build-only run on 74e797e -> green -> publish -> Mangarr Metadata Update + FlightLog line -> measure ->
+#beta note. **What CI must confirm** on top of the list in the section below: 3e prints
 `recovery 54 carried ISBN(s) ...: 31 found` (or fewer missing: CI's cache may still hold some), `continuity: 4 line(s)`,
 `new edition lines named with their edition: [4]`; 8c German cap ok; 8d every floor and the library gate. The refreshed
 cache is saved (opentome-cache-42413457514-1), so the next run refreshes nothing for six days.
