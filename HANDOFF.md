@@ -1,6 +1,6 @@
 # HANDOFF — OpenTome
 
-## The Sunday 11-08 scheduled build -- **RED, FIXED LOCALLY 2026-11-10 (this commit), NOT PUSHED; nothing to publish**
+## The Sunday 11-08 scheduled build -- **RED; FIXED, PUSHED 2026-11-10 (main 08a226b), build-only run GREEN; nothing to publish**
 
 Run 42496125741 (schedule, 11-08 15:42Z, same tree b4d8e38 as the green publish 14 hours earlier, same data: records
 28,339, 34 redirects) failed two contract rules on one line: E1 `rl_9234c886dfe2 alias rows lost` and a same-name
@@ -18,8 +18,11 @@ the build". docs/dnb-design.md has the paragraph.
 hardcover exports as "… – Perfect Edition" with its 2 alias rows, 0 German volumes retired, moved 0, 34 redirects --
 the Sunday run's numbers with its two failures gone. 8d stops at the library fixture, as always.
 
-**NEXT:** Nick's push word -> build-only run -> green. **Nothing to publish:** the published 11-08 file already has
-the right name; the fix only keeps the scheduled builds green (next one Sunday 11-15).
+**Pushed on Nick's word "Push" (11-10 15:05 CST); build-only run 42901776035 green on every gate** -- records 28,339,
+34 redirects, 0 German volumes retired, `artifact contract ok`, library gate ok, `DNB reload gives the same ids: 21,757
+member records, 0 in another line, 0 line ids re-keyed`; three new edition lines named (the hardcover is no longer
+"new": it keeps its published name). **Nothing to publish:** the published 11-08 file already has the right name; the
+fix keeps the scheduled builds green (next one Sunday 11-15). **NEXT:** nothing open in this round.
 
 ## The 11-07 DNB refresh -- **PUBLISHED 2026-11-07 19:25 CST as `opentome-2026-11-08` (main b4d8e38); Mangarr pulled it**
 
