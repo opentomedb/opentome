@@ -567,7 +567,7 @@ EDITION_LABEL = {"deluxe": "Deluxe Edition", "massiv": "Massiv", "mehrfachband":
                  "limited": "Limitierte Ausgabe", "kanzenban": "Kanzenban"}
 
 
-def name_new_editions(lines, W, carried):
+def name_new_editions(lines, W, carried, carried_names=None):
     """A NEW edition line (its id never published) whose set record is titled exactly like another
     exported line of its work and medium is named '<title> – <edition>', the section lines' shape
     (split_sections): the 2026 'Perfect edition' hardcover of Mein Buchcafé in einer anderen Welt
@@ -575,7 +575,20 @@ def name_new_editions(lines, W, carried):
     work never has two lines of one language and medium with the same name (docs/round-c.md;
     export/test_artifact.py name_collisions). A published line keeps its name: 144 such pairs
     shipped before that rule, and a published name is a consumer's. A title that already names its
-    edition ('Dr. Slump Massiv') is left alone. -> [(key, new name)]."""
+    edition ('Dr. Slump Massiv') is left alone. -> [(key, new name)].
+
+    Once such a line has shipped, its PUBLISHED name carries the edition (carried_names, the
+    carry's series.name) while the set record still does not: the line keeps the published name
+    (2026-11-08: the scheduled build after the first publish rebuilt the hardcover as 'Mein
+    Buchcafé in einer anderen Welt' again -- E1 alias rows lost, a same-name pair). Only a name
+    that is the built name plus the edition label is restored; a name changed upstream for another
+    reason stays the build's business."""
+    for ln in lines:
+        label = EDITION_LABEL.get(ln["edition"])
+        published = (carried_names or {}).get(ln["rl_id"])
+        if label and published and ln["rl_id"] in (carried or {}) and \
+                L.fold(published, False) == L.fold("%s – %s" % (ln["name"], label), False):
+            ln["name"] = published
     taken = collections.defaultdict(set)
     for rid, w in W.items():
         if w.get("name"):
@@ -655,7 +668,7 @@ def build(recs, parents, idx, W, w_isbn, carried=None, link_work=None, carried_i
             if ln["role"] in ("review", "unlinked") and not counter and \
                     (carried or {}).get(ln["rl_id"]) in idx.name:
                 ln["role"], ln["work"] = "kept", carried[ln["rl_id"]]
-    edition_named = name_new_editions(lines, W, carried)
+    edition_named = name_new_editions(lines, W, carried, carried_names)
     stats = {"records": len(recs), "parents_known": len(allparents), "kept_records": len(vols),
              "dropped": dict(sorted(drop.items())), "volume_groups": len(groups),
              "twin_records_merged": len(vols) - len(groups), "boxset_isbns": len(boxset),

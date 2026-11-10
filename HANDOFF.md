@@ -1,5 +1,26 @@
 # HANDOFF — OpenTome
 
+## The Sunday 11-08 scheduled build -- **RED, FIXED LOCALLY 2026-11-10 (this commit), NOT PUSHED; nothing to publish**
+
+Run 42496125741 (schedule, 11-08 15:42Z, same tree b4d8e38 as the green publish 14 hours earlier, same data: records
+28,339, 34 redirects) failed two contract rules on one line: E1 `rl_9234c886dfe2 alias rows lost` and a same-name
+pair for w_dc0f270e3cb4 (Mein Buchcafé in einer anderen Welt, de manga). Cause: that run was the first to CARRY
+from the 11-08 publish, where the Loewe hardcover ships as "Mein Buchcafé in einer anderen Welt – Perfect Edition";
+`name_new_editions` names only NEW edition lines (rl_id not in the carry), so the now-carried line was rebuilt under
+the set record's bare title -- its two published alias rows gone and the paperback's name repeated. The fix:
+`name_new_editions(lines, W, carried, carried_names)` -- a carried edition line whose published name (the carry's
+`series.name`) is the built name plus its edition label keeps the published name; any other published name is left
+to the build. Tests: the old "published edition keeps its name" case now passes `carried_names` and expects the
+suffixed name (it failed without the fix), plus "not counted as a new naming" and "another published name is left to
+the build". docs/dnb-design.md has the paragraph.
+
+**Local mirror (offline, carry = the published 11-08 artifact, same cache as CI): `artifact contract ok`**, the
+hardcover exports as "… – Perfect Edition" with its 2 alias rows, 0 German volumes retired, moved 0, 34 redirects --
+the Sunday run's numbers with its two failures gone. 8d stops at the library fixture, as always.
+
+**NEXT:** Nick's push word -> build-only run -> green. **Nothing to publish:** the published 11-08 file already has
+the right name; the fix only keeps the scheduled builds green (next one Sunday 11-15).
+
 ## The 11-07 DNB refresh -- **PUBLISHED 2026-11-07 19:25 CST as `opentome-2026-11-08` (main b4d8e38); Mangarr pulled it**
 
 Nick, 11-07: "1. Push" for the parked round's five commits. Pushed (GitHub + Forgejo main 601168c), build-only run

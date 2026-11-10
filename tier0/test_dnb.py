@@ -461,10 +461,21 @@ eq("the new edition line is named with its edition; the published line keeps its
    sorted((ln["key"], ln["name"]) for ln in l_pe),
    [("dnb:1650000000", "Snowball earth"), ("dnb:1660000000", "Snowball earth – Perfect Edition")])
 eq("the renaming is counted", st_pe["edition_named"], [("dnb:1660000000", "Snowball earth – Perfect Edition")])
-# the same hardcover already published under that name is not renamed (a published name is kept)
-l_pe2, st_pe2, _ = B.build(perfect, {}, L.Index(cat5), W5, wi5,
-                           carried={old_rl: "w_se", B._id("rl_", "dnb:1660000000"): "w_se"}, carried_isbns=B.carried_isbns(art))
-eq("a published edition line keeps its published name", sorted(ln["name"] for ln in l_pe2), ["Snowball earth", "Snowball earth"])
+# the same hardcover already PUBLISHED under that name (the carry's series.name carries the edition, the set
+# record still does not) keeps the published name on every later build (2026-11-08: the scheduled build after
+# the first publish rebuilt it as 'Snowball earth' -- E1 alias rows lost, a same-name pair); it is not counted
+# as a new naming
+pe_rl = B._id("rl_", "dnb:1660000000")
+l_pe2, st_pe2, _ = B.build(perfect, {}, L.Index(cat5), W5, wi5, carried={old_rl: "w_se", pe_rl: "w_se"},
+                           carried_isbns=B.carried_isbns(art),
+                           carried_names={old_rl: "Snowball earth", pe_rl: "Snowball earth – Perfect Edition"})
+eq("a published edition line keeps its published name", sorted(ln["name"] for ln in l_pe2),
+   ["Snowball earth", "Snowball earth – Perfect Edition"])
+eq("keeping a published name is not a new naming", st_pe2["edition_named"], [])
+# a published edition line whose name was changed upstream for another reason is not touched
+l_pe3, _, _ = B.build(perfect, {}, L.Index(cat5), W5, wi5, carried={old_rl: "w_se", pe_rl: "w_se"},
+                      carried_isbns=B.carried_isbns(art), carried_names={pe_rl: "Snowball earth (Hardcover)"})
+eq("another published name is left to the build", sorted(ln["name"] for ln in l_pe3), ["Snowball earth", "Snowball earth"])
 # a new edition line that already carries its marker in the title ('Dr. Slump Massiv') is left alone
 massiv = dict(after)
 massiv["1670000000"] = rec("1670000000", JPN, TS, ("245", [("a", "Snowball earth Massiv")]), ("264", [("b", "Altraverse GmbH")]), parent=True)
