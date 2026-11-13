@@ -1,5 +1,73 @@
 # HANDOFF — OpenTome
 
+## The JP binding (round (c) in the chat) -- **BUILT LOCALLY 2026-11-13, 9 commits 8a6fe08..bca6e6f + this handoff on main, NOT PUSHED; nothing published**
+
+Promised to the Gutter developer in #general (09:15 and 13:02 posts). Spec `docs/superpowers/specs/2026-11-13-jp-native-title-binding-design.md`,
+plan `docs/superpowers/plans/2026-11-13-jp-native-title-binding.md` (both local, gitignored; this section and
+`docs/schema-v1.md` carry the design). In code it is **the JP binding** -- `docs/round-c.md` already names the
+line-names round, never call this "round C" in code or docs.
+
+**What it is.** A third pass inside `export/resolve_anilist.py`'s main run (after the English lines and the
+KR/CN works, before the pins and `--spread`): `jp_lines()` picks every Japanese `is_main` line still without
+an id whose work has, in the line's family (comic / novel), no English line and no bound line (never an
+artbook, never an unbind-pinned tome_id); `jp_terms()` orders the terms (name as the own name, native title,
+official aliases ja/en, up to ALIAS_LIMIT aliases; one per key); `resolve_jp()` searches them in three batched
+rounds on the `jp-manga` / `jp-novel` families (`countryOfOrigin: "JP"`, the family's format) and ranks with
+`pick(..., fallback=False)` (the KR/CN strict mode) plus the year guard (`year_ok`: start year within
+YEAR_TOLERANCE 3 of `year_began` when both known; `FIELDS` gained `startDate { year }`); `jp_collisions()`
+withholds a pick whose id any line already carries or that another JP line picked (reported, not written);
+`write_jp()` writes the main line only; `report_jp()` -> `build/jp-anilist-bindings.tsv` (every considered
+line; in the CI artifact); one log line `anilist: JP main lines with no English line in their family: N
+considered, B bound (...; by term: ...), C collision(s), U unresolved -> path`. Contract: info line `JP main
+lines bound with no English line in their family: N (comic N, novel N)`; the non-EN rule admits it.
+
+**Measured (2026-11-13, on the spread build of opentome-2026-11-13, network, 32 min):** 2,580 considered,
+**2,021 bound** (manga 1,770, LN 231, novel 19, manhwa 1; 1,668 primary, 347 synonym, 6 article; by term: name
+1,497, native 458, official 19, alias 47), 18 collisions, 541 unresolved (volumes 392, no equal title 377, year
+159, ONE_SHOT 138, 4x 41, synonym-only 15). 40 random bound rows read by eye: all right. Japanese lines with an
+id 2,850 -> 4,871. Contract on the measured copy: green but for the new Kurogane pin (the copy predates it).
+
+**Findings from the measurement:** (1) an AniList romaji title carried a trailing tab and split its TSV row ->
+`report_jp` folds tab / CR / LF to a space (`_tsv_cell`, tested); `report_krcn` / `write_spread` do not fold --
+a minor for a later pass. (2) 12 of the 18 collisions are works the catalogue holds twice -- French-sourced
+doubles of English-sourced works (Cells at Work!, Heavenly Delusion, Evangelion: Shinji Ikari Raising Project,
+Cat + Crazy, DanMachi x2, Kurokami, Narutaru, Evangelion: Angelic Days, Tenjo Tenge, Kashimashi, Peace Maker
+Kurogane): candidates for `link_work` corrections or the round-C merge list; the other 6 are two JP lines
+picking one entry (Kaiji 24-oku twice = a duplicate work too; Monster Eater, Psycho-Pass: different manga
+with one matching title, correctly withheld). (3) 61 unresolved names are macron romaji ("Shōnen no Zankyō")
+with no native title: AniList writes "Shounen"; a fold of ō/ū to ou/uu (or both ou/oo variants) as an extra
+term would be its own small round, measured first. (4) Some Japanese lines carry French names ("Tomino la
+maudite", "Les Brigades immunitaires"): French-sourced JP lines; they bind fine by synonym but the naming is
+odd -- a round-C class, not this round's.
+
+**Rulings:** work on main locally (the maintainer's practice; he owns the push); the `R.CACHE` restore line
+closes the JP test block and later tests insert above it (the private recorded suite imports the public file
+and must read the real fixtures after it); the rl_a fixture carries no local_name (the plan seeded no page for
+it, round 1 searches name and native in one batch by the spec).
+
+**Also in this batch:** `corrections/anilist.json` gained an unbind pin on rl_85cef1a1d2cb (Kurogane's Japanese
+main line: eight Shueisha ISBNs 978-4-08-870359-6.. 2011-12..2013-04 = Haruto Ikezawa's run, not Kei Toume's;
+the spread had copied 31598 onto it by the main rule). The cause is still open: those ISBNs are `wikipedia`
+claims with no source_url, the EN article lists only the 5 Kodansha + 5 Kai volumes; `find_article(series,
+"ja")` by the romanized name ("クロガネ" = Ikezawa's 8-volume run with exactly these dates) is the suspect --
+find the parse, add a guard (an ISBN publisher prefix that disagrees with the line's publisher is held), test it.
+Option (b) MAL id: anilist.co/terms (read 2026-11-13 via Chrome) is generic site terms, no API clause; storing
+`idMal` from the same response is the same category as the AniList id already stored -- Nick's call.
+
+**Tests:** `export/test_resolve_anilist.py` (+40 checks: lines, terms, families, rounds, guards, collisions,
+writes, report, counts, the CLI, the sanitiser), `export/private/test_resolve_anilist_recorded.py`,
+`tier2/test_resolve.py` 30/30, `tier2/test_corrections_check.py` OK (46 pins), `tier0/test_parser.py`,
+`export/test_measure_fixture.py`: all green.
+
+**NEXT (needs Nick's "push"):** push both remotes -> build-only run (the FIRST run fetches the JP pages:
+2.1 s per batch of 8, ~30 min more than usual; `actions/cache` saves them, later runs read the cache): 8a must
+print the JP line with ~2,580 considered / ~2,021 bound / 18 collisions, the pin assertion green (46 pins),
+8c `non-EN line whose anilist_id is not its work's: 0`, `JP main lines bound ...: ~2,021`, `artifact contract
+ok`, the artifact carrying `build/jp-anilist-bindings.tsv` -> publish -> Mangarr MetadataUpdate (same-day
+republish: same label, new sha; wait for the pages run + a minute) + FlightLog -> a note to the Gutter
+developer in #general on Nick's "post it". Then: the duplicate-works list (finding 2), the macron round
+(finding 3), the Kurogane parse (above), the round (a) minors below.
+
 ## Round (a): the work's AniList id on every line (the spread) -- **PUSHED + PUBLISHED 2026-11-13 13:01 CST as `opentome-2026-11-13` (re-published, same label, sha 2b0501ce; main c7a7ccb); Mangarr pulled it 13:03; #general note posted**
 
 Promised to the Gutter developer in #general on 2026-11-13 ("I'm going to put the work's AniList id on every line").
