@@ -227,6 +227,59 @@ def _gap_terms():
 eq("offline: an uncached term raises OfflineMiss naming the term (the replay reports it, never aborts)",
    _gap_terms(), ["No Such Series XYZ"])
 
+# ---- the spread (spread(), 2026-11-13): a work's id onto its NULL lines, by name or main line ----
+def spread_db(rows, unbind=frozenset()):
+    """In-memory artifact rows (sid, tome_id, name, language, medium, is_main, anilist_id, work)."""
+    db = sqlite3.connect(":memory:")
+    db.execute("""CREATE TABLE series (gcd_series_id INTEGER PRIMARY KEY, tome_id TEXT, name TEXT,
+                  language TEXT, medium TEXT, is_main INTEGER, anilist_id INTEGER, tome_work_id TEXT)""")
+    db.executemany("INSERT INTO series VALUES (?,?,?,?,?,?,?,?)", rows)
+    res = R.spread(db, unbind)
+    return res, dict(db.execute("SELECT tome_id, anilist_id FROM series"))
+
+
+eq("family", [R.family(m) for m in ("manga", "manhwa", "manhua", "light_novel", "novel", None)],
+   ["comic", "comic", "comic", "novel", "novel", "comic"])
+res, ids = spread_db([
+    (1, "rl_en1", "Wind Breaker", "en", "manga", 1, 135083, "w1"),
+    (2, "rl_ja1", "Wind Breaker", "ja", "manga", 1, None, "w1"),      # name
+    (3, "rl_de1", "Windbrecher", "de", "manga", 1, None, "w1"),       # main
+    (4, "rl_de2", "Wind Breaker \u2013 Perfect Edition", "de", "manga", 0, None, "w1"),  # neither
+    (5, "rl_en2", "Wind Breaker: The Novel", "en", "light_novel", 1, None, "w1"),   # other family
+    (6, "rl_en3", "Re:Zero", "en", "manga", 1, 85737, "w2"),
+    (7, "rl_en4", "Re:Zero (Truth of Zero)", "en", "manga", 0, 87259, "w2"),
+    (8, "rl_de3", "Re:Zero", "de", "manga", 1, None, "w2"),           # name beats the 2-id family
+    (9, "rl_fr1", "Re:Zero, la vie dans un autre monde", "fr", "manga", 1, None, "w2"),  # main, but 2 ids: nothing
+    (10, "rl_fr2", "Bastard", "fr", "manhwa", 1, 100001, "w3"),
+    (11, "rl_de4", "Bastard", "de", "manhwa", 1, 100001, "w3"),
+    (12, "rl_ko1", "\ubc30\uc2a4\ud0c0\ub4dc", "ko", "manhwa", 1, None, "w3"),  # main, non-EN donors
+    (13, "rl_en5", "Twin", "en", "manga", 1, 1, "w4"),
+    (14, "rl_en6", "Twin", "en", "manga", 0, 2, "w4"),
+    (15, "rl_ja2", "Twin", "ja", "manga", 1, None, "w4"),             # same-named donors, 2 ids: nothing
+    (16, "rl_de5", "Wind Breaker", "de", "manga", 0, None, "w1"),     # unbind-pinned: skipped
+    (17, "rl_ja3", "Wind Breaker", "ja", "manga", 0, 135083, "w1"),   # already bound: untouched, a donor
+], unbind={"rl_de5"})
+eq("spread: name rule", ids["rl_ja1"], 135083)
+eq("spread: main rule", ids["rl_de1"], 135083)
+eq("spread: non-main unmatched name stays NULL", ids["rl_de2"], None)
+eq("spread: other family stays NULL", ids["rl_en2"], None)
+eq("spread: name beats a two-id family", ids["rl_de3"], 85737)
+eq("spread: main needs one id", ids["rl_fr1"], None)
+eq("spread: main from non-EN donors", ids["rl_ko1"], 100001)
+eq("spread: same-named donors with two ids write nothing", ids["rl_ja2"], None)
+eq("spread: unbind pin skipped", ids["rl_de5"], None)
+eq("spread: bound line untouched", ids["rl_ja3"], 135083)
+eq("spread: counts", res["by"], {"name": 2, "main": 2})
+eq("spread: rows", res["rows"], [
+    ("rl_de1", "w1", "de", "manga", "Windbrecher", "main", 135083, "rl_en1"),
+    ("rl_de3", "w2", "de", "manga", "Re:Zero", "name", 85737, "rl_en3"),
+    ("rl_ja1", "w1", "ja", "manga", "Wind Breaker", "name", 135083, "rl_en1"),
+    ("rl_ko1", "w3", "ko", "manhwa", "\ubc30\uc2a4\ud0c0\ub4dc", "main", 100001, "rl_de4"),
+])
+eq("spread: left in one-id families", res["left"], 1)   # rl_de2 (rl_de5 is pinned, rl_en2 is another family)
+res2, ids2 = spread_db([(1, "rl_en1", "A", "en", "manga", 1, 7, "w1"), (2, "rl_ja1", "A", "ja", "manga", 1, 7, "w1")])
+eq("spread: nothing to do is 0 rows", (res2["by"], res2["rows"], res2["left"]), ({"name": 0, "main": 0}, [], 0))
+
 
 def summary():
     print()

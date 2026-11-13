@@ -1099,6 +1099,65 @@ def covers(db, path):
 
 # ---------------------------------------------------------------- main
 
+# ---------------------------------------------------------------- the spread (2026-11-13): a work's id onto its NULL lines
+
+SPREAD_VIAS = ("name", "main")
+SPREAD_HEADER = ["line", "work", "language", "medium", "name", "via", "anilist_id", "donor"]
+NOVEL_MEDIUMS = ("novel", "light_novel")
+
+
+def family(medium):
+    """'novel' for a novel / light_novel line, 'comic' for everything else: a binding never crosses the
+    two (AniList lists a novel and its manga adaptation as separate entries)."""
+    return "novel" if medium in NOVEL_MEDIUMS else "comic"
+
+
+def spread(db, unbind=frozenset()):
+    """Stage 8a's spread: a work's AniList id onto the lines of the work that have none -- never across
+    works or families, never over an id, never onto an unbind-pinned line (`unbind`: tome_ids), no
+    network. Donors are the lines that carry an id BEFORE the pass (the resolver's picks, the pins,
+    the KR/CN lift); a line written here is never a donor in the same pass.
+
+      * name -- the donors of the line's work and family whose name key()-equals the line's name
+        carry exactly one distinct id: that id (the JP "Wind Breaker" beside the bound EN one).
+      * main -- otherwise, an is_main line whose work-and-family donors carry exactly one distinct
+        id: that id (a DE main line named in German; the KO main line of a lifted work).
+
+    A non-main line that matches no donor name stays NULL (an edition named with its edition);
+    "left" counts those in one-id families so the leftover is visible every build.
+
+    -> {"rows": [(tome_id, work, language, medium, name, via, anilist_id, donor)] by tome_id,
+        "by": {via: n}, "left": n}. The donor is the lowest tome_id among the lines that decided it."""
+    rows = db.execute("""SELECT tome_id, name, language, medium, COALESCE(is_main, 0), anilist_id, tome_work_id
+                         FROM series WHERE tome_work_id IS NOT NULL""").fetchall()
+    donors = collections.defaultdict(list)          # (work, family) -> [(tome_id, name key, id)]
+    for t, n, lang, med, main, aid, w in rows:
+        if aid is not None:
+            donors[(w, family(med))].append((t, key(n), aid))
+    out, by, left = [], {v: 0 for v in SPREAD_VIAS}, 0
+    for t, n, lang, med, main, aid, w in sorted(rows, key=lambda r: r[0]):
+        if aid is not None or t in unbind:
+            continue
+        cands = donors.get((w, family(med)))
+        if not cands:
+            continue
+        same = [c for c in cands if c[1] == key(n)]
+        one_id = len({c[2] for c in cands}) == 1
+        if same and len({c[2] for c in same}) == 1:
+            pick, via = same, "name"
+        elif main and one_id:
+            pick, via = cands, "main"
+        else:
+            left += one_id
+            continue
+        donor = min(pick)
+        db.execute("UPDATE series SET anilist_id=? WHERE tome_id=? AND anilist_id IS NULL", (donor[2], t))
+        out.append((t, w, lang, med, n, via, donor[2], donor[0]))
+        by[via] += 1
+    db.commit()
+    return {"rows": out, "by": by, "left": left}
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description="bind OpenTome's English lines to AniList ids")
     ap.add_argument("artifact", nargs="?", default=os.path.join(ROOT, "build", "manga-metadata.sqlite"))
