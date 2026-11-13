@@ -313,5 +313,12 @@
     "source_url": "https://anilist.co/manga/30788",
     "reason": "Punch! (EN manga, 2006, 3 volumes; author Rie Takada): AniList 30788 'PUNCH!' is Rie Takada's 2006 serial, 3 volumes = the line's. The resolver's 32319 'Punch↑' (English title 'Punch Up!') is Shiuko Kano's 2005 work, a different work",
     "checked": "2026-11-12"
+  },
+  {
+    "line": "rl_85cef1a1d2cb",
+    "anilist_id": null,
+    "source_url": "https://en.wikipedia.org/wiki/Kurogane_(manga)",
+    "reason": "The Japanese main line of Kei Toume's Kurogane (w_2bdd2c36614d) carries eight Shueisha volumes (ISBN 978-4-08-870359-6 .. 978-4-08-870651-1, 2011-12 to 2013-04): Haruto Ikezawa's Kurogane, another work. Toume's own Japanese run (1996-2003, Kodansha, ISBN 978-4-06-3380..) is rl_5a2e167d2417, which keeps 31598. Until the Japanese line is split, this line binds to nothing.",
+    "checked": "2026-11-13"
   }
 ]
