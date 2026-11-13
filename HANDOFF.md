@@ -1,6 +1,6 @@
 # HANDOFF — OpenTome
 
-## The #corrections AniList round (2026-11-12) -- **COMMITTED LOCALLY d3b67e6, NOT PUSHED; nothing published**
+## The #corrections AniList round (2026-11-12) -- **PUSHED + PUBLISHED 2026-11-13 09:27 CST as `opentome-2026-11-13` (main 6bc82b5); Mangarr pulled it**
 
 A thread in the Discord #corrections forum ("Anilist corrections", 2026-11-12 evening, from the Gutter developer)
 listed seven English lines whose AniList id is another author's work with the same title. Each checked on AniList
@@ -15,10 +15,11 @@ Punch! rl_e8a418c6130b 32319 -> 30788. Pinned in `corrections/anilist.json` (45 
 71 -> 71; `tier2/test_corrections_check.py` 84 OK. The contract test (`export/test_artifact.py`) asserts every pin, so
 CI's 8c proves the landing.
 
-**NEXT (needs Nick's "push"):** push both remotes -> build-only run (`gh workflow run catalogue.yml -f publish=false`):
-8a `anilist id pins applied 45`, 8c `artifact contract ok`, 8d floors -> publish run -> Mangarr MetadataUpdate + FlightLog
-line -> reply in the thread on Nick's "post it" (draft below). The Sunday 11-15 schedule builds but never publishes, so
-the fix reaches the catalogue only through a publish run.
+**Done 2026-11-13 morning (Nick: "1. Push 2. Post It"):** pushed GitHub + Forgejo main 6bc82b5; build-only run 43450454576 green on every gate (8a `anilist id pins applied 45`, every other number identical to run 42901776035: 2821 resolved, 168 EN lines without an id, 34 redirects, 0 German volumes retired, `artifact contract ok`, library gate ok, 8d floors; the printed `STALE CORRECTION -- lines.json cluster_with dnb:139599577X` is in both runs, pre-existing). Publish run 43451811441: release `opentome-2026-11-13`, sha256 ed3e3bbc, 37,425,152 bytes, `metadata` alias re-pointed; pages run 43452815851 put the site manifest up. Mangarr: the first MetadataUpdate (cmd 438854, ~1 min after the publish) saw the OLD site manifest -- GitHub Pages' CDN lags a minute or two behind the pages run; the second (cmd 438858) pulled it (`Updated GCD metadata to opentome-2026-11-13`, integrity ok). Live file sha ed3e3bbc; the seven lines and Classmates (Blanc) carry the new ids. FlightLog line 2026-11-13 09:29 + backups `mangarr-manga-metadata.sqlite.before-20261113-opentome`, `LEDGER.md.20261113-opentome`. **Gotcha:** after a publish, wait for the pages run AND a minute of CDN before forcing Mangarr's MetadataUpdate, or it reports "up to date" against the old manifest.
+
+**Posted as Nick from his Chrome on his "Post It" (2026-11-13 09:15 CST):** the thread reply (msg 1570819295137501225) and the #general reply to the Gutter developer (msg 1570819388863422526) -- the latter commits OpenTome to (a) the work's AniList id on every line and (c) binding JP-only works by native title, and offers (b) a MAL id if it helps their matcher. **Measured for (a):** a same-medium-family rule (comic = manga/manhwa/manhua, novel = light_novel/novel) gives 4,881 NULL lines an id (JP manga 2,617, DE manga 1,007, FR manga 673, JP LN 367 ...); 984 NULL lines sit in 121 families whose bound EN lines carry different ids (arcs / spin-offs: Re:Zero, Bungo Stray Dogs, Magic Knight Rayearth) -- those need the display fallback's name rule (line name cut at ` (` / `: ` equals a bound EN line's name), not a blanket copy.
+
+**NEXT:** (1) the thread note that the fix is out -- draft: "Out as opentome-2026-11-13; the seven lines carry the ids above now." -- on Nick's "post it"; (2) round (a) as designed above (brainstorm -> spec -> plan; a contract test that no pinned or bound id is overwritten and that a conflicting family copies nothing); (3) round (c) after it; (4) the Kurogane JP line below.
 
 **Related finding, OPEN (a JP-line item, no correction shape covers it):** the Kurogane work w_2bdd2c36614d. Its JP main
 line rl_85cef1a1d2cb ("Kurogane", local_name 黒鉄, publisher Kodansha, 2011, 8 volumes) holds Shueisha ISBNs
