@@ -143,6 +143,35 @@ mediums; every `parent` id is the unambiguous `anilist_id` of its same-work pare
 Written by `export/resolve_anilist.py --display` in stage 8a, after `corrections/anilist.json`'s
 pins and before `--covers-only`, which fills `build/anilist-covers.json` for display ids too.
 
+## 2026-11-13 — `anilist_id` on every line of the work (the spread)
+
+`series.anilist_id` on a non-English line is the **work's binding for that family** (comic =
+manga / manhwa / manhua; novel = novel / light_novel; an artbook line is its own family and
+carries none), carried from an English line of the same work by `export/resolve_anilist.py
+--spread` in stage 8a, after the pins and before the display fallback — or, for a KR/CN work
+with no English comic line, the lift's id over the work's main comic lines (2026-10-01). It
+means exactly what it means on the English line: the AniList entry for this work in this
+family. A consumer may read it from any line of the work; it is never a display id.
+
+Two rules, no network: **name** — the same-work, same-family lines bound before the pass
+whose name key-equals the line's carry one distinct id; else **main** — the line is its
+market's main line, the family holds exactly one id, and a main line carries it. A family
+that holds an arc's id beside the main's decides nothing (a market's main line can itself
+be an arc: Higurashi), a family whose only bound line is an arc decides nothing (Pokémon
+Adventures), an English line takes an id only from an English line, and an unbind pin on a
+line stops the spread for it. Measured on `opentome-2026-11-13`: 4,615 lines gained an id
+(4,146 by name, 469 by main line: ja 2,810, de 1,074, fr 702, ko 27, zh 2); 2,048 of the
+2,587 works with any id carry it on every line; 789 non-main lines in one-id families stayed
+NULL (editions named with their edition). `build/anilist-spread.tsv` lists every line
+written with its donor; the build log prints both counts.
+
+Mangarr is unchanged: `FindSeriesByAnilistId` already orders the rows that carry an id by
+English first, then `is_main`, so the English line keeps winning a by-id lookup; a German or
+French line with an id now binds by id where `CatalogueHint` used to fall back to a title
+search. `export/test_artifact.py` asserts "non-EN line whose anilist_id is not its work's"
+= 0: every non-English id is carried by an English line of the same work and family, or is
+the lift's one id over the work's main lines, or is pinned.
+
 ## 2026-09-24 — the German market from DNB: `projected` dates, `volumes.release_date_type`
 
 `volume.release_date_type` gains **`projected`**: a planned publication month (MARC `263`,

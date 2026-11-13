@@ -470,6 +470,11 @@ AniList search or page you checked; say in `reason` why no entry fits.
 A KR/CN binding is written to every main comic line of the work (the French and the German line of a
 lifted work share one id), so a wrong binding needs a pin, or an unbind pin, on EACH of those lines: a
 pin on one line leaves the resolver's id on the others.
+**The spread (2026-11-13).** Stage 8a also carries a work's id onto its other lines (`export/resolve_anilist.py
+--spread`: a same-named line in another market, or a market's main line when the work's family holds exactly one
+id; `docs/schema-v1.md`). A wrong id on a German, French or Japanese line is therefore fixed where it came from:
+pin the English line and the spread follows it on the next build. An unbind pin on the non-English line itself
+stops the spread for that line alone.
 
 `line` is an OpenTome release-line id (`series.tome_id` in the published
 artifact), the same key `aliases.json` and the `lines.json` overrides use: it is
