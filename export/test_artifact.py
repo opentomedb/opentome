@@ -324,6 +324,35 @@ def run(path):
         m = re.search(r" \(|: | - | / ", s)
         bad_parent += not (m and bound.get((wid, k(s[:m.start()]))) == {did})   # unambiguous, too
     rule("'parent' display id that is not its same-work parent line's anilist_id", bad_parent)
+    # The spread (export/resolve_anilist.py spread(), 2026-11-13): a non-English line's anilist_id is
+    # its work's -- carried from an English line of the same work and family (by name or main line),
+    # or, for a work with no English line of that family, the KR/CN lift's one id over the work's
+    # bound main lines, or a pin. Anything else is a copy across works or families, which no rule
+    # makes, so it is a wrong bind on that line.
+    fam = lambda m: "novel" if m in ("novel", "light_novel") else "comic" if m in ("manga", "manhwa", "manhua", None) else m
+    en_ids, main_ids, has_en = {}, {}, set()
+    for wid, lang, med, main, aid in db.execute("SELECT tome_work_id, language, medium, is_main, anilist_id FROM series"):
+        f = (wid, fam(med))
+        if lang == "en":
+            has_en.add(f)
+            if aid is not None:
+                en_ids.setdefault(f, set()).add(aid)
+        if main and aid is not None:
+            main_ids.setdefault(f, set()).add(aid)
+    pinned = {line: aid for line, aid in corr.load_anilist_pins() if aid is not None}
+    not_works = []
+    for tid, wid, lang, med, aid in db.execute("""SELECT tome_id, tome_work_id, language, medium, anilist_id FROM series
+                                                 WHERE language<>'en' AND anilist_id IS NOT NULL"""):
+        f = (wid, fam(med))
+        if aid in en_ids.get(f, ()) or pinned.get(tid) == aid:
+            continue
+        if f not in has_en and main_ids.get(f) == {aid}:
+            continue
+        not_works.append(tid)
+    rule("non-EN line whose anilist_id is not its work's", len(not_works), " ".join(not_works[:5]))
+    print("  info  lines with anilist_id by language: " + (", ".join(
+        "%s %s" % (lang or "?", format(n, ",")) for lang, n in db.execute(
+            "SELECT language, COUNT(*) FROM series WHERE anilist_id IS NOT NULL GROUP BY 1 ORDER BY 2 DESC, 1")) or "none"))
     print("  info  display-only AniList ids (not bindings): %s" % (", ".join(
         "%s via %s" % (format(n, ","), v) for v, n in db.execute(
             """SELECT display_anilist_via, COUNT(*) FROM series WHERE display_anilist_via IS NOT NULL
