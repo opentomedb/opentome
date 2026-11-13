@@ -1,5 +1,51 @@
 # HANDOFF — OpenTome
 
+## Round (a): the work's AniList id on every line (the spread) -- **BUILT LOCALLY 2026-11-13, 5 commits e694e5f..1f4227c on main, NOT PUSHED; nothing published**
+
+Promised to the Gutter developer in #general on 2026-11-13 ("I'm going to put the work's AniList id on every line").
+Nick: "start working on that". Spec `docs/superpowers/specs/2026-11-13-anilist-id-on-every-line-design.md`, plan
+`docs/superpowers/plans/2026-11-13-anilist-id-on-every-line.md` (both local: `docs/superpowers/` is gitignored here).
+
+**What it is.** Stage 8a's new call `export/resolve_anilist.py --spread`, after the pins and `--krcn-duplicates`,
+before `--display` (`tier0/rebuild_all.sh`). A line with no `anilist_id` takes its work's id by two rules, in passes
+until a pass writes nothing (a second run writes 0): **name** -- the same-work, same-family lines with an id whose
+name key-equals the line's carry one distinct id; else **main** -- the line is its market's SOLE main line in the
+family, the family holds exactly one id, and a main line carries it. Family: comic (manga / manhwa / manhua / none),
+novel (novel / light_novel), else the medium itself (artbook: never). Never across works or families, never over
+an id, never onto an unbind-pinned line, an English line only from an English line, no network. Output
+`build/anilist-spread.tsv` (every line with its donor; in the CI artifact) and two log lines. Contract rule (8c)
+"non-EN line whose anilist_id is not its work's" = 0 (carried by an English line of the work and family, or the
+lift's one id over the work's main lines, or a pin) + info "lines with anilist_id by language". Docs:
+`docs/schema-v1.md` (the dated section), `corrections/README.md` (a wrong spread id: pin the English donor; an
+unbind pin stops one line), `README.md` (Identifiers). Mangarr needs nothing: `FindSeriesByAnilistId` orders
+EN first, then `is_main`.
+
+**Measured on a copy of the published `opentome-2026-11-13`:** `anilist: spread 4692 line(s) onto NULL lines (4225 via
+name, 467 via main; ja 2850, de 1111, fr 702, ko 27, zh 2)`, `left 712 NULL line(s) in one-id families`; afterwards
+ja 2,850 / en 2,846 / de 1,279 / fr 802 / ko 27 / zh 2 lines carry an id and 2,074 of the 2,587 works with any id
+carry it on every line (5,061 works); second run 0; `artifact contract ok` on that copy and on the file as is.
+
+**Rulings against the data (each measured, each a test):** the main rule needs one id in the WHOLE family (65
+copies in multi-id families would have been wrong: Higurashi's JP main line is the Festival Accompanying Arc, the EN
+main is Meguri) AND a main donor (4 EN main lines would have taken a sibling arc's id: Pokémon Adventures, Full Metal
+Panic!) AND the sole main line of its market (2: Solo Leveling's FR web novel tagged manga beside the manhwa);
+artbook is its own family (1: Naruto (Artbooks)); passes to a fixed point (80 same-named editions a second run would
+otherwise add). Deferred minors from the fresh review (0 critical / 3 important fixed / 7 minor): the "left" log also
+counts main lines with arc-only donors; `--spread --dry-run` writes; two latent contract false positives need pins
+that do not exist (a half-pinned lift; a non-EN pin ≠ the EN id beside a same-named sibling); the contract's `fam`
+mirrors `family()` by hand; `webtoon` would be its own family (no such medium today).
+
+**Tests:** `export/test_resolve_anilist.py` (+22 checks, all offline), `export/private/test_resolve_anilist_recorded.py`,
+`tier2/test_resolve.py` 30/30, `tier2/test_corrections_check.py` 84 OK, `tier0/test_parser.py`, `export/test_measure_fixture.py`
+all green on 1f4227c.
+
+**NEXT (needs Nick's "push"):** push both remotes -> build-only run: 8a must print `anilist: spread N line(s) ...` with
+N near 4,692 and `left` near 712 (the live build binds the same EN lines), 8c `non-EN line whose anilist_id is not its
+work's: 0` and the by-language info line (ja ≈ 2,850), `artifact contract ok`, 8d floors, the artifact carrying
+`build/anilist-spread.tsv` -> publish run -> Mangarr MetadataUpdate (wait for the pages run + a minute of CDN) + FlightLog
+-> a note to the Gutter developer in #general on Nick's "post it". Then **round (c)**: JP-only works by native title
+(1,572 works with no English line and no id), its own spec.
+
 ## The #corrections AniList round (2026-11-12) -- **PUSHED + PUBLISHED 2026-11-13 09:27 CST as `opentome-2026-11-13` (main 6bc82b5); Mangarr pulled it**
 
 A thread in the Discord #corrections forum ("Anilist corrections", 2026-11-12 evening, from the Gutter developer)
