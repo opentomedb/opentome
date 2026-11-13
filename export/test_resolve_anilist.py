@@ -525,6 +525,21 @@ R.report_jp(_sl, _stsv)
 _srows = open(_stsv, encoding="utf8").read().splitlines()
 eq("report_jp: a tab or newline inside a field never splits the row", (len(_srows), _srows[1].count("\t")), (2, 11))
 eq("report_jp: the whitespace is folded to a space", _srows[1].split("\t")[2:4], ["Tab Name", "Line Break"])
+_gdb, _ggot, _glines = jp_resolve([
+    (1, "rl_z1", "Agree", None, "ja", "manga", 1, None, "wz", 4, 2024),
+    (2, "rl_z2", "Agree", None, "ja", "manga", 1, None, "wz", 3, 2026),    # one work and family, one entry: both bind
+    (3, "rl_y1", "Split A", None, "ja", "manga", 1, None, "wy", 5, 2000),
+    (4, "rl_y2", "Split B", None, "ja", "manga", 1, None, "wy", 5, 2000),  # one work and family, two entries: both collisions
+], pages=[("Agree", [media(36, romaji="Agree", volumes=4, year=2024)], False),
+          ("Split A", [media(37, romaji="Split A", volumes=5, year=2000)], False),
+          ("Split B", [media(38, romaji="Split B", volumes=5, year=2000)], False)])
+R.jp_collisions(_gdb, _glines)
+_gb = {ln["tome_id"]: ln for ln in _glines}
+eq("jp_collisions: two main lines of one work and family agreeing on one entry both bind",
+   [(_gb[t]["via"], _gb[t]["pick"]["id"]) for t in ("rl_z1", "rl_z2")], [("primary", 36), ("primary", 36)])
+eq("jp_collisions: two main lines of one work and family disagreeing are both collisions",
+   [(_gb[t]["via"], _gb[t]["note"]) for t in ("rl_y1", "rl_y2")], [("collision", "rl_y2"), ("collision", "rl_y1")])
+eq("write_jp: the agreeing pair is written", R.write_jp(_gdb, _glines, False), 2)
 R.CACHE = _jcache_saved
 
 def summary():

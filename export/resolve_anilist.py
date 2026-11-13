@@ -1087,24 +1087,33 @@ def resolve_jp(lines):
 def jp_collisions(db, lines):
     """The collision guard: a pick whose id a line of the artifact already carries (bound before this pass -- an
     English line, the lift, a carried pin; another work, or this work's other family), or that another JP line of
-    this pass picked (any work, any family), is withheld: via "collision", note the carrying work's id or the
-    other line's tome_id (the lowest). The pick stays for the report."""
+    this pass picked for another work or family, is withheld: via "collision", note the carrying work's id or the
+    other line's tome_id (the lowest). Two main lines of ONE work and family (a market with two mains) are judged
+    together: agreeing on one entry they both bind (the work confirming itself); disagreeing, both are collisions
+    (reviewer finding, 2026-11-13). The pick stays for the report."""
     taken = {}
     for aid, w in db.execute("SELECT anilist_id, tome_work_id FROM series WHERE anilist_id IS NOT NULL ORDER BY tome_id"):
         taken.setdefault(aid, w)
-    picked = collections.defaultdict(list)
+    group_of = {ln["tome_id"]: (ln["work"], "novel" if ln["novel"] else "comic") for ln in lines}
+    groups = collections.defaultdict(list)       # (work, family) -> [(tome_id, id)]: a market's main lines of one family
+    picked = collections.defaultdict(list)       # id -> [tome_id] across every line of this pass
     for ln in lines:
         if ln["pick"]:
+            groups[group_of[ln["tome_id"]]].append((ln["tome_id"], ln["pick"]["id"]))
             picked[ln["pick"]["id"]].append(ln["tome_id"])
     for ln in lines:
         if not ln["pick"]:
             continue
-        aid = ln["pick"]["id"]
-        others = [t for t in picked[aid] if t != ln["tome_id"]]
+        aid, t = ln["pick"]["id"], ln["tome_id"]
+        own = groups[group_of[t]]
         if aid in taken:
             ln.update(via="collision", note=taken[aid])
-        elif others:
-            ln.update(via="collision", note=min(others))
+        elif len({a for _, a in own}) > 1:            # the work's own main lines of this family disagree
+            ln.update(via="collision", note=min(o for o, _ in own if o != t))
+        else:                                        # they agree (the work confirming itself); another work's line is a collision
+            others = [o for o in picked[aid] if o != t and group_of[o] != group_of[t]]
+            if others:
+                ln.update(via="collision", note=min(others))
     return lines
 
 
