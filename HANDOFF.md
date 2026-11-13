@@ -1,6 +1,6 @@
 # HANDOFF — OpenTome
 
-## The JP binding (round (c) in the chat) -- **BUILT LOCALLY 2026-11-13, 10 commits 8a6fe08..8f8b2e3 + this handoff on main, NOT PUSHED; nothing published**
+## The JP binding (round (c) in the chat) -- **PUSHED + PUBLISHED 2026-11-13 16:02 CST as `opentome-2026-11-13` (re-published a second time, same label, sha 0d97875a; main 647fcea); Mangarr pulled it 16:03; #general note pending Nick's "post it"**
 
 Promised to the Gutter developer in #general (09:15 and 13:02 posts). Spec `docs/superpowers/specs/2026-11-13-jp-native-title-binding-design.md`,
 plan `docs/superpowers/plans/2026-11-13-jp-native-title-binding.md` (both local, gitignored; this section and
@@ -73,7 +73,35 @@ writes, report, counts, the CLI, the sanitiser), `export/private/test_resolve_an
 `tier2/test_resolve.py` 30/30, `tier2/test_corrections_check.py` OK (46 pins), `tier0/test_parser.py`,
 `export/test_measure_fixture.py`: all green.
 
-**NEXT (needs Nick's "push"):** push both remotes -> build-only run (the FIRST run fetches the JP pages:
+**DONE 2026-11-13 (Nick's "push" 14:49 CST; option (b) MAL id ON HOLD by his word):** pushed 8a6fe08..620b992.
+Build-only 43505116180 green in 30 min (cold JP pages): JP line `2580 considered, 2022 bound (1669 via primary, 347 via
+synonym, 6 via article; by term: name 1498, native 458, official 19, alias 47), 17 collision(s), 541 unresolved`
+(one more bound than the local measurement: the review fix's agreeing pair), spread `5318 line(s)` (was 4,692) `left
+1054`, pins 46 applied / 0 missing, non-EN rule 0, `JP main lines bound ...: 2,022 (comic 1,772, novel 250)`, by
+language `ja 4,888, de 1,498, fr 1,192`; gate diff vs the previous run = the two info lines only. **The first publish
+run 43509883287 FAILED at 8c, not on this round:** the DNB freshness window (DNB_REFRESH_DAYS=6, CI) elapsed between
+the two runs; the publish run made 69 live DNB requests, the frozen `print_kor jhr=2022` slice had gained late records
+and was re-paged (+90 records), the linker absorbed Carlsen's one-volume "The Pawn's Revenge – 3rd Season" record
+into HAYABUSA's five-volume line (redirect rl_9b3ea88520d6 -> rl_9e8ed759862f) whose records spell the title in lower
+case, so the line name and the work's German titles changed CASE ONLY and E1 ("carried lines that lost ... alias
+rows") counted 2 lost rows (the normalized forms stayed on both lines). Reproduced locally (`DNB_REFRESH_DAYS=5 bash
+tier0/rebuild_all.sh` against the published carry: same 69 requests, same 2 lines); fixed with three ALIAS_LOSS_OK
+entries (commit 647fcea, base drift, like the Kindaichi and Reincarnation Damage Control precedents). Build-only
+43513981216 green (0 live DNB requests: the refreshed sets were in the CI cache; gate diff = the refresh's ordinary
+shape: DE volumes 13,885 -> 13,944, DE lines 1,785 -> 1,783, 13 carried German ids redirected of 500 allowed, every
+floor ok). Publish 43514981260: `opentome-2026-11-13` re-published (assets replaced; sha 0d97875a, 37,453,824 B,
+series 13,466, volumes 125,579); pages 43515909835; opentomedb.com manifest carried the new sha within a minute;
+Mangarr MetadataUpdate (command 439575, same label / different sha) swapped the file 16:03:42 CST; FlightLog line
+16:03 + backups `mangarr-manga-metadata.sqlite.before-20261113-jp` (2b0501ce) / `LEDGER.md.20261113-jp`. Gotcha for
+the next same-day publish: a build-only run that is green does not prove the publish run will be -- a source
+freshness window can elapse in between; when it does, the publish run's gates stop it and nothing ships.
+
+**NEXT:** the #general note to the Gutter developer on Nick's "post it" (text in the session). Then: the
+duplicate-works list (12 FR-sourced doubles from the collisions), the macron round (61 names), the Kurogane parse,
+the round (a) minors below; option (b) stays on hold. Watch: Sunday 2026-11-15 09:00 UTC scheduled build (build-only,
+refresh windows LoC/BnF 28 d may elapse) should be green.
+
+**Earlier NEXT (kept for the record):** push both remotes -> build-only run (the FIRST run fetches the JP pages:
 2.1 s per batch of 8, ~30 min more than usual; `actions/cache` saves them, later runs read the cache): 8a must
 print the JP line with ~2,580 considered / ~2,021 bound / 18 collisions, the pin assertion green (46 pins),
 8c `non-EN line whose anilist_id is not its work's: 0`, `JP main lines bound ...: ~2,021`, `artifact contract
