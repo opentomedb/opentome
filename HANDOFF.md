@@ -1,5 +1,45 @@
 # HANDOFF — OpenTome
 
+## The #corrections AniList round (2026-11-12) -- **COMMITTED LOCALLY d3b67e6, NOT PUSHED; nothing published**
+
+A thread in the Discord #corrections forum ("Anilist corrections", 2026-11-12 evening, from the Gutter developer)
+listed seven English lines whose AniList id is another author's work with the same title. Each checked on AniList
+(author, year, volume count) and against the published artifact (same wrong ids): Kurogane rl_1b66d4b8b80f 59447 -> 31598,
+Doubt!! rl_696165fac48a 35293 -> 30884, Amefurashi rl_f4b61971809d 98500 -> 44493, Classmates rl_d045f8964385
+91597 -> 39699, Wind Breaker rl_81db300c8574 86099 -> 135083, Guin Saga (The Seven Magi) rl_635fdc6eedfb 45150 -> 42927,
+Punch! rl_e8a418c6130b 32319 -> 30788. Pinned in `corrections/anilist.json` (45 entries now), commit d3b67e6.
+
+**Proof:** `tier2/corrections.py --check` -> `corrections check ok ... 45 anilist ... resolve against manga-metadata.sqlite
+(opentome-2026-11-08)` (the published file, sha f5962a7f); `--anilist` on a copy of it writes the seven ids; `--display`
+(offline) on that copy moves `Classmates (Blanc)` rl_9ab4a354e90e from 91597 to 39699 via its parent line, display rows
+71 -> 71; `tier2/test_corrections_check.py` 84 OK. The contract test (`export/test_artifact.py`) asserts every pin, so
+CI's 8c proves the landing.
+
+**NEXT (needs Nick's "push"):** push both remotes -> build-only run (`gh workflow run catalogue.yml -f publish=false`):
+8a `anilist id pins applied 45`, 8c `artifact contract ok`, 8d floors -> publish run -> Mangarr MetadataUpdate + FlightLog
+line -> reply in the thread on Nick's "post it" (draft below). The Sunday 11-15 schedule builds but never publishes, so
+the fix reaches the catalogue only through a publish run.
+
+**Related finding, OPEN (a JP-line item, no correction shape covers it):** the Kurogane work w_2bdd2c36614d. Its JP main
+line rl_85cef1a1d2cb ("Kurogane", local_name 黒鉄, publisher Kodansha, 2011, 8 volumes) holds Shueisha ISBNs
+(9784088703596, 9784088703787, 9784088704234 ..., 2011-12 to 2013) -- Haruto Ikezawa's クロガネ, another work; Kei
+Toume's own JP line rl_5a2e167d2417 (1996, 5 volumes) sits under it as a non-main child, as does Kurogane Kai
+rl_52b46e28d61e. The EN line's orig_series_id already points at the 1996 line. Likely why the resolver reached for 59447.
+
+**Coverage facts for the Gutter conversation (the developer wrote in #general 11-12 that OpenTome "doesn't have enough
+AniList or other links" to train their matcher):** 5,061 works; 2,587 carry an AniList id on some line; 2,616 works have
+no English line and 2,373 of those carry no AniList id at all (1,572 JP-only, 616 JP + DE/FR, 153 DE/FR-only). The id
+sits on the EN line (and on the KR/CN works' main lines) only -- a JP/DE/FR sibling line shows NULL unless the consumer
+joins through tome_work_id. `mangaupdates_id` and `mangadex_id` exist and are NULL on every row; no MAL id anywhere.
+Options for Nick: (a) write the work's AniList id onto every main line, as the KR/CN lift already does -- same data,
+no new requests; (b) store `idMal` from the same AniList response (one column; read AniList's terms first);
+(c) bind JP-only works by native title -- a resolver round.
+
+**Draft thread reply (NOT posted; Nick posts or says "post it"):** "Thanks -- all seven checked out on AniList (author,
+year, volume count) and are pinned at the source. They land with the next catalogue publish; I'll note here when it is
+out. Your list also showed that the Japanese side of Kurogane has the 2011 Shueisha serial mixed into Kei Toume's work;
+that is a separate fix on the Japanese line and is on the list."
+
 ## The Sunday 11-08 scheduled build -- **RED; FIXED, PUSHED 2026-11-10 (main 08a226b), build-only run GREEN; nothing to publish**
 
 Run 42496125741 (schedule, 11-08 15:42Z, same tree b4d8e38 as the green publish 14 hours earlier, same data: records
