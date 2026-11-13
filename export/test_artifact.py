@@ -353,6 +353,17 @@ def run(path):
     print("  info  lines with anilist_id by language: " + (", ".join(
         "%s %s" % (lang or "?", format(n, ",")) for lang, n in db.execute(
             "SELECT language, COUNT(*) FROM series WHERE anilist_id IS NOT NULL GROUP BY 1 ORDER BY 2 DESC, 1")) or "none"))
+    # The JP binding (export/resolve_anilist.py resolve_jp(), 2026-11-13): a Japanese main line of a family
+    # with no English line, bound by native title -- the resolver's own binding, counted so the number is
+    # read every build (a measure-gate floor can follow once it is known).
+    jp_bound = {"comic": 0, "novel": 0}
+    for wid, med in db.execute("""SELECT tome_work_id, medium FROM series
+                                  WHERE language='ja' AND is_main=1 AND anilist_id IS NOT NULL"""):
+        f = fam(med)
+        if (wid, f) not in has_en and f in jp_bound:
+            jp_bound[f] += 1
+    print("  info  JP main lines bound with no English line in their family: %s (comic %s, novel %s)"
+          % (format(sum(jp_bound.values()), ","), format(jp_bound["comic"], ","), format(jp_bound["novel"], ",")))
     print("  info  display-only AniList ids (not bindings): %s" % (", ".join(
         "%s via %s" % (format(n, ","), v) for v, n in db.execute(
             """SELECT display_anilist_via, COUNT(*) FROM series WHERE display_anilist_via IS NOT NULL
