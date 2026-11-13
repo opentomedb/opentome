@@ -502,6 +502,21 @@ eq("report_jp: an unresolved row carries the rejections", _rows[6].split("\t")[9
 eq("jp_counts", R.jp_counts(_clines), {"considered": 6, "bound": 2, "by_via": {"primary": 2, "synonym": 0, "article": 0},
    "by_kind": {"name": 2, "native": 0, "official": 0, "alias": 0}, "collisions": 3, "unresolved": 1})
 
+_jart = os.path.join(_tmp, "j.sqlite")
+_jx = jp_db([(1, "rl_m1", "Main Hit", None, "ja", "manga", 1, None, "wm", 4, 2000),
+             (2, "rl_m2", "Main Miss", None, "ja", "manga", 1, None, "wn", 4, 2000)])
+_jx.execute("ATTACH ? AS out", (_jart,)); _jx.execute("CREATE TABLE out.series AS SELECT * FROM series")
+_jx.execute("CREATE TABLE out.series_alias AS SELECT * FROM series_alias"); _jx.commit(); _jx.close()
+jp_page("Main Hit", [media(41, romaji="Main Hit", volumes=4, year=2000)]); jp_page("Main Miss", [])
+_out = io.StringIO()
+with contextlib.redirect_stdout(_out):
+    R.main([_jart])
+_jlog = [l for l in _out.getvalue().splitlines() if l.startswith("anilist: JP main lines")]
+eq("main: the JP log line", _jlog, ["anilist: JP main lines with no English line in their family: 2 considered, 1 bound "
+   "(1 via primary, 0 via synonym, 0 via article; by term: name 1, native 0, official 0, alias 0), 0 collision(s), "
+   "1 unresolved -> %s" % os.path.join(_tmp, "jp-anilist-bindings.tsv")])
+eq("main: the JP id written", sqlite3.connect(_jart).execute("SELECT anilist_id FROM series WHERE tome_id='rl_m1'").fetchone()[0], 41)
+eq("main: the JP tsv", len(open(os.path.join(_tmp, "jp-anilist-bindings.tsv"), encoding="utf8").read().splitlines()), 3)
 R.CACHE = _jcache_saved
 
 def summary():

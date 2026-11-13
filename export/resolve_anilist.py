@@ -1465,6 +1465,15 @@ def main(argv):
         report_krcn(kws, kpath)
         print("anilist: KR/CN works without an English comic line: %d considered, %d bound (%d line(s) written) -> %s"
               % (len(kws), sum(1 for kw in kws if kw["pick"]), nk, kpath))
+        jls = jp_collisions(db, resolve_jp(jp_lines(db, skip)))
+        nj = write_jp(db, jls, a.dry_run)
+        jpath = os.path.join(build, "jp-anilist-bindings.tsv")
+        report_jp(jls, jpath)
+        c = jp_counts(jls)
+        print("anilist: JP main lines with no English line in their family: %d considered, %d bound (%s; by term: %s), "
+              "%d collision(s), %d unresolved -> %s"
+              % (c["considered"], c["bound"], ", ".join("%d via %s" % (c["by_via"][v], v) for v in JP_VIAS),
+                 ", ".join("%s %d" % (k, c["by_kind"][k]) for k in JP_KINDS), c["collisions"], c["unresolved"], jpath))
     if a.carry and not a.dry_run:
         rows = round_c_diff(db, a.carry)
         rcpath = os.path.join(build, "round-c-anilist.tsv")

@@ -55,8 +55,10 @@
 #                      (tier0/carried_ids.py; docs/carried-ids.md); the export collapses chains
 #                      and 8c fails on any carried id left without a present target
 #   8. export          Mangarr-shaped artifact (+ curated aliases, + id carry)
-#   8a. anilist ids   series.anilist_id for English lines and for the KR/CN works without an English
-#                      comic line (export/resolve_anilist.py, cached; build/krcn-anilist-bindings.tsv), then
+#   8a. anilist ids   series.anilist_id for English lines, for the KR/CN works without an English
+#                      comic line (export/resolve_anilist.py, cached; build/krcn-anilist-bindings.tsv) and for
+#                      the Japanese main lines with no English line in their family, by native title
+#                      (the JP binding, build/jp-anilist-bindings.tsv; 2026-11-13), then
 #                      corrections/anilist.json's hand-checked ids over the resolver's pick, then the
 #                      AniList-id collisions of works created in this build (build/krcn-duplicates.tsv), then
 #                      the work's id onto its NULL lines by name or main line (--spread,
