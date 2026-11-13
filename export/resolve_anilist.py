@@ -190,7 +190,7 @@ NOVEL_MEDIUMS = ("light_novel", "novel")
 LIST_PREFIXES = ("list of ", "liste des ", "plot of ")
 VIAS = ("primary", "synonym", "article", "substring", "ceiling", "alias",   # pick()'s tiers on the name page, or a retry term
         "prefix", "arc", "amp", "origin")                                   # the post-walk tiers (post_walk())
-FIELDS = "id format volumes chapters popularity status title { romaji english native } synonyms"
+FIELDS = "id format volumes chapters popularity status title { romaji english native } synonyms startDate { year }"
 _last = [0.0]
 
 
@@ -515,7 +515,7 @@ def _fetch_chunk(chunk, novel, country=None):
 def search(terms, novel, country=None):
     """{term: [media]} for every term -- cache first, the misses batched BATCH per request. country: the
     KR/CN works' AniList countryOfOrigin, a family of its own (krcn-<country>)."""
-    family = "krcn-" + country if country else "novel" if novel else "manga"
+    family = jp_family(novel) if country == "JP" else "krcn-" + country if country else "novel" if novel else "manga"
     out, todo = {}, []
     for t in dict.fromkeys(terms):
         cached = _cache_get(_cache_path("search", family, t))
@@ -994,6 +994,11 @@ JP_HEADER = ["work", "line", "name", "local_name", "medium", "volume_count", "ye
              "anilist_id", "title", "via", "term", "note"]
 JP_KINDS = ("name", "native", "official", "alias")
 JP_VIAS = ("primary", "synonym", "article")
+
+
+def jp_family(novel):
+    """The JP binding's cache families: jp-novel / jp-manga (countryOfOrigin JP; never the English or KR/CN ones)."""
+    return "jp-novel" if novel else "jp-manga"
 
 
 def jp_lines(db, skip=()):

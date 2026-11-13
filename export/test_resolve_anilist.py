@@ -395,6 +395,32 @@ eq("jp_terms: a local_name key-equal to the name is one term; an alias key-equal
 eq("JP_HEADER", R.JP_HEADER, ["work", "line", "name", "local_name", "medium", "volume_count", "year_began",
                                "anilist_id", "title", "via", "term", "note"])
 
+_jcache_saved, R.CACHE = R.CACHE, tempfile.mkdtemp()
+
+def jp_page(term, media, novel=False):
+    R._cache_put(R._cache_path("search", R.jp_family(novel), term), media)
+
+def media(i, romaji=None, english=None, native=None, synonyms=(), volumes=None, year=None, fmt="MANGA",
+          status="FINISHED", popularity=1):
+    return {"id": i, "format": fmt, "volumes": volumes, "chapters": None, "popularity": popularity, "status": status,
+            "title": {"romaji": romaji, "english": english, "native": native}, "synonyms": list(synonyms),
+            "startDate": {"year": year}}
+
+eq("jp_family", (R.jp_family(False), R.jp_family(True)), ("jp-manga", "jp-novel"))
+eq("jp query: countryOfOrigin JP, type MANGA, the family's format",
+   (all(x in R._search_query(1, False, "JP") for x in ('countryOfOrigin: "JP"', "type: MANGA", "format_not: NOVEL")),
+    "format: NOVEL" in R._search_query(1, True, "JP")), (True, True))
+eq("FIELDS carries startDate.year", "startDate { year }" in R.FIELDS, True)
+jp_page("Only JP", [media(1, romaji="Only JP")])
+eq("search: the jp-manga family reads its own page", R.search(["Only JP"], False, country="JP")["Only JP"][0]["id"], 1)
+R._cache_put(R._cache_path("search", "manga", "Only EN"), [media(2, romaji="Only EN")])
+try:
+    R.search(["Only EN"], False, country="JP"); eq("search: a manga-family page is not a jp-manga hit", "hit", "miss")
+except R.OfflineMiss as e:
+    eq("search: a manga-family page is not a jp-manga hit", e.terms, ["Only EN"])
+jp_page("Novel JP", [media(3, romaji="Novel JP", fmt="NOVEL")], novel=True)
+eq("search: jp-novel is its own family", R.search(["Novel JP"], True, country="JP")["Novel JP"][0]["id"], 3)
+
 
 def summary():
     print()
