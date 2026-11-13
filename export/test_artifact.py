@@ -1232,6 +1232,17 @@ ALIAS_LOSS_OK.update({
     ("rl_31140414f992", a): "DNB title fix (base drift): the working title 'Rückkehr in meine Welt' was never printed"
     for a in ("Reincarnation Damage Control - Rückkehr in meine Welt",
               "reincarnation damage control r ckkehr in meine welt")})
+# base drift (2026-11-13): DNB's late-2022 re-page let the linker absorb Carlsen's one-volume "The Pawn's
+# Revenge – 3rd Season" record into HAYABUSA's five-volume 3rd-season line (rl_9e8ed759862f), whose records
+# spell the title in DNB's lower case; the line name and the work's German titles follow ("The pawn's revenge
+# – 3rd season", like the 1st and 2nd season lines already did). Case only: the normalized forms consumers
+# match on ("the pawn s revenge 3rd season") stay on both lines.
+ALIAS_LOSS_OK.update({
+    (t, a): "DNB re-page (base drift): the 3rd-season title's case follows the surviving HAYABUSA records; "
+            "the normalized alias stays"
+    for t, a in (("rl_0f652148e6d2", "The Pawn's Revenge"),
+                 ("rl_0f652148e6d2", "The Pawn's Revenge – 3rd Season"),
+                 ("rl_9e8ed759862f", "The Pawn's Revenge – 3rd Season"))})
 # E3: carried lines whose orig_series_id may change, with the reason. Measured 2026-09-28 on the pipeline-order
 # dry run (build/krcn-replay/exportfix): the comic-family origin rule only fills a line whose own medium has no
 # origin line; one carried line gains one, 0 in a work with a Japanese line, 0 sibling-pick changes.
