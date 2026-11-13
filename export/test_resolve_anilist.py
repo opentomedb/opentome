@@ -421,6 +421,54 @@ except R.OfflineMiss as e:
 jp_page("Novel JP", [media(3, romaji="Novel JP", fmt="NOVEL")], novel=True)
 eq("search: jp-novel is its own family", R.search(["Novel JP"], True, country="JP")["Novel JP"][0]["id"], 3)
 
+def jp_resolve(rows, aliases=(), pages=(), skip=()):
+    for term, m, novel in pages:
+        jp_page(term, m, novel)
+    db = jp_db(rows, aliases)
+    lines = R.resolve_jp(R.jp_lines(db, skip))
+    return db, {ln["tome_id"]: (ln["pick"]["id"] if ln["pick"] else None, ln["via"], ln["term"], ln["kind"]) for ln in lines}, lines
+
+_, got, _ = jp_resolve([
+    (1, "rl_a", "Name Hit", None, "ja", "manga", 1, None, "wa", 10, 2000),
+    (2, "rl_b", "Romaji Miss", "ネイティブ", "ja", "manga", 1, None, "wb", 10, 2000),
+    (3, "rl_c", "Sub", None, "ja", "manga", 1, None, "wc", 10, 2000),
+    (4, "rl_d", "Decade", None, "ja", "manga", 1, None, "wd", 10, 2000),
+    (5, "rl_e", "Close", None, "ja", "manga", 1, None, "we", 10, 2000),
+    (6, "rl_f", "Unknown Year", None, "ja", "manga", 1, None, "wf", 10, None),
+    (7, "rl_g", "Big Gap", None, "ja", "manga", 1, None, "wg", 2, 2000),
+    (8, "rl_h", "Bang", "バン！", "ja", "manga", 1, None, "wh", 3, 2000),
+    (9, "rl_i", "Novel Line", None, "ja", "light_novel", 1, None, "wi", 3, 2000),
+    (10, "rl_k", "Alias Walk", None, "ja", "manga", 1, None, "wk", 3, 2000),
+], aliases=[(10, "Walk One", "en", "alias"), (10, "Walk Two", "en", "alias"), (10, "Walk Three", "en", "alias"),
+            (10, "Walk Four", "en", "alias"), (10, "Walk Official", "en", "official")],
+   pages=[
+    ("Name Hit", [media(11, romaji="Name Hit", volumes=10, year=2000)], False),
+    ("Romaji Miss", [], False), ("ネイティブ", [media(12, native="ネイティブ", volumes=10, year=1999)], False),
+    ("Sub", [media(13, romaji="Sub Title", volumes=10, year=2000)], False),                    # strict: no substring tier
+    ("Decade", [media(14, romaji="Decade", volumes=10, year=1990)], False),                    # year guard: 10 off
+    ("Close", [media(15, romaji="Close", volumes=10, year=2002)], False),                      # 2 off: fine
+    ("Unknown Year", [media(16, romaji="Unknown Year", volumes=10, year=None)], False),        # no guard
+    ("Big Gap", [media(17, romaji="Big Gap", volumes=20, year=2000)], False),                  # 4x ceiling holds (own name, strict)
+    ("Bang", [], False), ("バン！", [media(18, native="バン!", volumes=3, year=2000)], False),
+    ("Novel Line", [media(19, romaji="Novel Line", volumes=3, year=2000, fmt="NOVEL")], True),
+    ("Alias Walk", [], False), ("Walk Official", [], False), ("Walk One", [], False), ("Walk Two", [], False),
+    ("Walk Three", [media(20, romaji="Walk Three", volumes=3, year=2000)], False),           # Walk Four is never searched
+])
+eq("resolve_jp: name via primary", got["rl_a"], (11, "primary", "Name Hit", "name"))
+eq("resolve_jp: native when the romanized name misses", got["rl_b"], (12, "primary", "ネイティブ", "native"))
+eq("resolve_jp: strict -- a substring candidate never binds", got["rl_c"], (None, None, None, None))
+eq("resolve_jp: year guard rejects 10 years off", got["rl_d"], (None, None, None, None))
+eq("resolve_jp: year guard passes 2 years off", got["rl_e"][0], 15)
+eq("resolve_jp: year guard skipped when a year is unknown", got["rl_f"][0], 16)
+eq("resolve_jp: the 4x ceiling holds for the own name (fallback off)", got["rl_g"], (None, None, None, None))
+eq("resolve_jp: native with a full-width bang matches the ASCII form", got["rl_h"][0], 18)
+eq("resolve_jp: a light-novel line searches the jp-novel family", got["rl_i"], (19, "primary", "Novel Line", "name"))
+eq("resolve_jp: official before alias, alias capped at ALIAS_LIMIT, the 4th alias never searched",
+   got["rl_k"], (20, "primary", "Walk Three", "alias"))
+eq("year_ok", [R.year_ok(media(1, year=y), 2000) for y in (1996, 1997, 2003, 2004, None)] + [R.year_ok(media(1, year=2020), None)],
+   [False, True, True, False, True, True])
+
+R.CACHE = _jcache_saved
 
 def summary():
     print()

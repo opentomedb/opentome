@@ -1034,6 +1034,56 @@ def jp_lines(db, skip=()):
     return out
 
 
+YEAR_TOLERANCE = 3
+
+
+def year_ok(m, year_began):
+    """The JP year guard: False only when the candidate's startDate.year and the line's year_began are both known
+    and more than YEAR_TOLERANCE apart (year_began is the first tankobon's year, AniList's start the serialization's:
+    0-2 years of lag; the homonyms that bit were decades apart)."""
+    y = (m.get("startDate") or {}).get("year")
+    return y is None or year_began is None or abs(y - year_began) <= YEAR_TOLERANCE
+
+
+def _jp_round(lines, kinds):
+    """One batched round: the `kinds` terms of every still-unbound line, searched per family (jp-manga / jp-novel)
+    and each ranked against its own page in term order -- pick() with the fallback tiers off, then the year guard;
+    the first term that binds wins."""
+    todo = []
+    for ln in lines:
+        if not ln["pick"]:
+            ts = [(t, own, kind) for t, own, kind in jp_terms(ln) if kind in kinds]
+            if ts:
+                todo.append((ln, ts))
+    for novel in (False, True):
+        group = [(ln, ts) for ln, ts in todo if ln["novel"] == novel]
+        if not group:
+            continue
+        results = search([t for _, ts in group for t, _, _ in ts], novel, country="JP")
+        for ln, ts in group:
+            for t, own, kind in ts:
+                m, via, rej = pick(results[t], t, ln["volume_count"], own_name=own, fallback=False)
+                ln["rejected"] += rej
+                if m and not year_ok(m, ln["year_began"]):
+                    ln["rejected"].append("%s:year %s vs %s" % (m["id"], (m.get("startDate") or {}).get("year"),
+                                                                ln["year_began"]))
+                    continue
+                if m:
+                    ln.update(pick=m, via=via, term=t, kind=kind)
+                    break
+
+
+def resolve_jp(lines):
+    """Sets pick / via / term / kind / rejected on every line: the name and the native title first (one batch),
+    then the official aliases of the unbound lines, then up to ALIAS_LIMIT aliases of the still-unbound ones."""
+    for ln in lines:
+        ln.update(pick=None, via=None, term=None, kind=None, rejected=[])
+    _jp_round(lines, ("name", "native"))
+    _jp_round(lines, ("official",))
+    _jp_round(lines, ("alias",))
+    return lines
+
+
 def jp_terms(ln):
     """-> [(term, own_name, kind)] in order: the line's name (own name), its native title, its official aliases,
     then up to ALIAS_LIMIT of its alias-kind aliases (alias_terms); one term per key, empty keys dropped."""
