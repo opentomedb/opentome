@@ -264,5 +264,54 @@
     "source_url": "https://anilist.co/manga/37543",
     "checked": "2026-10-01",
     "reason": "Daddy Long Legs (DE Egmont, 2 vols; DNB 'Do-Chan ; Kim Hyoung-Jun') = AniList 37543 'Kidari Ajeossi' (2004, 2 vols) by Eun-Ji O, AniList alternative name 'Do-Chan'. The resolver bound 166669 'Sugar Daddy / Daddy Long Legs', a 2020 webtoon by Sseom / Igyu"
+  },
+  {
+    "line": "rl_1b66d4b8b80f",
+    "anilist_id": 31598,
+    "source_url": "https://anilist.co/manga/31598",
+    "reason": "Kurogane volumes (EN manga, Del Rey, 2006, 5 volumes; author Kei Toume): AniList 31598 'Kurogane' is Kei Toume's 1993 serial, 5 volumes = the line's. The resolver's 59447 'Kurogane' is Haruto Ikezawa's 2011 Shueisha serial (8 volumes), a different work with the same title; the two cannot be told apart by name, so pinned by hand",
+    "checked": "2026-11-12"
+  },
+  {
+    "line": "rl_696165fac48a",
+    "anilist_id": 30884,
+    "source_url": "https://anilist.co/manga/30884",
+    "reason": "Doubt!! (EN manga, 2005, 6 volumes; author Kaneyoshi Izumi): AniList 30884 'Doubt!!' is Kaneyoshi Izumi's 2000 serial, 6 volumes = the line's. The resolver's 35293 'Doubt' is Yoshiki Tonogai's 2007 work (4 volumes), a different work",
+    "checked": "2026-11-12"
+  },
+  {
+    "line": "rl_f4b61971809d",
+    "anilist_id": 44493,
+    "source_url": "https://anilist.co/manga/44493",
+    "reason": "Amefurashi (EN manga, 2009, 2 volumes; author Atsushi Suzumi): AniList 44493 'Amefurashi: The Rain Goddess' is Atsushi Suzumi's 2007 serial, 2 volumes = the line's. The resolver's 98500 'Amefurashi' is Scarlet Beriko's 2011 one-volume work, a different work with the same romaji title",
+    "checked": "2026-11-12"
+  },
+  {
+    "line": "rl_d045f8964385",
+    "anilist_id": 39699,
+    "source_url": "https://anilist.co/manga/39699",
+    "reason": "Classmates (EN manga, 2012, 6 volumes; author Asumiko Nakamura): AniList 39699 'Doukyuusei' (English title 'Classmates') is Asumiko Nakamura's 2006 work. The resolver's 91597 'CLASSMATES!' is Konchiwa's 2013 one-shot, a different work. The 'Classmates (Blanc)' line takes its display id from this line and follows the pin",
+    "checked": "2026-11-12"
+  },
+  {
+    "line": "rl_81db300c8574",
+    "anilist_id": 135083,
+    "source_url": "https://anilist.co/manga/135083",
+    "reason": "Wind Breaker (EN manga, Kodansha USA, 2022, 22 volumes; author Satoru Nii): AniList 135083 'WIND BREAKER' is Satoru Nii's 2021 Japanese serial. The resolver's 86099 'Wind Breaker' is Yong-Seok Jo's 2013 Korean webtoon, a different work with the same English title",
+    "checked": "2026-11-12"
+  },
+  {
+    "line": "rl_635fdc6eedfb",
+    "anilist_id": 42927,
+    "source_url": "https://anilist.co/manga/42927",
+    "reason": "Guin Saga (EN manga, 2007, 3 volumes -- the Vertical edition of 'The Seven Magi'): AniList 42927 'Guin Saga: Shichinin no Madoushi' / 'Guin Saga: The Seven Magi' (Kaoru Kurimoto, art Kazuaki Yanagisawa, 2000, 3 volumes) = the line's. The resolver's 45150 'Guin Saga' is the 6-volume 2007 adaptation drawn by Hajime Sawada, a different manga of the same novels",
+    "checked": "2026-11-12"
+  },
+  {
+    "line": "rl_e8a418c6130b",
+    "anilist_id": 30788,
+    "source_url": "https://anilist.co/manga/30788",
+    "reason": "Punch! (EN manga, 2006, 3 volumes; author Rie Takada): AniList 30788 'PUNCH!' is Rie Takada's 2006 serial, 3 volumes = the line's. The resolver's 32319 'Punch↑' (English title 'Punch Up!') is Shiuko Kano's 2005 work, a different work",
+    "checked": "2026-11-12"
   }
 ]
