@@ -976,6 +976,14 @@ def write_krcn_duplicates(path, rows):
         f.write("\n".join(["\t".join(DUP_HEADER)] + keep + ["\t".join(r) for r in rows]) + "\n")
 
 
+def write_spread(path, rows):
+    """build/anilist-spread.tsv: every line --spread wrote this build (SPREAD_HEADER), header first."""
+    with open(path, "w", encoding="utf8") as f:
+        f.write("\t".join(SPREAD_HEADER) + "\n")
+        for r in rows:
+            f.write("\t".join("" if x is None else str(x) for x in r) + "\n")
+
+
 # ---------------------------------------------------------------- display fallback
 
 DISPLAY_VIAS = ("parent", "medium")
@@ -1104,12 +1112,14 @@ def covers(db, path):
 SPREAD_VIAS = ("name", "main")
 SPREAD_HEADER = ["line", "work", "language", "medium", "name", "via", "anilist_id", "donor"]
 NOVEL_MEDIUMS = ("novel", "light_novel")
+COMIC_MEDIUMS = ("manga", "manhwa", "manhua", None)
 
 
 def family(medium):
-    """'novel' for a novel / light_novel line, 'comic' for everything else: a binding never crosses the
-    two (AniList lists a novel and its manga adaptation as separate entries)."""
-    return "novel" if medium in NOVEL_MEDIUMS else "comic"
+    """'novel' for a novel / light_novel line, 'comic' for manga / manhwa / manhua (and an untagged line),
+    the medium itself otherwise (an artbook line is its own family: AniList has no entry for it): a
+    binding never crosses families (AniList lists a novel and its manga adaptation separately)."""
+    return "novel" if medium in NOVEL_MEDIUMS else "comic" if medium in COMIC_MEDIUMS else medium
 
 
 def spread(db, unbind=frozenset()):
@@ -1121,7 +1131,13 @@ def spread(db, unbind=frozenset()):
       * name -- the donors of the line's work and family whose name key()-equals the line's name
         carry exactly one distinct id: that id (the JP "Wind Breaker" beside the bound EN one).
       * main -- otherwise, an is_main line whose work-and-family donors carry exactly one distinct
-        id: that id (a DE main line named in German; the KO main line of a lifted work).
+        id, at least one of them a main line: that id (a DE main line named in German; the KO main
+        line of a lifted work). A family that holds an arc's id beside the main's decides nothing
+        (a market's "main" line can itself be an arc: Higurashi); a family whose only donor is an
+        arc decides nothing either (Pokémon Adventures).
+
+    An English line takes an id only from an English donor (a work whose only bound lines are the
+    KR/CN lift's FR/DE main lines is the lift's business, not the spread's).
 
     A non-main line that matches no donor name stays NULL (an edition named with its edition);
     "left" counts those in one-id families so the leftover is visible every build.
@@ -1130,23 +1146,26 @@ def spread(db, unbind=frozenset()):
         "by": {via: n}, "left": n}. The donor is the lowest tome_id among the lines that decided it."""
     rows = db.execute("""SELECT tome_id, name, language, medium, COALESCE(is_main, 0), anilist_id, tome_work_id
                          FROM series WHERE tome_work_id IS NOT NULL""").fetchall()
-    donors = collections.defaultdict(list)          # (work, family) -> [(tome_id, name key, id)]
+    donors = collections.defaultdict(list)          # (work, family) -> [(tome_id, name key, id, is_main, language)]
     for t, n, lang, med, main, aid, w in rows:
         if aid is not None:
-            donors[(w, family(med))].append((t, key(n), aid))
+            donors[(w, family(med))].append((t, key(n), aid, main, lang))
     out, by, left = [], {v: 0 for v in SPREAD_VIAS}, 0
     for t, n, lang, med, main, aid, w in sorted(rows, key=lambda r: r[0]):
         if aid is not None or t in unbind:
             continue
-        cands = donors.get((w, family(med)))
+        cands = donors.get((w, family(med)), [])
+        if lang == "en":                            # an English line takes an id only from an English line
+            cands = [c for c in cands if c[4] == "en"]
         if not cands:
             continue
         same = [c for c in cands if c[1] == key(n)]
-        one_id = len({c[2] for c in cands}) == 1
+        mains = [c for c in cands if c[3]]          # the main rule copies a MAIN line's id, never an arc's
+        one_id = len({c[2] for c in cands}) == 1    # ... and only in a family that holds one id at all
         if same and len({c[2] for c in same}) == 1:
             pick, via = same, "name"
-        elif main and one_id:
-            pick, via = cands, "main"
+        elif main and one_id and mains:
+            pick, via = mains, "main"
         else:
             left += one_id
             continue
@@ -1173,6 +1192,9 @@ def main(argv):
     ap.add_argument("--display", action="store_true",
                     help="resolve nothing, only recompute series.display_anilist_id / _via (display-only "
                          "fallback) -- stage 8a runs it after the pins, before --covers-only")
+    ap.add_argument("--spread", action="store_true",
+                    help="stage 8a: the work's id onto its NULL lines by name or main line (spread(); "
+                         "<build>/anilist-spread.tsv); after the pins and --krcn-duplicates, before --display")
     ap.add_argument("--krcn-duplicates", action="store_true",
                     help="resolve nothing, only write the AniList-id collisions of works created in this build "
                          "into <build>/krcn-duplicates.tsv -- stage 8a runs it after the pins")
@@ -1193,6 +1215,19 @@ def main(argv):
         rows = krcn_collisions(db)
         write_krcn_duplicates(dpath, rows)
         print("anilist: %d AniList-id collision(s) of works created in this build -> %s" % (len(rows), dpath))
+        db.close()
+        return
+    if a.spread:
+        res = spread(db, unbind_pins())
+        spath = os.path.join(build, "anilist-spread.tsv")
+        write_spread(spath, res["rows"])
+        langs = collections.Counter(r[2] for r in res["rows"])
+        by_lang = ", ".join("%s %d" % (l, n) for l, n in sorted(langs.items(), key=lambda x: (-x[1], x[0])))
+        print("anilist: spread %d line(s) onto NULL lines (%s%s)"
+              % (len(res["rows"]), ", ".join("%d via %s" % (res["by"][v], v) for v in SPREAD_VIAS),
+                 "; " + by_lang if by_lang else ""))
+        print("anilist: spread left %d NULL line(s) in one-id families (non-main, no name match)" % res["left"])
+        print("anilist: spread -> %s" % spath)
         db.close()
         return
     if a.display:

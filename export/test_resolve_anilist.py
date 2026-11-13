@@ -238,8 +238,8 @@ def spread_db(rows, unbind=frozenset()):
     return res, dict(db.execute("SELECT tome_id, anilist_id FROM series"))
 
 
-eq("family", [R.family(m) for m in ("manga", "manhwa", "manhua", "light_novel", "novel", None)],
-   ["comic", "comic", "comic", "novel", "novel", "comic"])
+eq("family", [R.family(m) for m in ("manga", "manhwa", "manhua", "light_novel", "novel", None, "artbook")],
+   ["comic", "comic", "comic", "novel", "novel", "comic", "artbook"])
 res, ids = spread_db([
     (1, "rl_en1", "Wind Breaker", "en", "manga", 1, 135083, "w1"),
     (2, "rl_ja1", "Wind Breaker", "ja", "manga", 1, None, "w1"),      # name
@@ -249,13 +249,13 @@ res, ids = spread_db([
     (6, "rl_en3", "Re:Zero", "en", "manga", 1, 85737, "w2"),
     (7, "rl_en4", "Re:Zero (Truth of Zero)", "en", "manga", 0, 87259, "w2"),
     (8, "rl_de3", "Re:Zero", "de", "manga", 1, None, "w2"),           # name beats the 2-id family
-    (9, "rl_fr1", "Re:Zero, la vie dans un autre monde", "fr", "manga", 1, None, "w2"),  # main, but 2 ids: nothing
+    (9, "rl_fr1", "Re:Zero, la vie dans un autre monde", "fr", "manga", 1, None, "w2"),  # main, but the family holds 2 ids: nothing
     (10, "rl_fr2", "Bastard", "fr", "manhwa", 1, 100001, "w3"),
     (11, "rl_de4", "Bastard", "de", "manhwa", 1, 100001, "w3"),
     (12, "rl_ko1", "\ubc30\uc2a4\ud0c0\ub4dc", "ko", "manhwa", 1, None, "w3"),  # main, non-EN donors
     (13, "rl_en5", "Twin", "en", "manga", 1, 1, "w4"),
     (14, "rl_en6", "Twin", "en", "manga", 0, 2, "w4"),
-    (15, "rl_ja2", "Twin", "ja", "manga", 1, None, "w4"),             # same-named donors, 2 ids: nothing
+    (15, "rl_ja2", "Twin", "ja", "manga", 1, None, "w4"),             # same-named donors disagree, 2 ids in the family: nothing
     (16, "rl_de5", "Wind Breaker", "de", "manga", 0, None, "w1"),     # unbind-pinned: skipped
     (17, "rl_ja3", "Wind Breaker", "ja", "manga", 0, 135083, "w1"),   # already bound: untouched, a donor
 ], unbind={"rl_de5"})
@@ -264,7 +264,7 @@ eq("spread: main rule", ids["rl_de1"], 135083)
 eq("spread: non-main unmatched name stays NULL", ids["rl_de2"], None)
 eq("spread: other family stays NULL", ids["rl_en2"], None)
 eq("spread: name beats a two-id family", ids["rl_de3"], 85737)
-eq("spread: main needs one id", ids["rl_fr1"], None)
+eq("spread: main needs one id in the family (an arc beside the main: nothing)", ids["rl_fr1"], None)
 eq("spread: main from non-EN donors", ids["rl_ko1"], 100001)
 eq("spread: same-named donors with two ids write nothing", ids["rl_ja2"], None)
 eq("spread: unbind pin skipped", ids["rl_de5"], None)
@@ -276,9 +276,57 @@ eq("spread: rows", res["rows"], [
     ("rl_ja1", "w1", "ja", "manga", "Wind Breaker", "name", 135083, "rl_en1"),
     ("rl_ko1", "w3", "ko", "manhwa", "\ubc30\uc2a4\ud0c0\ub4dc", "main", 100001, "rl_de4"),
 ])
-eq("spread: left in one-id families", res["left"], 1)   # rl_de2 (rl_de5 is pinned, rl_en2 is another family)
+eq("spread: left in one-id families", res["left"], 1)
+res3, ids3 = spread_db([
+    (1, "rl_de7", "Bastard", "de", "manhwa", 1, 777, "w5"),       # a lifted work: FR/DE main lines bound
+    (2, "rl_fr7", "Bastard", "fr", "manhwa", 1, 777, "w5"),
+    (3, "rl_en7", "Bastard", "en", "manhwa", 1, None, "w5"),      # an EN line takes no id from non-EN donors
+    (4, "rl_ko7", "\ubc30\uc2a4\ud0c0\ub4dc", "ko", "manhwa", 1, None, "w5"),  # a KO line does
+])
+eq("spread: an EN line needs an EN donor", (ids3["rl_en7"], ids3["rl_ko7"]), (None, 777))
+res4, ids4 = spread_db([
+    (1, "rl_en9", "Series (Arc)", "en", "manga", 0, 500, "w6"),   # the only donor is an arc (non-main)
+    (2, "rl_en10", "Series", "en", "manga", 1, None, "w6"),       # the EN main line stays NULL
+    (3, "rl_de9", "Serie", "de", "manga", 1, None, "w6"),         # so does the DE main line
+    (4, "rl_ja9", "Series (Arc)", "ja", "manga", 0, None, "w6"),  # the JP arc matches by name
+])
+eq("spread: the main rule needs a main donor", (ids4["rl_en10"], ids4["rl_de9"], ids4["rl_ja9"]), (None, None, 500))
+res5, ids5 = spread_db([
+    (1, "rl_en11", "X", "en", "manga", 1, 9, "w7"),
+    (2, "rl_en12", "X (Artbooks)", "en", "artbook", 1, None, "w7"),   # an artbook is its own family: no donor
+    (3, "rl_ja11", "X (Artbooks)", "ja", "artbook", 1, None, "w7"),
+    (4, "rl_ja12", "X", "ja", "manga", 1, None, "w7"),
+])
+eq("spread: artbooks take no comic id", (ids5["rl_en12"], ids5["rl_ja11"], ids5["rl_ja12"]), (None, None, 9))   # rl_de2 (rl_de5 is pinned, rl_en2 is another family)
 res2, ids2 = spread_db([(1, "rl_en1", "A", "en", "manga", 1, 7, "w1"), (2, "rl_ja1", "A", "ja", "manga", 1, 7, "w1")])
 eq("spread: nothing to do is 0 rows", (res2["by"], res2["rows"], res2["left"]), ({"name": 0, "main": 0}, [], 0))
+
+# ---- --spread: the stage-8a call, its TSV and its log lines; idempotent ---------------------
+import contextlib, io, tempfile
+_tmp = tempfile.mkdtemp()
+_art = os.path.join(_tmp, "a.sqlite")
+_db = sqlite3.connect(_art)
+_db.execute("""CREATE TABLE series (gcd_series_id INTEGER PRIMARY KEY, tome_id TEXT, name TEXT,
+               language TEXT, medium TEXT, is_main INTEGER, anilist_id INTEGER, tome_work_id TEXT)""")
+_db.executemany("INSERT INTO series VALUES (?,?,?,?,?,?,?,?)",
+                [(1, "rl_en1", "A", "en", "manga", 1, 7, "w1"), (2, "rl_ja1", "A", "ja", "manga", 1, None, "w1"),
+                 (3, "rl_de1", "A: Edition", "de", "manga", 0, None, "w1")])
+_db.commit(); _db.close()
+_out = io.StringIO()
+with contextlib.redirect_stdout(_out):
+    R.main([_art, "--spread"])
+_lines = _out.getvalue().splitlines()
+eq("--spread: log line", _lines[0], "anilist: spread 1 line(s) onto NULL lines (1 via name, 0 via main; ja 1)")
+eq("--spread: leftover line", _lines[1], "anilist: spread left 1 NULL line(s) in one-id families (non-main, no name match)")
+eq("--spread: tsv", open(os.path.join(_tmp, "anilist-spread.tsv"), encoding="utf8").read().splitlines(),
+   ["\t".join(R.SPREAD_HEADER), "rl_ja1\tw1\tja\tmanga\tA\tname\t7\trl_en1"])
+_out = io.StringIO()
+with contextlib.redirect_stdout(_out):
+    R.main([_art, "--spread"])
+eq("--spread again: idempotent", _out.getvalue().splitlines()[0],
+   "anilist: spread 0 line(s) onto NULL lines (0 via name, 0 via main)")
+eq("--spread again: header-only tsv",
+   open(os.path.join(_tmp, "anilist-spread.tsv"), encoding="utf8").read().splitlines(), ["\t".join(R.SPREAD_HEADER)])
 
 
 def summary():
