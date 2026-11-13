@@ -984,6 +984,76 @@ def write_spread(path, rows):
             f.write("\t".join("" if x is None else str(x) for x in r) + "\n")
 
 
+# ---------------------------------------------------------------- the JP binding (2026-11-13)
+# Japanese main lines of a family (comic / novel) whose work has no English line and no bound line in it:
+# bound by exact title under countryOfOrigin JP (the jp-manga / jp-novel cache families), the KR/CN strict
+# ranking, a year guard and a collision guard; the spread (--spread, after the pins) carries the id across
+# the work. "Round C" is the line-names round (docs/round-c.md, round_c_diff), not this.
+
+JP_HEADER = ["work", "line", "name", "local_name", "medium", "volume_count", "year_began",
+             "anilist_id", "title", "via", "term", "note"]
+JP_KINDS = ("name", "native", "official", "alias")
+JP_VIAS = ("primary", "synonym", "article")
+
+
+def jp_lines(db, skip=()):
+    """The Japanese is_main lines still without an id whose work has, in the line's family (comic / novel),
+    no English line and no bound line; never an artbook, never an unbind-pinned tome_id (skip). -> [line] by
+    tome_id, each with its official aliases (ja, then en, then the rest; stored order) and its alias-kind
+    aliases, and the resolver fields (pick / via / term / kind / rejected) initialised."""
+    rows = db.execute("""SELECT gcd_series_id, tome_id, name, local_name, language, medium, COALESCE(is_main, 0),
+                                anilist_id, tome_work_id, volume_count, year_began
+                         FROM series WHERE tome_work_id IS NOT NULL""").fetchall()
+    en, bound = set(), set()
+    for sid, t, n, loc, lang, med, main, aid, w, vc, yb in rows:
+        if lang == "en":
+            en.add((w, family(med)))
+        if aid is not None:
+            bound.add((w, family(med)))
+    out = []
+    for sid, t, n, loc, lang, med, main, aid, w, vc, yb in sorted(rows, key=lambda r: r[1] or ""):
+        fam = family(med)
+        if lang != "ja" or not main or aid is not None or fam not in ("comic", "novel") or t in skip:
+            continue
+        if (w, fam) in en or (w, fam) in bound:
+            continue
+        als = db.execute("SELECT alias, language, kind FROM series_alias WHERE gcd_series_id=? ORDER BY rowid",
+                         (sid,)).fetchall()
+        official = ([a for a, l, k in als if k == "official" and l == "ja"]
+                    + [a for a, l, k in als if k == "official" and l == "en"]
+                    + [a for a, l, k in als if k == "official" and l not in ("ja", "en")])
+        out.append(dict(id=sid, tome_id=t, work=w, name=n, local_name=loc, medium=med, novel=med in NOVEL_MEDIUMS,
+                        volume_count=vc, year_began=yb, official=official,
+                        aliases=[a for a, l, k in als if k == "alias"], anilist_id=None,
+                        pick=None, via=None, term=None, kind=None, rejected=[]))
+    return out
+
+
+def jp_terms(ln):
+    """-> [(term, own_name, kind)] in order: the line's name (own name), its native title, its official aliases,
+    then up to ALIAS_LIMIT of its alias-kind aliases (alias_terms); one term per key, empty keys dropped."""
+    out, seen = [], set()
+
+    def add(t, own, kind):
+        t = for_search(t or "")
+        k = key(t)
+        if k and k not in seen:
+            seen.add(k)
+            out.append((t, own, kind))
+            return True
+        return False
+    add(ln["name"], True, "name")
+    add(ln["local_name"], False, "native")
+    for a in ln["official"]:
+        add(a, False, "official")
+    n = 0
+    for a in alias_terms(ln["name"], ln["aliases"]):
+        if n >= ALIAS_LIMIT:
+            break
+        n += add(a, False, "alias")
+    return out
+
+
 # ---------------------------------------------------------------- display fallback
 
 DISPLAY_VIAS = ("parent", "medium")

@@ -345,6 +345,57 @@ eq("--spread again: header-only tsv",
    open(os.path.join(_tmp, "anilist-spread.tsv"), encoding="utf8").read().splitlines(), ["\t".join(R.SPREAD_HEADER)])
 
 
+# ---- the JP binding: Japanese main lines with no English line in their family -----------------
+def jp_db(series, aliases=()):
+    """In-memory artifact: series rows (sid, tome_id, name, local_name, language, medium, is_main, anilist_id,
+    work, volume_count, year_began); series_alias rows (sid, alias, language, kind)."""
+    db = sqlite3.connect(":memory:")
+    db.execute("""CREATE TABLE series (gcd_series_id INTEGER PRIMARY KEY, tome_id TEXT, name TEXT, local_name TEXT,
+                  language TEXT, medium TEXT, is_main INTEGER, anilist_id INTEGER, tome_work_id TEXT,
+                  volume_count INTEGER, year_began INTEGER, orig_series_id INTEGER)""")
+    db.execute("CREATE TABLE series_alias (gcd_series_id INTEGER, alias TEXT, language TEXT, kind TEXT)")
+    db.executemany("INSERT INTO series VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL)", series)
+    db.executemany("INSERT INTO series_alias VALUES (?,?,?,?)", aliases)
+    return db
+
+_jdb = jp_db([
+    (1, "rl_j1", "Ghost Sweeper Mikami", "GS美神 極楽大作戦!!", "ja", "manga", 1, None, "w1", 39, 1992),
+    (2, "rl_j2", "Ghost Sweeper Mikami (Wide-ban)", None, "ja", "manga", 0, None, "w1", 20, 2004),   # non-main: never
+    (3, "rl_j3", "Bound", "縛", "ja", "manga", 1, None, "w2", 5, 2000),
+    (4, "rl_e3", "Bound", None, "en", "manga", 1, None, "w2", 5, 2001),                              # EN line in the family: never
+    (5, "rl_j4", "Novel Side", "小説", "ja", "light_novel", 1, None, "w2", 3, 2002),           # novel family of w2: considered
+    (6, "rl_j5", "Done", "済", "ja", "manga", 1, None, "w3", 4, 2010),
+    (7, "rl_j6", "Done Deluxe", "済 豪華", "ja", "manga", 0, 500, "w3", 4, 2015),          # bound line in the family: never
+    (8, "rl_j7", "Art", None, "ja", "artbook", 1, None, "w4", 1, 2011),                               # artbook: never
+    (9, "rl_j8", "Pinned", "ピン", "ja", "manga", 1, None, "w5", 2, 2012),                    # unbind-pinned: never
+    (10, "rl_j9", "Same Key", "Same Key", "ja", "manga", 1, None, "w6", 7, 2013),                    # local_name key == name key
+], aliases=[
+    (1, "Ghost Sweeper Mikami", None, "line"),
+    (1, "GS Mikami", "en", "alias"), (1, "Ghost Sweeper", "en", "alias"), (1, "GS Mikami Gokuraku", "en", "alias"),
+    (1, "Ghost Sweeper Mikami Gokuraku Daisakusen", "en", "alias"),
+    (1, "Ghost Sweeper Mikami: Gokuraku Daisakusen!!", "en", "official"),
+    (1, "GS美神", "ja", "official"),
+    (10, "Same Key!", "en", "alias"),
+])
+_jl = R.jp_lines(_jdb, skip={"rl_j8"})
+eq("jp_lines: the considered lines, by tome_id", [ln["tome_id"] for ln in _jl], ["rl_j1", "rl_j4", "rl_j9"])
+eq("jp_lines: fields", {k: _jl[0][k] for k in ("id", "work", "name", "medium", "novel", "volume_count", "year_began")},
+   {"id": 1, "work": "w1", "name": "Ghost Sweeper Mikami", "medium": "manga", "novel": False, "volume_count": 39, "year_began": 1992})
+eq("jp_lines: official aliases ja first, then en", _jl[0]["official"],
+   ["GS美神", "Ghost Sweeper Mikami: Gokuraku Daisakusen!!"])
+eq("jp_lines: alias-kind aliases in stored order", _jl[0]["aliases"],
+   ["GS Mikami", "Ghost Sweeper", "GS Mikami Gokuraku", "Ghost Sweeper Mikami Gokuraku Daisakusen"])
+eq("jp_lines: novel family considered beside an EN comic line", (_jl[1]["novel"], _jl[1]["work"]), (True, "w2"))
+eq("jp_terms: order and kinds, alias capped at ALIAS_LIMIT", R.jp_terms(_jl[0]), [
+    ("Ghost Sweeper Mikami", True, "name"), ("GS美神 極楽大作戦!!", False, "native"),
+    ("GS美神", False, "official"), ("Ghost Sweeper Mikami: Gokuraku Daisakusen!!", False, "official"),
+    ("GS Mikami", False, "alias"), ("Ghost Sweeper", False, "alias"), ("GS Mikami Gokuraku", False, "alias")])
+eq("jp_terms: a local_name key-equal to the name is one term; an alias key-equal to the name is dropped",
+   R.jp_terms(_jl[2]), [("Same Key", True, "name")])
+eq("JP_HEADER", R.JP_HEADER, ["work", "line", "name", "local_name", "medium", "volume_count", "year_began",
+                               "anilist_id", "title", "via", "term", "note"])
+
+
 def summary():
     print()
     if FAILS:
