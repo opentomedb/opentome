@@ -153,17 +153,21 @@ with no English comic line, the lift's id over the work's main comic lines (2026
 means exactly what it means on the English line: the AniList entry for this work in this
 family. A consumer may read it from any line of the work; it is never a display id.
 
-Two rules, no network: **name** — the same-work, same-family lines bound before the pass
-whose name key-equals the line's carry one distinct id; else **main** — the line is its
-market's main line, the family holds exactly one id, and a main line carries it. A family
+Two rules, no network, run in passes until a pass writes nothing (a line one pass binds is a
+donor for the next: a same-named edition of a main line follows it; a second run writes
+nothing): **name** — the same-work, same-family lines with an id whose name key-equals the
+line's carry one distinct id; else **main** — the line is its market's sole main line in the
+family, the family holds exactly one id, and a main line carries it. A family
 that holds an arc's id beside the main's decides nothing (a market's main line can itself
 be an arc: Higurashi), a family whose only bound line is an arc decides nothing (Pokémon
-Adventures), an English line takes an id only from an English line, and an unbind pin on a
-line stops the spread for it. Measured on `opentome-2026-11-13`: 4,615 lines gained an id
-(4,146 by name, 469 by main line: ja 2,810, de 1,074, fr 702, ko 27, zh 2); 2,048 of the
-2,587 works with any id carry it on every line; 789 non-main lines in one-id families stayed
-NULL (editions named with their edition). `build/anilist-spread.tsv` lists every line
-written with its donor; the build log prints both counts.
+Adventures), a market with two main lines in one family gets nothing by the main rule (Solo
+Leveling's French web novel is tagged manga beside the manhwa), an English line takes an id
+only from an English line, and an unbind pin on a line stops the spread for it. Measured on
+`opentome-2026-11-13`: 4,692 lines gained an id (4,225 by name, 467 by main line: ja 2,850,
+de 1,111, fr 702, ko 27, zh 2); 2,074 of the 2,587 works with any id carry it on every line;
+712 non-main lines in one-id families stayed NULL (editions named with their edition).
+`build/anilist-spread.tsv` (uploaded with the CI artifact) lists every line written with its
+donor; the build log prints both counts.
 
 Mangarr is unchanged: `FindSeriesByAnilistId` already orders the rows that carry an id by
 English first, then `is_main`, so the English line keeps winning a by-id lookup; a German or

@@ -180,6 +180,7 @@ jobs:
             build/manga-metadata.sqlite
             build/version.json
             build/anilist-resolve-report.tsv
+            build/anilist-spread.tsv
             build/measure.log
             build/status-transitions.tsv
             build/round-c-report.tsv

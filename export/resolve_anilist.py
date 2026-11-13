@@ -1105,14 +1105,11 @@ def covers(db, path):
     return len(have), len(todo)
 
 
-# ---------------------------------------------------------------- main
-
 # ---------------------------------------------------------------- the spread (2026-11-13): a work's id onto its NULL lines
 
 SPREAD_VIAS = ("name", "main")
 SPREAD_HEADER = ["line", "work", "language", "medium", "name", "via", "anilist_id", "donor"]
-NOVEL_MEDIUMS = ("novel", "light_novel")
-COMIC_MEDIUMS = ("manga", "manhwa", "manhua", None)
+COMIC_MEDIUMS = ("manga", "manhwa", "manhua", None)   # NOVEL_MEDIUMS: the resolver's own, above
 
 
 def family(medium):
@@ -1125,16 +1122,19 @@ def family(medium):
 def spread(db, unbind=frozenset()):
     """Stage 8a's spread: a work's AniList id onto the lines of the work that have none -- never across
     works or families, never over an id, never onto an unbind-pinned line (`unbind`: tome_ids), no
-    network. Donors are the lines that carry an id BEFORE the pass (the resolver's picks, the pins,
-    the KR/CN lift); a line written here is never a donor in the same pass.
+    network. Donors are the lines that carry an id when a pass starts (the resolver's picks, the pins,
+    the KR/CN lift, and the lines earlier passes of this run wrote); the run repeats until a pass writes
+    nothing, so a second run writes nothing.
 
       * name -- the donors of the line's work and family whose name key()-equals the line's name
         carry exactly one distinct id: that id (the JP "Wind Breaker" beside the bound EN one).
-      * main -- otherwise, an is_main line whose work-and-family donors carry exactly one distinct
-        id, at least one of them a main line: that id (a DE main line named in German; the KO main
-        line of a lifted work). A family that holds an arc's id beside the main's decides nothing
-        (a market's "main" line can itself be an arc: Higurashi); a family whose only donor is an
-        arc decides nothing either (Pokémon Adventures).
+      * main -- otherwise, the ONE is_main line of its market and family whose work-and-family donors
+        carry exactly one distinct id, at least one of them a main line: that id (a DE main line
+        named in German; the KO main line of a lifted work). A family that holds an arc's id beside
+        the main's decides nothing (a market's "main" line can itself be an arc: Higurashi); a family
+        whose only donor is an arc decides nothing either (Pokémon Adventures); a market with two
+        main lines in one family gets nothing by this rule (Solo Leveling's French web novel is
+        tagged manga beside the manhwa).
 
     An English line takes an id only from an English donor (a work whose only bound lines are the
     KR/CN lift's FR/DE main lines is the lift's business, not the spread's).
@@ -1144,13 +1144,28 @@ def spread(db, unbind=frozenset()):
 
     -> {"rows": [(tome_id, work, language, medium, name, via, anilist_id, donor)] by tome_id,
         "by": {via: n}, "left": n}. The donor is the lowest tome_id among the lines that decided it."""
+    out, by = [], {v: 0 for v in SPREAD_VIAS}
+    while True:                                     # passes to a fixed point: a line written in one pass is a
+        wrote, left = _spread_pass(db, unbind, out, by)   # donor in the next, so a second RUN writes nothing
+        if not wrote:
+            break
+    db.commit()
+    return {"rows": sorted(out), "by": by, "left": left}
+
+
+def _spread_pass(db, unbind, out, by):
+    """One pass of spread(): donors = every line with an id now. -> (lines written, NULL lines in one-id
+    families the rules did not reach)."""
     rows = db.execute("""SELECT tome_id, name, language, medium, COALESCE(is_main, 0), anilist_id, tome_work_id
                          FROM series WHERE tome_work_id IS NOT NULL""").fetchall()
     donors = collections.defaultdict(list)          # (work, family) -> [(tome_id, name key, id, is_main, language)]
+    mains = collections.Counter()                   # (work, language, family) -> main lines: a double main decides nothing
     for t, n, lang, med, main, aid, w in rows:
         if aid is not None:
             donors[(w, family(med))].append((t, key(n), aid, main, lang))
-    out, by, left = [], {v: 0 for v in SPREAD_VIAS}, 0
+        if main:
+            mains[(w, lang, family(med))] += 1
+    wrote = left = 0
     for t, n, lang, med, main, aid, w in sorted(rows, key=lambda r: r[0]):
         if aid is not None or t in unbind:
             continue
@@ -1160,12 +1175,13 @@ def spread(db, unbind=frozenset()):
         if not cands:
             continue
         same = [c for c in cands if c[1] == key(n)]
-        mains = [c for c in cands if c[3]]          # the main rule copies a MAIN line's id, never an arc's
-        one_id = len({c[2] for c in cands}) == 1    # ... and only in a family that holds one id at all
+        main_donors = [c for c in cands if c[3]]   # the main rule copies a MAIN line's id, never an arc's ...
+        one_id = len({c[2] for c in cands}) == 1    # ... only in a family that holds one id at all ...
+        sole_main = main and mains[(w, lang, family(med))] == 1   # ... onto the market's ONE main line
         if same and len({c[2] for c in same}) == 1:
             pick, via = same, "name"
-        elif main and one_id and mains:
-            pick, via = mains, "main"
+        elif sole_main and one_id and main_donors:
+            pick, via = main_donors, "main"
         else:
             left += one_id
             continue
@@ -1173,9 +1189,11 @@ def spread(db, unbind=frozenset()):
         db.execute("UPDATE series SET anilist_id=? WHERE tome_id=? AND anilist_id IS NULL", (donor[2], t))
         out.append((t, w, lang, med, n, via, donor[2], donor[0]))
         by[via] += 1
-    db.commit()
-    return {"rows": out, "by": by, "left": left}
+        wrote += 1
+    return wrote, left
 
+
+# ---------------------------------------------------------------- main
 
 def main(argv):
     ap = argparse.ArgumentParser(description="bind OpenTome's English lines to AniList ids")

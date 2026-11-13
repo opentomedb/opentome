@@ -174,8 +174,8 @@ NULL; it is never guessed, because Mangarr pins whatever the catalogue says. Mea
 (the contract allows up to 15 % unresolved; the residue is list-article and edition names).
 
 The id is also carried onto the work's other lines (step 8a, `--spread`, 2026-11-13): a
-same-named line in another market, or a market's main line when the work's family (comic or
-novel) holds exactly one id and a main line carries it. A German, French or Japanese line of a
+same-named line in another market, or a market's sole main line when the work's family (comic
+or novel) holds exactly one id and a main line carries it. A German, French or Japanese line of a
 bound work therefore carries the same id as its English sibling, and a consumer may read it from
 any line; an arc beside a bound main line, an English line without an English donor, and an
 artbook never take one. See `docs/schema-v1.md`.

@@ -297,7 +297,21 @@ res5, ids5 = spread_db([
     (3, "rl_ja11", "X (Artbooks)", "ja", "artbook", 1, None, "w7"),
     (4, "rl_ja12", "X", "ja", "manga", 1, None, "w7"),
 ])
-eq("spread: artbooks take no comic id", (ids5["rl_en12"], ids5["rl_ja11"], ids5["rl_ja12"]), (None, None, 9))   # rl_de2 (rl_de5 is pinned, rl_en2 is another family)
+eq("spread: artbooks take no comic id", (ids5["rl_en12"], ids5["rl_ja11"], ids5["rl_ja12"]), (None, None, 9))
+res6, ids6 = spread_db([
+    (1, "rl_en30", "Solo Leveling", "en", "manhwa", 1, 5, "w9"),
+    (2, "rl_fr30", "Solo Leveling FR", "fr", "manhwa", 1, None, "w9"),         # two FR main lines in one family:
+    (3, "rl_fr31", "Solo Leveling (Roman web)", "fr", "manga", 1, None, "w9"),  # the main rule trusts neither
+    (4, "rl_de30", "Solo Leveling DE", "de", "manhwa", 1, None, "w9"),         # the sole DE main line: fine
+])
+eq("spread: a double main line gets nothing by the main rule", (ids6["rl_fr30"], ids6["rl_fr31"], ids6["rl_de30"]), (None, None, 5))
+res7, ids7 = spread_db([
+    (1, "rl_en20", "Alpha", "en", "manga", 1, 11, "w8"),
+    (2, "rl_de20", "Alfa", "de", "manga", 1, None, "w8"),      # main rule, pass 1
+    (3, "rl_de21", "Alfa", "de", "manga", 0, None, "w8"),      # name rule off the DE main line, pass 2
+])
+eq("spread: a run repeats until nothing more is written", (ids7["rl_de20"], ids7["rl_de21"], res7["by"]), (11, 11, {"name": 1, "main": 1}))
+eq("spread: the chained row names its donor", res7["rows"][1], ("rl_de21", "w8", "de", "manga", "Alfa", "name", 11, "rl_de20"))   # rl_de2 (rl_de5 is pinned, rl_en2 is another family)
 res2, ids2 = spread_db([(1, "rl_en1", "A", "en", "manga", 1, 7, "w1"), (2, "rl_ja1", "A", "ja", "manga", 1, 7, "w1")])
 eq("spread: nothing to do is 0 rows", (res2["by"], res2["rows"], res2["left"]), ({"name": 0, "main": 0}, [], 0))
 
@@ -310,16 +324,18 @@ _db.execute("""CREATE TABLE series (gcd_series_id INTEGER PRIMARY KEY, tome_id T
                language TEXT, medium TEXT, is_main INTEGER, anilist_id INTEGER, tome_work_id TEXT)""")
 _db.executemany("INSERT INTO series VALUES (?,?,?,?,?,?,?,?)",
                 [(1, "rl_en1", "A", "en", "manga", 1, 7, "w1"), (2, "rl_ja1", "A", "ja", "manga", 1, None, "w1"),
-                 (3, "rl_de1", "A: Edition", "de", "manga", 0, None, "w1")])
+                 (3, "rl_de1", "A: Edition", "de", "manga", 0, None, "w1"),
+                 (4, "rl_de2", "Alpha", "de", "manga", 1, None, "w1"), (5, "rl_de3", "Alpha", "de", "manga", 0, None, "w1")])
 _db.commit(); _db.close()
 _out = io.StringIO()
 with contextlib.redirect_stdout(_out):
     R.main([_art, "--spread"])
 _lines = _out.getvalue().splitlines()
-eq("--spread: log line", _lines[0], "anilist: spread 1 line(s) onto NULL lines (1 via name, 0 via main; ja 1)")
+eq("--spread: log line", _lines[0], "anilist: spread 3 line(s) onto NULL lines (2 via name, 1 via main; de 2, ja 1)")
 eq("--spread: leftover line", _lines[1], "anilist: spread left 1 NULL line(s) in one-id families (non-main, no name match)")
 eq("--spread: tsv", open(os.path.join(_tmp, "anilist-spread.tsv"), encoding="utf8").read().splitlines(),
-   ["\t".join(R.SPREAD_HEADER), "rl_ja1\tw1\tja\tmanga\tA\tname\t7\trl_en1"])
+   ["\t".join(R.SPREAD_HEADER), "rl_de2\tw1\tde\tmanga\tAlpha\tmain\t7\trl_en1",
+    "rl_de3\tw1\tde\tmanga\tAlpha\tname\t7\trl_de2", "rl_ja1\tw1\tja\tmanga\tA\tname\t7\trl_en1"])
 _out = io.StringIO()
 with contextlib.redirect_stdout(_out):
     R.main([_art, "--spread"])
