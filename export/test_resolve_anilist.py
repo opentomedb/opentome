@@ -468,6 +468,40 @@ eq("resolve_jp: official before alias, alias capped at ALIAS_LIMIT, the 4th alia
 eq("year_ok", [R.year_ok(media(1, year=y), 2000) for y in (1996, 1997, 2003, 2004, None)] + [R.year_ok(media(1, year=2020), None)],
    [False, True, True, False, True, True])
 
+_cdb, _cgot, _clines = jp_resolve([
+    (1, "rl_p", "Taken", None, "ja", "manga", 1, None, "wp", 5, 2000),
+    (2, "rl_en", "Other", None, "en", "manga", 1, 31, "wq", 5, 2000),      # another work already carries 31
+    (3, "rl_r1", "Twin A", None, "ja", "manga", 1, None, "wr", 5, 2000),
+    (4, "rl_r2", "Twin B", None, "ja", "manga", 1, None, "ws", 5, 2000),    # two JP lines, one id
+    (5, "rl_t1", "Two Fam", None, "ja", "manga", 1, None, "wt", 5, 2000),
+    (6, "rl_t2", "Two Fam", None, "ja", "light_novel", 1, None, "wt", 2, 2001),   # one work, two families, two ids
+    (7, "rl_u", "Nothing", None, "ja", "manga", 1, None, "wu", 5, 2000),
+], pages=[("Taken", [media(31, romaji="Taken", volumes=5, year=2000)], False),
+          ("Twin A", [media(32, romaji="Twin A", volumes=5, year=2000)], False),
+          ("Twin B", [media(32, romaji="Twin B", volumes=5, year=2000)], False),
+          ("Two Fam", [media(33, romaji="Two Fam", volumes=5, year=2000)], False),
+          ("Two Fam", [media(34, romaji="Two Fam", volumes=2, year=2001, fmt="NOVEL")], True),
+          ("Nothing", [media(35, romaji="Nothing Else", volumes=5, year=2000)], False)])
+R.jp_collisions(_cdb, _clines)
+_byid = {ln["tome_id"]: ln for ln in _clines}
+eq("jp_collisions: an id another work carries", (_byid["rl_p"]["via"], _byid["rl_p"]["note"]), ("collision", "wq"))
+eq("jp_collisions: two JP lines picking one id are both collisions",
+   [(_byid[t]["via"], _byid[t]["note"]) for t in ("rl_r1", "rl_r2")], [("collision", "rl_r2"), ("collision", "rl_r1")])
+eq("jp_collisions: one work's manga and novel main lines bind separately",
+   [(_byid[t]["via"], _byid[t]["pick"]["id"]) for t in ("rl_t1", "rl_t2")], [("primary", 33), ("primary", 34)])
+_jtsv = os.path.join(_tmp, "jp.tsv")
+eq("write_jp: dry run writes nothing", (R.write_jp(_cdb, _clines, True), _cdb.execute("SELECT COUNT(*) FROM series WHERE anilist_id IS NOT NULL").fetchone()[0]), (0, 1))
+eq("write_jp: the eligible lines", (R.write_jp(_cdb, _clines, False), dict(_cdb.execute("SELECT tome_id, anilist_id FROM series WHERE language='ja'"))),
+   (2, {"rl_p": None, "rl_r1": None, "rl_r2": None, "rl_t1": 33, "rl_t2": 34, "rl_u": None}))
+R.report_jp(_clines, _jtsv)
+_rows = open(_jtsv, encoding="utf8").read().splitlines()
+eq("report_jp: header", _rows[0], "\t".join(R.JP_HEADER))
+eq("report_jp: a collision row", _rows[1], "wp\trl_p\tTaken\t\tmanga\t5\t2000\t\tTaken\tcollision\tTaken\twq")
+eq("report_jp: a bound row", _rows[4], "wt\trl_t1\tTwo Fam\t\tmanga\t5\t2000\t33\tTwo Fam\tprimary\tTwo Fam\t")
+eq("report_jp: an unresolved row carries the rejections", _rows[6].split("\t")[9:], ["unresolved", "", ""])
+eq("jp_counts", R.jp_counts(_clines), {"considered": 6, "bound": 2, "by_via": {"primary": 2, "synonym": 0, "article": 0},
+   "by_kind": {"name": 2, "native": 0, "official": 0, "alias": 0}, "collisions": 3, "unresolved": 1})
+
 R.CACHE = _jcache_saved
 
 def summary():

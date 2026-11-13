@@ -1084,6 +1084,70 @@ def resolve_jp(lines):
     return lines
 
 
+def jp_collisions(db, lines):
+    """The collision guard: a pick whose id a line of the artifact already carries (bound before this pass -- an
+    English line, the lift, a carried pin; another work, or this work's other family), or that another JP line of
+    this pass picked (any work, any family), is withheld: via "collision", note the carrying work's id or the
+    other line's tome_id (the lowest). The pick stays for the report."""
+    taken = {}
+    for aid, w in db.execute("SELECT anilist_id, tome_work_id FROM series WHERE anilist_id IS NOT NULL ORDER BY tome_id"):
+        taken.setdefault(aid, w)
+    picked = collections.defaultdict(list)
+    for ln in lines:
+        if ln["pick"]:
+            picked[ln["pick"]["id"]].append(ln["tome_id"])
+    for ln in lines:
+        if not ln["pick"]:
+            continue
+        aid = ln["pick"]["id"]
+        others = [t for t in picked[aid] if t != ln["tome_id"]]
+        if aid in taken:
+            ln.update(via="collision", note=taken[aid])
+        elif others:
+            ln.update(via="collision", note=min(others))
+    return lines
+
+
+def write_jp(db, lines, dry_run):
+    """The picked id onto the Japanese main line (collisions withheld; never over an id). -> lines written."""
+    n = 0
+    for ln in lines:
+        if ln["pick"] and ln["via"] != "collision" and not dry_run:
+            n += db.execute("UPDATE series SET anilist_id=? WHERE gcd_series_id=? AND anilist_id IS NULL",
+                            (ln["pick"]["id"], ln["id"])).rowcount
+    if not dry_run:
+        db.commit()
+    return n
+
+
+def _jp_title(m):
+    t = (m or {}).get("title") or {}
+    return " / ".join(x for x in (t.get("english") or t.get("romaji"), t.get("native")) if x)
+
+
+def report_jp(lines, path):
+    """build/jp-anilist-bindings.tsv: every considered line by tome_id -- bound (its id, title, tier and term),
+    a collision (the other work or line in `note`) or unresolved (the rejections in `note`)."""
+    with open(path, "w", encoding="utf8") as f:
+        f.write("\t".join(JP_HEADER) + "\n")
+        for ln in sorted(lines, key=lambda l: l["tome_id"]):
+            bound = ln["pick"] and ln["via"] != "collision"
+            row = [ln["work"], ln["tome_id"], ln["name"], ln["local_name"] or "", ln["medium"] or "",
+                   ln["volume_count"], ln["year_began"], ln["pick"]["id"] if bound else "",
+                   _jp_title(ln["pick"]), ln["via"] or "unresolved", ln["term"] or "",
+                   ln.get("note") if ln["via"] == "collision" else "; ".join(ln["rejected"])]
+            f.write("\t".join("" if x is None else str(x) for x in row) + "\n")
+
+
+def jp_counts(lines):
+    bound = [ln for ln in lines if ln["pick"] and ln["via"] in JP_VIAS]
+    return {"considered": len(lines), "bound": len(bound),
+            "by_via": {v: sum(1 for ln in bound if ln["via"] == v) for v in JP_VIAS},
+            "by_kind": {k: sum(1 for ln in bound if ln["kind"] == k) for k in JP_KINDS},
+            "collisions": sum(1 for ln in lines if ln["via"] == "collision"),
+            "unresolved": sum(1 for ln in lines if not ln["pick"])}
+
+
 def jp_terms(ln):
     """-> [(term, own_name, kind)] in order: the line's name (own name), its native title, its official aliases,
     then up to ALIAS_LIMIT of its alias-kind aliases (alias_terms); one term per key, empty keys dropped."""
