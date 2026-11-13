@@ -1,6 +1,6 @@
 # HANDOFF — OpenTome
 
-## The JP binding (round (c) in the chat) -- **BUILT LOCALLY 2026-11-13, 9 commits 8a6fe08..bca6e6f + this handoff on main, NOT PUSHED; nothing published**
+## The JP binding (round (c) in the chat) -- **BUILT LOCALLY 2026-11-13, 10 commits 8a6fe08..8f8b2e3 + this handoff on main, NOT PUSHED; nothing published**
 
 Promised to the Gutter developer in #general (09:15 and 13:02 posts). Spec `docs/superpowers/specs/2026-11-13-jp-native-title-binding-design.md`,
 plan `docs/superpowers/plans/2026-11-13-jp-native-title-binding.md` (both local, gitignored; this section and
@@ -27,7 +27,7 @@ lines bound with no English line in their family: N (comic N, novel N)`; the non
 159, ONE_SHOT 138, 4x 41, synonym-only 15). 40 random bound rows read by eye: all right. Japanese lines with an
 id 2,850 -> 4,871. Contract on the measured copy: green but for the new Kurogane pin (the copy predates it).
 
-**Findings from the measurement:** (1) an AniList romaji title carried a trailing tab and split its TSV row ->
+**Findings from the measurement:** (1) two AniList romaji titles carried a trailing tab and split their TSV rows ->
 `report_jp` folds tab / CR / LF to a space (`_tsv_cell`, tested); `report_krcn` / `write_spread` do not fold --
 a minor for a later pass. (2) 12 of the 18 collisions are works the catalogue holds twice -- French-sourced
 doubles of English-sourced works (Cells at Work!, Heavenly Delusion, Evangelion: Shinji Ikari Raising Project,
@@ -54,7 +54,21 @@ find the parse, add a guard (an ISBN publisher prefix that disagrees with the li
 Option (b) MAL id: anilist.co/terms (read 2026-11-13 via Chrome) is generic site terms, no API clause; storing
 `idMal` from the same response is the same category as the AniList id already stored -- Nick's call.
 
-**Tests:** `export/test_resolve_anilist.py` (+40 checks: lines, terms, families, rounds, guards, collisions,
+**Fresh review (2026-11-13, whole branch):** 0 critical, 1 important, 7 minor. Fixed: two main lines of ONE work and
+family were judged separately -- agreeing on one entry both were withheld as collisions (the Monster Eater pair:
+the work confirming itself, lost with its DE/FR spread), disagreeing both would have been written and turned 8c
+red (`main_ids` of the family = two ids); `jp_collisions()` now groups a work's main lines of a family: agreeing
+they bind, disagreeing both are collisions (commit 8f8b2e3, tested). Deferred minors: the cold run searches the
+native title of every line and all of a line's alias terms at once (~1/5 of ~5,400 searches rank nothing;
+cached after one run); positive pins are invisible to the collision guard (fold the pins into `taken`); the JP
+log line lacks a dry-run marker (`nj` unused then); 4 manhwa/manhua-tagged Japanese main lines are considered
+under the JP filter, 1 bound by its own name to an entry AniList places in Japan (a medium-tag defect on that
+line, most likely -- read it); two test gaps (name and native both hitting with the name winning; a
+year-rejected first term then a binding second); the year guard runs after the popularity pick (a more popular
+homonym decades off hides the right entry: a miss, never a wrong bind; 50 unresolved rows carry only year
+rejections); `report_krcn` / `write_spread` do not fold tabs.
+
+**Tests:** `export/test_resolve_anilist.py` (+43 checks: lines, terms, families, rounds, guards, collisions,
 writes, report, counts, the CLI, the sanitiser), `export/private/test_resolve_anilist_recorded.py`,
 `tier2/test_resolve.py` 30/30, `tier2/test_corrections_check.py` OK (46 pins), `tier0/test_parser.py`,
 `export/test_measure_fixture.py`: all green.
