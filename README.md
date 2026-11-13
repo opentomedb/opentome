@@ -171,7 +171,7 @@ fresh search for the first three that miss it — cached under `.cache/anilist/`
 rebuild costs no requests for names already seen. A line the rules cannot place stays
 NULL; it is never guessed, because Mangarr pins whatever the catalogue says. Measured on
 `opentome-2026-09-04`: 2,614 of 3,053 English lines bound, 87.8 % of those with 3+ volumes
-(the contract allows up to 15 % unresolved; the residue is list-article and edition names).
+(the contract allows up to 15 % unresolved; the residue is list-article and edition names). A Japanese main line of a work with no English line in its family (comic or novel) is bound by its native title the same way, under AniList's Japan country filter and a year guard (the JP binding, 2026-11-13; `build/jp-anilist-bindings.tsv`).
 
 The id is also carried onto the work's other lines (step 8a, `--spread`, 2026-11-13): a
 same-named line in another market, or a market's sole main line when the work's family (comic

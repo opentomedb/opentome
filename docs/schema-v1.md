@@ -202,3 +202,30 @@ and work, its role -- merged / sibling / linked / review / unlinked / absorbed -
 lines that share ISBNs with a German Wikipedia line, that line's work as ground truth) and
 `dnb_member` (every DNB volume record kept: its line, number, ISBN, the volume it reached and
 its fate). The contract test and the measure gate read them.
+
+## 2026-11-13 — Japanese main lines bound by native title (the JP binding)
+
+`series.anilist_id` on a Japanese `is_main` line of a family (comic / novel) whose work has no English line
+in that family is the resolver's **own binding** (`export/resolve_anilist.py resolve_jp()`, stage 8a, after the
+English lines and the KR/CN lift, before the pins and the spread), not a copy. The line's name, its native
+title (`local_name`), its official aliases, then up to three aliases are searched under AniList's
+`countryOfOrigin: "JP"` in the cache families `jp-manga` / `jp-novel` (the family's format) and ranked by exact
+title equality only (the KR/CN strict mode: no substring or ceiling tier, the 4x volume ceiling for every
+term), then a year guard (the candidate's start year within 3 of `year_began` when both are known) and a
+collision guard (an id any line of the artifact already carries, or two Japanese lines picking one id, binds
+nothing and is reported). The same meaning as on an English line; the spread copies it to the work's other
+lines (same-named editions by name, the German and French main lines by the main rule). Every considered line
+is in `build/jp-anilist-bindings.tsv` (bound: id, title, tier, term; collision: the other work or line;
+unresolved: the rejections). A wrong binding is pinned on the Japanese line (`corrections/anilist.json`, an id
+or `null`). In code and docs this is "the JP binding"; "round C" is the line-names round (`docs/round-c.md`).
+
+Measured on the spread build of `opentome-2026-11-13` (2026-11-13): 2,580 lines considered, 2,021 bound
+(manga 1,770, light novel 231, novel 19, manhwa 1; 1,668 by primary title, 347 by synonym, 6 by article; by
+term: name 1,497, native 458, official 19, alias 47), 18 collisions (12 of them works the catalogue holds
+twice, French-sourced doubles of English-sourced works), 541 unresolved (volume-count disagreements 392, no
+equal title on any page 377, year 159, one-shots 138). Japanese lines with an id: 2,850 -> 4,871.
+
+Contract: the info line `JP main lines bound with no English line in their family`; the rule "non-EN line whose
+anilist_id is not its work's" admits the binding (no English line of the family, the family's bound main
+lines share the id). Mangarr: no change -- `FindSeriesByAnilistId` finds the Japanese line by id, no English
+line competes; `CatalogueHint` for a Japanese, German or French title of such a work binds by id.

@@ -476,6 +476,14 @@ id; `docs/schema-v1.md`). A wrong id on a German, French or Japanese line is the
 pin the English line and the spread follows it on the next build. An unbind pin on the non-English line itself
 stops the spread for that line alone.
 
+**The JP binding (2026-11-13).** Stage 8a also binds the Japanese main line of a family (comic or novel) whose
+work has no English line and no bound line in it, by exact title under AniList's Japan country filter
+(`export/resolve_anilist.py resolve_jp()`: the name, the native title, the official aliases, then up to three
+aliases; the KR/CN strict ranking, a year guard, a collision guard; every considered line in
+`build/jp-anilist-bindings.tsv`). A wrong id on such a line is pinned on that line in `anilist.json` (`line` =
+its tome_id, `anilist_id` = the right id, or `null` to unbind); the pins run after the resolver, and the spread
+follows the pin to the work's other lines.
+
 `line` is an OpenTome release-line id (`series.tome_id` in the published
 artifact), the same key `aliases.json` and the `lines.json` overrides use: it is
 stable across rebuilds and names exactly one line, where a series name does not
