@@ -517,6 +517,14 @@ eq("main: the JP log line", _jlog, ["anilist: JP main lines with no English line
    "1 unresolved -> %s" % os.path.join(_tmp, "jp-anilist-bindings.tsv")])
 eq("main: the JP id written", sqlite3.connect(_jart).execute("SELECT anilist_id FROM series WHERE tome_id='rl_m1'").fetchone()[0], 41)
 eq("main: the JP tsv", len(open(os.path.join(_tmp, "jp-anilist-bindings.tsv"), encoding="utf8").read().splitlines()), 3)
+_sl = [dict(id=1, tome_id="rl_tab", work="wx", name="Tab\tName", local_name="Line\nBreak", medium="manga", novel=False,
+            volume_count=1, year_began=2000, official=[], aliases=[], anilist_id=None,
+            pick=None, via=None, term=None, kind=None, rejected=["1:volumes 9 vs 1\twide"])]
+_stsv = os.path.join(_tmp, "jp-sanitised.tsv")
+R.report_jp(_sl, _stsv)
+_srows = open(_stsv, encoding="utf8").read().splitlines()
+eq("report_jp: a tab or newline inside a field never splits the row", (len(_srows), _srows[1].count("\t")), (2, 11))
+eq("report_jp: the whitespace is folded to a space", _srows[1].split("\t")[2:4], ["Tab Name", "Line Break"])
 R.CACHE = _jcache_saved
 
 def summary():

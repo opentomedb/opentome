@@ -1136,7 +1136,12 @@ def report_jp(lines, path):
                    ln["volume_count"], ln["year_began"], ln["pick"]["id"] if bound else "",
                    _jp_title(ln["pick"]), ln["via"] or "unresolved", ln["term"] or "",
                    ln.get("note") if ln["via"] == "collision" else "; ".join(ln["rejected"])]
-            f.write("\t".join("" if x is None else str(x) for x in row) + "\n")
+            f.write("\t".join("" if x is None else _tsv_cell(x) for x in row) + "\n")
+
+
+def _tsv_cell(x):
+    """A TSV cell never carries a tab or a line break (AniList titles do: "Matsurika Kanriden\t"); folded to a space."""
+    return re.sub(r"[\t\r\n]+", " ", str(x))
 
 
 def jp_counts(lines):
