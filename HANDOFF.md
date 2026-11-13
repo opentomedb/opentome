@@ -1,6 +1,6 @@
 # HANDOFF — OpenTome
 
-## Round (a): the work's AniList id on every line (the spread) -- **BUILT LOCALLY 2026-11-13, 5 commits e694e5f..1f4227c on main, NOT PUSHED; nothing published**
+## Round (a): the work's AniList id on every line (the spread) -- **PUSHED + PUBLISHED 2026-11-13 13:01 CST as `opentome-2026-11-13` (re-published, same label, sha 2b0501ce; main c7a7ccb); Mangarr pulled it 13:03; #general note posted**
 
 Promised to the Gutter developer in #general on 2026-11-13 ("I'm going to put the work's AniList id on every line").
 Nick: "start working on that". Spec `docs/superpowers/specs/2026-11-13-anilist-id-on-every-line-design.md`, plan
@@ -39,12 +39,29 @@ mirrors `family()` by hand; `webtoon` would be its own family (no such medium to
 `tier2/test_resolve.py` 30/30, `tier2/test_corrections_check.py` 84 OK, `tier0/test_parser.py`, `export/test_measure_fixture.py`
 all green on 1f4227c.
 
-**NEXT (needs Nick's "push"):** push both remotes -> build-only run: 8a must print `anilist: spread N line(s) ...` with
-N near 4,692 and `left` near 712 (the live build binds the same EN lines), 8c `non-EN line whose anilist_id is not its
-work's: 0` and the by-language info line (ja ≈ 2,850), `artifact contract ok`, 8d floors, the artifact carrying
-`build/anilist-spread.tsv` -> publish run -> Mangarr MetadataUpdate (wait for the pages run + a minute of CDN) + FlightLog
--> a note to the Gutter developer in #general on Nick's "post it". Then **round (c)**: JP-only works by native title
-(1,572 works with no English line and no id), its own spec.
+**DONE 2026-11-13 afternoon (Nick's "push" 12:47 CST):** pushed e694e5f..c7a7ccb to github + forgejo. Build-only run
+43486051754 green: 8a `anilist: spread 4692 line(s) onto NULL lines (4225 via name, 467 via main; ja 2850, de 1111, fr 702,
+ko 27, zh 2)` and `spread left 712`; 8c `non-EN line whose anilist_id is not its work's: 0`, `lines with anilist_id by
+language: ja 2,850, en 2,846, de 1,279, fr 802, ko 27, zh 2`, `artifact contract ok`; the gate diff against the previous
+run (43451811441) was exactly those two new lines, every other count identical; `build/anilist-spread.tsv` in the
+artifact. Publish run 43487214576 green: `opentome-2026-11-13` RE-published -- same label, assets replaced (publish.sh
+clobbers; sha 2b0501ce69b9..., 37,437,440 B, series 13,468, volumes 125,520; alias `metadata` re-pointed). Pages run
+43488200029; the opentomedb.com manifest carried the new sha about two minutes later. Mangarr MetadataUpdate (command
+439247) logged "same label, different sha256 -- treating as newer" and swapped the file at 13:03:58 CST (Tower sha
+2b0501ce); FlightLog line 13:03, backups `mangarr-manga-metadata.sqlite.before-20261113-spread` (ed3e3bbc) and
+`LEDGER.md.20261113-spread`. Mangarr health afterwards: one warning unrelated to the catalogue (NZB indexers
+unavailable via Prowlarr), handled in the Mangarr notes. Note to the Gutter developer posted in #general as Nick
+13:02 CST on his "post it" (msg 1570876549224468583): shipped, same label new file so re-fetch, the counts, the two
+rules, 712 left, round (c) next. In the published file 1,482 lines of bound works still carry NULL: 712 in one-id
+families (non-main, no name match) + 770 in families whose bound lines carry several ids (arcs / spin-offs).
+
+**Gotcha, same-day republish:** the label stays `opentome-YYYY-MM-DD`; publish.sh replaces the release assets and
+Mangarr's updater compares the sha when the labels are equal (D5), so a second publish on one day is pulled. The
+opentomedb.com manifest lags the pages run by 1-2 min; a MetadataUpdate before that reports "up to date".
+
+**NEXT:** **round (c)** -- bind JP-only works by native title (1,572 works with no English line and no id): its own
+brainstorm -> spec -> plan -> inline execution -> fresh review, on Nick's word. The deferred minors above stay deferred.
+Watch: the Sunday 2026-11-15 09:00 UTC scheduled build (build-only) should be green with the spread in it.
 
 ## The #corrections AniList round (2026-11-12) -- **PUSHED + PUBLISHED 2026-11-13 09:27 CST as `opentome-2026-11-13` (main 6bc82b5); Mangarr pulled it**
 
