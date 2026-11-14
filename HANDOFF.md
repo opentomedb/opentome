@@ -1,6 +1,6 @@
 # HANDOFF — OpenTome
 
-## The JP binding (round (c) in the chat) -- **PUSHED + PUBLISHED 2026-11-13 16:02 CST as `opentome-2026-11-13` (re-published a second time, same label, sha 0d97875a; main 647fcea); Mangarr pulled it 16:03; #general note pending Nick's "post it"**
+## The JP binding (round (c) in the chat) -- **PUSHED + PUBLISHED 2026-11-13 16:02 CST as `opentome-2026-11-13` (re-published a second time, same label, sha 0d97875a; main 647fcea); Mangarr pulled it 16:03; #general note posted 2026-11-14 09:13 CST (msg 1571181317276831865)**
 
 Promised to the Gutter developer in #general (09:15 and 13:02 posts). Spec `docs/superpowers/specs/2026-11-13-jp-native-title-binding-design.md`,
 plan `docs/superpowers/plans/2026-11-13-jp-native-title-binding.md` (both local, gitignored; this section and
@@ -96,7 +96,8 @@ Mangarr MetadataUpdate (command 439575, same label / different sha) swapped the 
 the next same-day publish: a build-only run that is green does not prove the publish run will be -- a source
 freshness window can elapse in between; when it does, the publish run's gates stop it and nothing ships.
 
-**NEXT:** the #general note to the Gutter developer on Nick's "post it" (text in the session). Then: the
+**#general note posted 2026-11-14 09:13 CST as Nick on his "post it"** (msg 1571181317276831865): the counts, same label
+new file so re-fetch, 541 empty, 17 withheld as doubles. **NEXT:** the
 duplicate-works list (12 FR-sourced doubles from the collisions), the macron round (61 names), the Kurogane parse,
 the round (a) minors below; option (b) stays on hold. Watch: Sunday 2026-11-15 09:00 UTC scheduled build (build-only,
 refresh windows LoC/BnF 28 d may elapse) should be green.
@@ -107,7 +108,7 @@ print the JP line with ~2,580 considered / ~2,021 bound / 18 collisions, the pin
 8c `non-EN line whose anilist_id is not its work's: 0`, `JP main lines bound ...: ~2,021`, `artifact contract
 ok`, the artifact carrying `build/jp-anilist-bindings.tsv` -> publish -> Mangarr MetadataUpdate (same-day
 republish: same label, new sha; wait for the pages run + a minute) + FlightLog -> a note to the Gutter
-developer in #general on Nick's "post it". Then: the duplicate-works list (finding 2), the macron round
+developer in #general (posted 2026-11-14 09:13 CST). Then: the duplicate-works list (finding 2), the macron round
 (finding 3), the Kurogane parse (above), the round (a) minors below.
 
 ## Round (a): the work's AniList id on every line (the spread) -- **PUSHED + PUBLISHED 2026-11-13 13:01 CST as `opentome-2026-11-13` (re-published, same label, sha 2b0501ce; main c7a7ccb); Mangarr pulled it 13:03; #general note posted**
