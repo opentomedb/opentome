@@ -129,5 +129,88 @@ def run():
     print(f"{n-fails}/{n} passed")
     return fails
 
+# ---- the corrections round (2026-11-23): one claim per article, coarse months, write-back -------------------
+ARTICLE_CASES = [
+    # (name, field, [(source, via, value)], winning value)
+    ("two articles agree, a third differs", "isbn13",
+     [("wikipedia", "en", "9784065100912"), ("wikipedia", "fr", "9784065100912"), ("wikipedia", "de", "9784065104255")],
+     "9784065100912"),
+    ("1:1 between articles: the English article first", "isbn13",
+     [("wikipedia", "fr", "9784065104255"), ("wikipedia", "en", "9784065100912")], "9784065100912"),
+    ("1:1 between articles: the Japanese article before the French", "isbn13",
+     [("wikipedia", "fr", "9784065104255"), ("wikipedia", "ja", "9784065100912")], "9784065100912"),
+    ("the publisher page's ISBN beats the cell of the same row", "isbn13",
+     [("wikipedia", "en", "9780316346122"), ("publisher", "en", "9780316346153")], "9780316346153"),
+    ("two cells agreeing do not outvote a publisher page", "isbn13",
+     [("wikipedia", "en", "9784065104255"), ("wikipedia", "fr", "9784065104255"), ("publisher", "en", "9784065100912")],
+     "9784065100912"),
+    ("a coarse month a year away outranks a lone day", "release_date",
+     [("publisher", "en", "2016-06-06"), ("openbd", "", "2017-06")], "2017-06"),
+    ("a coarse month four years away outranks a lone day", "release_date",
+     [("wikipedia", "en", "2011-11-16"), ("openbd", "", "2007-11")], "2007-11"),
+    ("an adjacent month: the day keeps winning", "release_date",
+     [("wikipedia", "en", "2017-06-30"), ("openbd", "", "2017-07")], "2017-06-30"),
+    ("the month agrees: the day wins as before", "release_date",
+     [("wikipedia", "en", "2017-06-06"), ("openbd", "", "2017-06")], "2017-06-06"),
+    ("two articles agree on a day against a third", "release_date",
+     [("wikipedia", "en", "2010-11-18"), ("wikipedia", "fr", "2010-11-18"), ("wikipedia", "de", "2011-11-18")],
+     "2010-11-18"),
+    ("two days disagree, the month backs one", "release_date",
+     [("wikipedia", "en", "2010-01-18"), ("wikipedia", "fr", "2011-01-18"), ("openbd", "", "2011-01")], "2011-01-18"),
+]
+
+
+def run_round():
+    fails = 0
+    db = sqlite3.connect(":memory:")
+    db.executescript(open(os.path.join(os.path.dirname(HERE), "schema", "schema.sql")).read())
+    db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_r','R','x','x')")
+    db.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at) "
+               "VALUES('rl_r','w_r','manga','JP','ja','x','x')")
+    for i, (name, field, claims, want) in enumerate(ARTICLE_CASES):
+        vid = f"v_round{i:04d}"
+        db.execute("INSERT INTO volume(id,release_line_id,number,created_at,updated_at) VALUES(?,?,?,'x','x')", (vid, "rl_r", str(i)))
+        for src, via, val in claims:
+            db.execute("""INSERT INTO claim(entity,entity_id,field,value,source,licence,retrieved_at,via)
+                          VALUES('volume',?,?,?,?,'open','2026-01-01',?)""", (vid, field, val, src, via))
+    # write-back: the row carries the first article's value until resolve writes the resolved one
+    WB = [("v_wb_date", {"release_date": "2010-01-18", "release_date_precision": "day"},
+           [("release_date", "wikipedia", "en", "2011-01-18"), ("release_date", "openbd", "", "2011-01")],
+           ("2011-01-18", "day", None)),
+          ("v_wb_isbn", {"isbn13": "9784065104255"},
+           [("isbn13", "wikipedia", "en", "9784065104255"), ("isbn13", "publisher", "en", "9784065100912")],
+           (None, None, "9784065100912")),
+          ("v_wb_jan1", {}, [("release_date", "wikipedia", "en", "2015-01-01")], ("2015", "year", None)),
+          ("v_wb_month", {}, [("release_date", "openbd", "", "2015-03")], ("2015-03", "month", None)),
+          ("v_wb_badisbn", {"isbn13": "9784065104255"}, [("isbn13", "wikipedia", "en", "97812345")], (None, None, "9784065104255"))]
+    for num, (vid, row, claims, _) in enumerate(WB, 100):
+        cols = ",".join(["id", "release_line_id", "number", "created_at", "updated_at"] + list(row))
+        db.execute(f"INSERT INTO volume({cols}) VALUES({','.join('?' * (5 + len(row)))})",
+                   [vid, "rl_r", str(num), "x", "x"] + list(row.values()))
+        for field, src, via, val in claims:
+            db.execute("""INSERT INTO claim(entity,entity_id,field,value,source,licence,retrieved_at,via)
+                          VALUES('volume',?,?,?,?,'open','2026-01-01',?)""", (vid, field, val, src, via))
+    db.commit()
+    resolve(db)
+    for i, (name, field, claims, want) in enumerate(ARTICLE_CASES):
+        got = db.execute("SELECT value FROM resolution WHERE entity_id=? AND field=?", (f"v_round{i:04d}", field)).fetchone()
+        got = got[0] if got else "<none>"
+        ok = got == want
+        fails += not ok
+        print(f"{name:<58}{want:<16}{got:<16}  {'' if ok else '<-- FAIL'}")
+    got = db.execute("SELECT basis FROM resolution WHERE entity_id='v_round0005'").fetchone()[0]
+    ok = got == "coarse_outranks"
+    fails += not ok
+    print(f"{'basis of the coarse-month rule':<58}{'coarse_outranks':<16}{got:<16}  {'' if ok else '<-- FAIL'}")
+    for vid, _, _, want in WB:
+        got = db.execute("SELECT release_date, release_date_precision, isbn13 FROM volume WHERE id=?", (vid,)).fetchone()
+        ok = got == want
+        fails += not ok
+        print(f"{'write-back ' + vid:<58}{str(want):<30}{str(got):<30}  {'' if ok else '<-- FAIL'}")
+    n = len(ARTICLE_CASES) + 1 + len(WB)
+    print(f"{n-fails}/{n} passed (round)")
+    return fails
+
+
 if __name__ == "__main__":
-    sys.exit(1 if run() else 0)
+    sys.exit(1 if (run() + run_round()) else 0)
