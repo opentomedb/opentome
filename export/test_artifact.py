@@ -219,9 +219,21 @@ def run(path):
         missing_removal += bool(hit)
     rule("removed aliases still present in the artifact", missing_removal)
 
+    # the corrections round (2026-11-23): a pin on a line a merge retired names the survivor through id_redirect
+    def pin_target(line_id):
+        t = line_id
+        for _ in range(8):
+            if db.execute("SELECT 1 FROM series WHERE tome_id=?", (t,)).fetchone():
+                return t
+            nxt = db.execute("SELECT new_tome_id FROM id_redirect WHERE old_tome_id=?", (t,)).fetchone()
+            if not nxt:
+                return t
+            t = nxt[0]
+        return t
+
     wrong_pin = 0
     for line_id, aid in corr.load_anilist_pins():
-        row = db.execute("SELECT anilist_id FROM series WHERE tome_id=?", (line_id,)).fetchone()
+        row = db.execute("SELECT anilist_id FROM series WHERE tome_id=?", (pin_target(line_id),)).fetchone()
         wrong_pin += (row is None or row[0] != aid)
     rule("anilist id pins not present in the artifact", wrong_pin)
 
@@ -339,7 +351,7 @@ def run(path):
                 en_ids.setdefault(f, set()).add(aid)
         if main and aid is not None:
             main_ids.setdefault(f, set()).add(aid)
-    pinned = {line: aid for line, aid in corr.load_anilist_pins() if aid is not None}
+    pinned = {pin_target(line): aid for line, aid in corr.load_anilist_pins() if aid is not None}
     not_works = []
     for tid, wid, lang, med, aid in db.execute("""SELECT tome_id, tome_work_id, language, medium, anilist_id FROM series
                                                  WHERE language<>'en' AND anilist_id IS NOT NULL"""):
