@@ -15,6 +15,10 @@ Names are changed at export only, so no id moves. Merges happen in a pipeline st
 | M | A section word that says the medium, on a line tagged manga | `Hyouka (Roman)` is retagged to the word's medium |
 | T | A continuation tail beside its main line | FR `Black Butler (Tomes 31 à aujourd'hui)` merges into `Black Butler` |
 | W2 | A section-word line beside a same-name sibling | `Insomniacs After School (Mangas)` merges into `Insomniacs After School` |
+| P | A line named after the own line with any other qualifier whose volumes duplicate it by number and ISBN (the corrections round, 2026-11-23); an extend never folds | JP `Hajime no Ippo (Saison 1 : La rage de vaincre)` merges into `Hajime no Ippo` |
+| D | Two lines of one work, market and medium whose shared numbers carry the same ISBN on three or more and differ on none; the own line survives, else the unqualified name, else the English article's, else the smaller id, and takes the other's extra numbers | JP `Arc 1 - Sword Art Online: Progressive` merges into `Sword Art Online: Progressive` |
+| C | Pagination chunks with no own line fold into the lowest chunk in range order | FR `Aoashi (= Volumes 11 à 20 =)` merges into `Aoashi (= Volumes 1 à 10 =)` |
+| E | A first-edition word, or `Act I` with no Act II in its market, on a line's name (export rename) | `City Hunter (Première édition)` becomes `City Hunter`; `Aoashi (= Volumes 1 à 10 =)` becomes `Aoashi` (C) |
 
 Library-born lines (`dnb:`, `bnf:`, `loc:` keys) are never renamed.
 

@@ -1199,5 +1199,42 @@ def fixture_origin_line_pin():
     return pinned_rid, unpinned_rid, orig_of, gcd_of
 
 
+def fixture_pages():
+    """The corrections round (2026-11-23): a page count Open Library alone gave is not exported; a national
+    library's, Open Library's beside one, or a resolution with no claim behind it (a test's) is. -> {number: page_count}"""
+    tmp = tempfile.mkdtemp(prefix="opentome-pages-")
+    src_path, out_path = os.path.join(tmp, "pipeline.db"), os.path.join(tmp, "artifact.sqlite")
+    db = sqlite3.connect(src_path)
+    db.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+    db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_p','Sample Saga','x','x')")
+    db.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at) VALUES('rl_p','w_p','manga','EN','en','x','x')")
+    for k, (pages, sources) in enumerate([(190, ["openlibrary"]), (200, ["openlibrary", "bnf"]), (210, []), (220, ["loc"])], 1):
+        vid = "v_p_%d" % k
+        db.execute("""INSERT INTO volume(id,release_line_id,number,release_date,release_date_precision,created_at,updated_at)
+                      VALUES(?,?,?,?,'day','x','x')""", (vid, "rl_p", str(k), "2020-01-%02d" % k))
+        db.execute("INSERT INTO resolution(entity,entity_id,field,value,confidence,basis) VALUES('volume',?,'page_count',?,1.0,'single_source')",
+                   (vid, str(pages)))
+        for src in sources:
+            db.execute("INSERT INTO claim(entity,entity_id,field,value,source,licence,retrieved_at) VALUES('volume',?,'page_count',?,?,'open','x')",
+                       (vid, str(pages), src))
+    db.commit(); db.close()
+    real_dir, corr.DIR = corr.DIR, tempfile.mkdtemp(prefix="opentome-nocorr-", dir=tmp)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            export(src_path, out_path)
+    finally:
+        corr.DIR = real_dir
+    out = sqlite3.connect(out_path)
+    got = dict(out.execute("SELECT volume_number, page_count FROM volumes ORDER BY volume_number"))
+    out.close()
+    return got
+
+
 if __name__ == "__main__":
     run()
+    got = fixture_pages()
+    want = {1: None, 2: 200, 3: 210, 4: 220}
+    print(("  ok   " if got == want else "  FAIL ") + "pages: Open Library alone is not exported; a library's, a corroborated one and an unsourced one are"
+          + ("" if got == want else "  got=%r want=%r" % (got, want)))
+    if got != want:
+        sys.exit(1)

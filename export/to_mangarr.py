@@ -618,10 +618,18 @@ def export(src_path, out_path, carry_ids_from=None):
             if new_id not in mapping and old_id in mapping:
                 mapping[new_id] = mapping[old_id]
 
-    # resolved page counts (BnF / Open Library / DNB) -- tier0 never fills volume.page_count
+    # resolved page counts (BnF / DNB / LoC / a correction) -- tier0 never fills volume.page_count. The
+    # corrections round (2026-11-23, the maintainer's call): a count Open Library ALONE gave is not exported.
+    # TypNull checked 12 English volumes across VIZ, Ize Press and Seven Seas and all 12 were wrong (One Piece
+    # vol 27: 147 for 192 -- the library pagination "147, [38] p."); against BnF on 762 French ISBNs Open
+    # Library is exact 14% of the time. No count beats a wrong count; Mangarr's page check tolerates none.
     pages = {}
-    for vid, val in src.execute("""SELECT entity_id, value FROM resolution
-                                   WHERE entity='volume' AND field='page_count'"""):
+    for vid, val in src.execute("""SELECT r.entity_id, r.value FROM resolution r
+                                   WHERE r.entity='volume' AND r.field='page_count'
+                                     AND NOT (EXISTS (SELECT 1 FROM claim c WHERE c.entity='volume' AND c.entity_id=r.entity_id
+                                                        AND c.field='page_count' AND c.source='openlibrary')
+                                              AND NOT EXISTS (SELECT 1 FROM claim c WHERE c.entity='volume' AND c.entity_id=r.entity_id
+                                                                AND c.field='page_count' AND c.source<>'openlibrary'))"""):
         try:
             n = int(float(val))
             if 20 <= n <= 2000:

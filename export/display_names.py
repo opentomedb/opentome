@@ -27,6 +27,13 @@ def strip_work_disambiguator(name, work_title):
 
 _TRAIL = re.compile(r"^(?P<b>.+?)\s+\((?P<q>[^()]+)\)$")
 _ROUND_A_RE = re.compile(r"^(?:" + _ROUND_A + r")$", re.I)
+# the corrections round (2026-11-23): a French section heading for the FIRST edition is the plain name
+# ("City Hunter (Première édition)" beside "City Hunter (Édition Deluxe)"); a pagination chunk names nothing once
+# stage 4c2 folded its siblings ("Aoashi (= Volumes 1 à 10 =)"); "Act I" with no Act II in its market is the series
+_EDITION = re.compile(r"^(?:premi[èe]re [ée]dition|[ée]dition originale|s[ée]rie originale|[ée]dition simple)$", re.I)
+_CHUNK = re.compile(r"^=?\s*(?:tomes?|volumes?)\s*\d+\s*(?:à|a|to|-|–)\s*\d+\s*=?$", re.I)
+_ACT_I = re.compile(r"^act i$", re.I)
+_ACT_N = re.compile(r"\bact (?:ii|iii|iv|v|vi|\d)\b", re.I)
 _SEP = (":", " ", "-", "–", "!", "?")
 
 
@@ -54,6 +61,22 @@ def strip_round_a_word(name, medium):
     return m.group("b"), medium, "W"
 
 
+def strip_edition_word(name):
+    """Rule E: "<B> (<first-edition word>)" -> B."""
+    m = _TRAIL.match(name or "")
+    if not m or not _EDITION.match(m.group("q").strip()):
+        return name, None
+    return m.group("b"), "E"
+
+
+def strip_chunk(name):
+    """Rule C: "<B> (= Volumes 1 à 10 =)" -> B (an open end is kind T's, never stripped here)."""
+    m = _TRAIL.match(name or "")
+    if not m or not _CHUNK.match(m.group("q").strip()):
+        return name, None
+    return m.group("b"), "C"
+
+
 def display(name, work_title, medium):
     rules, out = [], name
     d = strip_work_disambiguator(out, work_title)
@@ -66,6 +89,12 @@ def display(name, work_title, medium):
     w, medium2, rw = strip_round_a_word(out, medium)
     if rw:
         rules.append(rw); out = w
+    e, re_ = strip_edition_word(out)
+    if re_:
+        rules.append(re_); out = e
+    c, rc = strip_chunk(out)
+    if rc:
+        rules.append(rc); out = c
     return out, medium2, rules
 
 
@@ -137,6 +166,17 @@ def plan_names(lines, carry_pairs, isbns):
         else:
             n, m, rules = display(l["name"], l["work_title"], l["medium"])
             res[l["tome_id"]] = {"name": n, "medium": m, "rules": rules, "held": None}
+    # E for "Act I": only when no Act II / III / … sits in the same work, market and medium
+    groups = {}
+    for l in lines:
+        groups.setdefault((l["work_id"], l["market"], l["medium"]), []).append(l)
+    for l in lines:
+        r, m = res[l["tome_id"]], _TRAIL.match(res[l["tome_id"]]["name"])
+        if l["born"] or not m or not _ACT_I.match(m.group("q").strip()):
+            continue
+        if not any(_ACT_N.search(o["name"]) for o in groups[(l["work_id"], l["market"], l["medium"])] if o is not l):
+            r["name"] = m.group("b")
+            r["rules"].append("E")
     _isbn_guard(lines, res, isbns)
     _within_work_guard(lines, res)
     _cross_work_guard(lines, res, carry_pairs)

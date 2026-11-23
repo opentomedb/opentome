@@ -229,3 +229,26 @@ Contract: the info line `JP main lines bound with no English line in their famil
 anilist_id is not its work's" admits the binding (no English line of the family, the family's bound main
 lines share the id). Mangarr: no change -- `FindSeriesByAnilistId` finds the Japanese line by id, no English
 line competes; `CatalogueHint` for a Japanese, German or French title of such a work binds by id.
+
+## 2026-11-23 — one claim per article (`claim.via`), the resolution on the row, page counts (the corrections round)
+
+`claim` gains `via TEXT NOT NULL DEFAULT ''` in its key: the wiki (`en`, `fr`, `de`, `ja`) a Wikipedia-derived claim
+(`wikipedia`, `publisher`) was read from, `''` for every other source. Finding: a Japanese volume is read from the
+English article's original slot and the French article's; one key per source kept only the last article's value
+as a claim while `schema/load.py`'s `INSERT OR IGNORE` kept the first article's on the volume row, and the export
+read the row for `release_date` and `isbn13` -- 12,366 Japanese, 478 English and 141 French dates in
+opentome-2026-11-13 differed from their resolution (Moonlight Act vol 12: row 2010-01-18, claim 2011-01-18, openBD
+2011-01, artifact 2010-01-18). Now every article's value is a claim; `tier2/resolve.py` ranks by source precedence,
+then the value more claims of that rank carry, then the article (`en`, `ja`, `fr`, `de`: measured against openBD on
+1,702 disagreeing Japanese volumes, the English article agreed 1,138 times, the French 563); a day date no coarse
+month backs while a month of another source sits two months or more away loses to the month (`coarse_outranks`);
+resolve writes `release_date` (with its precision) and `isbn13` back onto the volume row. A cited publisher page
+whose address carries an ISBN-13 is the `publisher` claim's value; the cell's stays `wikipedia`'s.
+
+Stage 6b (`tier2/sanity.py`) then holds, with an `opentome` claim (`isbn_held`, `date_held`) and a report
+(`build/isbn-held.tsv`, `build/date-order.tsv`): an ISBN of another market's registration group, the same ISBN on a
+second volume of a line (the lowest number keeps it), a day date earlier than both its neighbours whose plus-one-year
+value falls back between them. Claims and the resolution are never deleted.
+
+`volumes.page_count`: a count Open Library alone gave is not exported (TypNull's 12 of 12 wrong English volumes;
+Open Library exact for 14% of 762 French ISBNs against BnF). BnF, DNB, LoC and corrections stay.

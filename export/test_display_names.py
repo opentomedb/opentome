@@ -130,11 +130,35 @@ def run_rank_agrees():
                    got and got["tome_id"], want and want["tome_id"])
     eq("MANGA_FAMILY agrees", dn.MANGA_FAMILY, ml.MANGA_FAMILY)
 
+def run_e():
+    """The corrections round (2026-11-23): E, a first-edition word on a line; C, a pagination chunk; Act I alone."""
+    for n in ("City Hunter (Première édition)", "Shaman King (Edition originale)", "Lone Wolf and Cub (Édition originale)",
+              "Plus-Sized Elf (Série originale)", "Nodame Cantabile (Édition simple)", "Kimi (Edition simple)",
+              "F. Compo (Premiere edition)"):
+        eq("E: %r" % n, dn.strip_edition_word(n), (n[:n.index(" (")], "E"))
+    eq("E: a deluxe edition is a real qualifier", dn.strip_edition_word("Gate (Édition deluxe)"), ("Gate (Édition deluxe)", None))
+    eq("E: a second edition is a real qualifier", dn.strip_edition_word("City Hunter (Seconde édition)"), ("City Hunter (Seconde édition)", None))
+    eq("C: '= Volumes 1 à 10 ='", dn.strip_chunk("Aoashi (= Volumes 1 à 10 =)"), ("Aoashi", "C"))
+    eq("C: 'Tomes 21 à 30'", dn.strip_chunk("Aoashi (Tomes 21 à 30)"), ("Aoashi", "C"))
+    eq("C: an open end is T's", dn.strip_chunk("Black Butler (Tomes 31 à aujourd'hui)"), ("Black Butler (Tomes 31 à aujourd'hui)", None))
+    eq("display: E", dn.display("City Hunter (Première édition)", "City Hunter", "manga"), ("City Hunter", "manga", ["E"]))
+    eq("display: C", dn.display("Aoashi (= Volumes 1 à 10 =)", "Aoashi", "manga"), ("Aoashi", "manga", ["C"]))
+    L = lambda t, name, **kw: dict({"tome_id": t, "work_id": "w", "work_title": "Ace of Sample", "market": "EN", "medium": "manga",
+                                    "family": "comic", "name": name, "born": False}, **kw)
+    alone = dn.plan_names([L("a", "Ace of Sample (Act I)")], set(), {})
+    eq("Act I alone in its work, market and medium is stripped", (alone["a"]["name"], alone["a"]["rules"]), ("Ace of Sample", ["E"]))
+    both = dn.plan_names([L("a", "Ace of Sample (Act I)"), L("b", "Ace of Sample (Act II)")], set(), {})
+    eq("Act I beside an Act II stays", (both["a"]["name"], both["a"]["rules"]), ("Ace of Sample (Act I)", []))
+    other = dn.plan_names([L("a", "Ace of Sample (Act I)"), L("b", "Ace of Sample (Act II)", market="JP")], set(), {})
+    eq("Act II in another market does not count", (other["a"]["name"], other["a"]["rules"]), ("Ace of Sample", ["E"]))
+
+
 if __name__ == "__main__":
     run_d()
     run_sw()
     run_guards()
     run_lookup()
     run_rank_agrees()
+    run_e()
     print("FAILED: %d" % len(FAILS) if FAILS else "all passed")
     sys.exit(1 if FAILS else 0)
