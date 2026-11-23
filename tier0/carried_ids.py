@@ -209,7 +209,21 @@ def same_edition(a, b):
     return shared if small >= 2 and shared * 2 > small else 0
 
 
-def drop_volume(c, vid):
+def drop_volume(c, vid, keep_vid=None):
+    """Delete volume `vid`; with `keep_vid` (the kept twin of the same number, the corrections round 2026-11-23)
+    its claims, overrides and external ids move there first -- keep's own rows win on a key clash -- so a date or
+    ISBN only the twin's article carried survives the merge (resolve runs after and writes the row)."""
+    if keep_vid:
+        cols = [r[1] for r in c.execute("PRAGMA table_info(claim)")]
+        rest = ", ".join(col for col in cols if col != "entity_id")
+        c.execute("INSERT OR IGNORE INTO claim(entity_id, %s) SELECT ?, %s FROM claim WHERE entity='volume' AND entity_id=?"
+                  % (rest, rest), (keep_vid, vid))
+        for t in ("override", "external_id"):
+            if _table(c, t):
+                tcols = [r[1] for r in c.execute("PRAGMA table_info(%s)" % t)]
+                trest = ", ".join(col for col in tcols if col != "entity_id")
+                c.execute("INSERT OR IGNORE INTO %s(entity_id, %s) SELECT ?, %s FROM %s WHERE entity='volume' AND entity_id=?"
+                          % (t, trest, trest, t), (keep_vid, vid))
     for t in ("claim", "resolution", "override", "external_id"):
         if _table(c, t):
             c.execute("DELETE FROM %s WHERE entity='volume' AND entity_id=?" % t, (vid,))
@@ -258,11 +272,11 @@ def merge_line(c, dup, keep):
     # names a line the export cannot find and falls back to the main line). A hand pin (a correction) is left.
     c.execute("""UPDATE claim SET value=? WHERE entity='release_line' AND field='origin_line' AND source='opentome' AND value=?""",
               (keep, dup))
-    have = {n for (n,) in c.execute("SELECT number FROM volume WHERE release_line_id=?", (keep,))}
+    have = {n: v for v, n in c.execute("SELECT id, number FROM volume WHERE release_line_id=?", (keep,))}
     moved = dropped = 0
     for vid, num in c.execute("SELECT id, number FROM volume WHERE release_line_id=?", (dup,)).fetchall():
         if num in have:
-            drop_volume(c, vid)
+            drop_volume(c, vid, have[num])
             dropped += 1
         else:
             rename_volume(c, vid, _id("v_", keep, num), keep)

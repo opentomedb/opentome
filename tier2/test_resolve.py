@@ -18,7 +18,9 @@ CASES = [
     ("28-day offset",    {"wikipedia": "2020-04-21", "publisher": "2020-03-24"}, "semantic_variance"),
     ("42-day offset",    {"wikipedia": "2023-10-03", "publisher": "2023-08-22"}, "semantic_variance"),
     ("161-day (23wk)",   {"wikipedia": "2021-12-28", "publisher": "2021-07-20"}, "escalated"),
-    ("826-day (118wk)",  {"wikipedia": "2018-01-30", "publisher": "2015-10-27"}, "escalated"),
+    # the corrections round: two sources' day dates a year or more apart, week-aligned, are an edition and its
+    # reissue -- the earlier is the first printing (the value publisher precedence gave here anyway)
+    ("826-day (118wk)",  {"wikipedia": "2018-01-30", "publisher": "2015-10-27"}, "first_printing"),
     # sub-week, non-week-multiple: near-agreement of unexplained cause.
     # 46% of French conflicts looked like this -- the week-multiple rule encodes
     # US Tuesday street dates and France has no equivalent weekly grid.
@@ -157,6 +159,15 @@ ARTICLE_CASES = [
      "2010-11-18"),
     ("two days disagree, the month backs one", "release_date",
      [("wikipedia", "en", "2010-01-18"), ("wikipedia", "fr", "2011-01-18"), ("openbd", "", "2011-01")], "2011-01-18"),
+    ("three claims agree on a day: a far reprint month does not outrank them", "release_date",
+     [("wikipedia", "en", "1985-09-10"), ("wikipedia", "fr", "1985-09-10"), ("publisher", "en", "1985-09-10"), ("openbd", "", "1992-11")],
+     "1985-09-10"),
+    ("two days a reissue apart, week-aligned: the first printing", "release_date",
+     [("wikipedia", "en", "2026-11-10"), ("openlibrary", "", "2020-02-11")], "2020-02-11"),
+    ("a year typo is not week-aligned: precedence as before (Togari)", "release_date",
+     [("wikipedia", "en", "2001-08-09"), ("publisher", "en", "2008-01-08"), ("openlibrary", "", "2007-11-13")], "2008-01-08"),
+    ("the same source's two articles a reissue apart: not a first-printing call", "release_date",
+     [("wikipedia", "en", "2026-11-10"), ("wikipedia", "fr", "2020-02-11")], "2026-11-10"),
 ]
 
 

@@ -329,4 +329,28 @@ eq("stale derived pin: follows the retired twin to the survivor",
    D.execute("SELECT value FROM claim WHERE entity='release_line' AND entity_id=? AND field='origin_line'", (fr,)).fetchone(), (jmain,))
 D.close()
 
+# P / D tolerate one differing ISBN on an otherwise identical twin; a number one side lacks an ISBN for is neutral
+eq("near_duplicate: identical", m.near_duplicate(V(range(1, 11)), V(range(1, 11))), True)
+one_off = V(range(1, 11)); one_off[11 - 1] = "9780000000099"
+eq("near_duplicate: one typo in 10", m.near_duplicate(one_off, V(range(1, 11))), True)
+two_off = dict(one_off); two_off[9] = "9780000000098"
+eq("near_duplicate: two differ -> no", m.near_duplicate(two_off, V(range(1, 11))), False)
+eq("near_duplicate: target lacks ISBNs on some numbers", m.near_duplicate(V(range(1, 11)), {**V(range(1, 11)), 4: None, 7: None}), True)
+eq("near_duplicate: too few shared", m.near_duplicate(V(range(1, 3)), V(range(1, 11))), False)
+# P: the target may be the line the candidate hangs under, not only the work's own line
+eq("P candidate: the candidate's parent is a valid target",
+   m.candidates_all([dict(L("s", "Kuro (Saison 1)"), parent="b"), L("b", "Kuro")]), [("s", "b", "P", None)])
+# a dropped twin's claims move to the kept volume
+KZ = "fr:Kekkai Sample"
+kmain, ktwin = rl(KZ, "JP", "Kekkai Sample"), rl(KZ, "JP", "Kekkai Sample (Chapter and volume list)")
+p = catalogue("moved-claims", [(KZ, "Kekkai Sample", [("JP", "manga", "Kekkai Sample", [(str(i), "97840%08d" % (12000 + i), None) for i in range(1, 6)]),
+                                                     ("JP", "manga", "Kekkai Sample (Chapter and volume list)", [(str(i), "97840%08d" % (12000 + i), "2011-02-%02d" % i) for i in range(1, 6)])])])
+m.run(p)
+D = sqlite3.connect(p)
+kept_v = D.execute("SELECT id FROM volume WHERE release_line_id=? AND number='3'", (kmain,)).fetchone()[0]
+eq("moved claims: the kept volume now carries the twin's date claim",
+   D.execute("SELECT value FROM claim WHERE entity='volume' AND entity_id=? AND field='release_date'", (kept_v,)).fetchone(), ("2011-02-03",))
+eq("moved claims: the twin is gone", state(p, ktwin)[0], False)
+D.close()
+
 print("FAILED: %d" % len(FAILS) if FAILS else "all passed"); sys.exit(1 if FAILS else 0)

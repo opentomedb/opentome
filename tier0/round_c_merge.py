@@ -47,6 +47,19 @@ def verdict(cand_vols, target_vols):
     return verdict_why(cand_vols, target_vols)[0]
 
 
+def near_duplicate(cand_vols, target_vols, slack=1):
+    """The corrections round's P / D test: every candidate number is in the target, at least D_MIN_SHARED shared
+    numbers carry the same ISBN, and at most `slack` shared numbers carry different ones (one article's typo:
+    Ace of Diamond vol 11 holds a Shueisha ISBN on a Kodansha series). A number one side has no ISBN for is
+    neither for nor against."""
+    c, t = _norm(cand_vols), _norm(target_vols)
+    if not c or any(n not in t for n in c):
+        return False
+    same = sum(1 for n in c if c[n] and t[n] and c[n] == t[n])
+    differ = sum(1 for n in c if c[n] and t[n] and c[n] != t[n])
+    return same >= D_MIN_SHARED and differ <= slack
+
+
 def verdict_why(cand_vols, target_vols):
     """(verdict, reason): reason None when it merges; 'gap' when the candidate's numbers all lie above
     the target's but do not continue them (Gamaran 1-22 and a "(Tomes 31 à aujourd'hui)" tail that
@@ -98,7 +111,8 @@ def candidates_all(lines):
         tid = by_name.get((l["work_id"], l["market"], l["medium"], target))
         if tid is None or tid == l["id"]:
             continue
-        why = "arc" if l.get("arc_split") else "not-own-line" if target != l["work_title"] else None
+        own = target == l["work_title"] or (kind == "P" and l.get("parent") == tid)   # P: the line it hangs under
+        why = "arc" if l.get("arc_split") else "not-own-line" if not own else None
         out.append((l["id"], tid, kind, why))
     return sorted(out)
 
@@ -134,7 +148,7 @@ def duplicate_pairs(lines, vols_of):
             for b in group[i + 1:]:
                 va, vb = vols_of(a["id"]), vols_of(b["id"])
                 shared = [n for n in va if n in vb and va[n] and vb[n]]
-                if len(shared) < D_MIN_SHARED or any(va[n] != vb[n] for n in shared):
+                if len(shared) < D_MIN_SHARED or sum(1 for n in shared if va[n] != vb[n]) > 1:
                     continue
                 rank = lambda l: (l["name"] != l["work_title"], _qualified(l["name"]), l.get("via", "") != "en", l["id"])
                 keep, cand = sorted((a, b), key=rank)
@@ -173,14 +187,14 @@ def _lines(c):
     title (the export's `lname or wtitle`); arc_split: another line has this one as parent_id --
     schema/load.py writes a record's arc_of there, i.e. an arc was split out of this line's rows."""
     return [{"id": rid, "work_id": wid, "market": market, "medium": medium, "work_title": wtitle,
-             "name": name or wtitle, "arc_split": bool(arc), "via": via or ""}
-            for rid, wid, market, medium, wtitle, name, via, arc in c.execute("""
+             "name": name or wtitle, "arc_split": bool(arc), "via": via or "", "parent": parent}
+            for rid, wid, market, medium, wtitle, name, via, arc, parent in c.execute("""
         SELECT rl.id, rl.work_id, rl.market, rl.medium, w.primary_title,
                (SELECT value FROM claim WHERE entity='release_line' AND entity_id=rl.id
                   AND field='line_name' ORDER BY rowid LIMIT 1),
                (SELECT via FROM claim WHERE entity='release_line' AND entity_id=rl.id
                   AND field='line_name' ORDER BY rowid LIMIT 1),
-               EXISTS (SELECT 1 FROM release_line a WHERE a.parent_id=rl.id AND a.id<>rl.id)
+               EXISTS (SELECT 1 FROM release_line a WHERE a.parent_id=rl.id AND a.id<>rl.id), rl.parent_id
         FROM release_line rl JOIN work w ON w.id=rl.work_id ORDER BY rl.id""")]
 
 
@@ -199,7 +213,11 @@ def read_carry(carry):
         A.close()
 
 
-def run(db_path, carry_path=None):
+NAME_KINDS = ("T", "W2")            # stage 4c2: before resolve, on the raw rows (names decide)
+RESOLVED_KINDS = ("P", "D", "C")    # stage 6c: after resolve wrote the rows (ISBNs decide)
+
+
+def run(db_path, carry_path=None, kinds=NAME_KINDS + RESOLVED_KINDS):
     """Stage 4c2. -> the meta list [[cand, target, kind, verdict, moved, dropped, source(, reason)]]:
     source 'rule' or 'carry'; verdict extend / duplicate (merged), kept, or carry-conflict (a carried
     merge this build's data refuses); reason for kept / carry-conflict."""
@@ -212,9 +230,13 @@ def run(db_path, carry_path=None):
                      if re.match(r"0\d", str(n))})
     lines = _lines(c)
     arc = {l["id"] for l in lines if l["arc_split"]}
-    done, merged = [], set()
+    prior = c.execute("SELECT value FROM meta WHERE key='roundc:merged'").fetchone()
+    done = json.loads(prior[0]) if prior and kinds != NAME_KINDS + RESOLVED_KINDS and "T" not in kinds else []
+    merged = {d[0] for d in done if d[3] in ("extend", "duplicate")}
     kind_of = {}
     for cand, target, kind, why in candidates_all(lines):
+        if kind not in kinds:
+            continue
         kind_of[(cand, target)] = kind
         if cand in merged or not exists(cand) or not exists(target):
             continue
@@ -224,8 +246,9 @@ def run(db_path, carry_path=None):
             continue
         # volumes read now, not up front: an earlier merge into the same target changed them
         v, why = verdict_why(_vols(c, cand), _vols(c, target))
-        if kind == "P" and v == "extend":
-            v, why = "kept", "extend"          # a plain qualifier may name a sequel: P folds duplicates only
+        if kind == "P":
+            # P folds a duplicate only (a plain qualifier may name a sequel), with one differing ISBN allowed
+            v, why = ("duplicate", None) if near_duplicate(_vols(c, cand), _vols(c, target)) else ("kept", "extend" if v == "extend" else "verdict")
         if v in ("extend", "duplicate"):
             moved, dropped = merge_line(c, cand, target)
             merged.add(cand)
@@ -234,7 +257,7 @@ def run(db_path, carry_path=None):
             done.append([cand, target, kind, v, 0, 0, "rule", why])
     # kind D: the same books under two names (read after the P merges; volumes live)
     live = lambda rid: _vols(c, rid) if exists(rid) else {}
-    for cand, target in duplicate_pairs([l for l in lines if l["id"] not in merged], live):
+    for cand, target in (duplicate_pairs([l for l in lines if l["id"] not in merged], live) if "D" in kinds else []):
         if cand in merged or target in merged or not exists(cand) or not exists(target):
             continue
         kind_of[(cand, target)] = "D"
@@ -242,7 +265,7 @@ def run(db_path, carry_path=None):
         merged.add(cand)
         done.append([cand, target, "D", "duplicate", moved, dropped, "rule"])
     # kind C: pagination chunks with no own line fold into the lowest chunk, in range order
-    for cand, target in chunk_chains([l for l in lines if l["id"] not in merged]):
+    for cand, target in (chunk_chains([l for l in lines if l["id"] not in merged]) if "C" in kinds else []):
         if cand in merged or target in merged or not exists(cand) or not exists(target):
             continue
         kind_of[(cand, target)] = "C"
@@ -262,11 +285,15 @@ def run(db_path, carry_path=None):
         if cand in merged or cand == target or not exists(cand) or not exists(target) or key(cand) != key(target):
             continue
         kind = kind_of.get((cand, target)) or ckind
+        if (kind or "T") not in kinds:              # the other stage re-applies the other kinds
+            continue
         done = [d for d in done if d[0] != cand]           # this record replaces the rule's row
         if cand in arc:
             done.append([cand, target, kind, "carry-conflict", 0, 0, "carry", "arc"])
             continue
         v, why = verdict_why(_vols(c, cand), _vols(c, target))
+        if kind in ("P", "D") and near_duplicate(_vols(c, cand), _vols(c, target)):
+            v, why = "duplicate", None
         if v not in ("extend", "duplicate"):
             done.append([cand, target, kind, "carry-conflict", 0, 0, "carry", "gap" if why == "gap" else "verdict:" + v])
             continue
@@ -277,8 +304,10 @@ def run(db_path, carry_path=None):
     # each candidate's pipeline name (read before any merge): the export's report and its
     # round_c_merges rows name a merged-away line by it
     name_of = {l["id"]: l["name"] for l in lines}
-    c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('roundc:names',?)",
-              (json.dumps({d[0]: name_of[d[0]] for d in done if d[0] in name_of}, sort_keys=True),))
+    prior_names = c.execute("SELECT value FROM meta WHERE key='roundc:names'").fetchone()
+    names = json.loads(prior_names[0]) if prior_names and "T" not in kinds else {}
+    names.update({d[0]: name_of[d[0]] for d in done if d[0] in name_of})
+    c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('roundc:names',?)", (json.dumps(names, sort_keys=True),))
     db.commit()
     db.close()
     n = lambda f: sum(1 for d in done if f(d))
@@ -296,6 +325,8 @@ def run(db_path, carry_path=None):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    if not args:
         raise SystemExit(__doc__)
-    run(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None)
+    kinds = RESOLVED_KINDS if "--resolved" in sys.argv else NAME_KINDS if "--names" in sys.argv else NAME_KINDS + RESOLVED_KINDS
+    run(args[0], args[1] if len(args) > 1 and args[1] else None, kinds)

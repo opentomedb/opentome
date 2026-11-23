@@ -52,6 +52,11 @@
 #   6b. sanity         an ISBN of another market's group, one ISBN on two volumes of a line, a year typo
 #                      between its neighbours: held (row nulled, opentome claim, build/isbn-held.tsv and
 #                      build/date-order.tsv); every other out-of-order date pair reported (tier2/sanity.py)
+#   6c. duplicate lines the corrections round's merges, judged on the RESOLVED rows (a twin judged on raw
+#                      first-article rows stayed apart over one article's typo): a sectioned twin of the own
+#                      line (P), the same books under two names (D), pagination chunks (C); a dropped twin
+#                      volume's claims move to the kept one, so resolve and sanity run again
+#                      (tier0/round_c_merge.py --resolved; 4c2 keeps the name-driven T / W2 kinds)
 #   7. audit           report remaining defects -- EXITS NON-ZERO on any defect
 #   7b. redirects      every id of the carried (last published) artifact this build no longer
 #                      has -> id_redirect to its successor, any market, work / line / volume
@@ -171,11 +176,14 @@ echo "== 4. enrichment ==";        python3 tier1/enrich.py "$DB"
 echo "== 4b. covers ==";           python3 tier1/covers.py "$DB"
 echo "== 4b2. comic medium (KR/CN) =="; python3 tier0/comic_medium.py "$DB"
 echo "== 4c. merged works ==";     python3 tier0/carried_ids.py merge "$DB" "$ID_CARRY"
-echo "== 4c2. round C merges =="; python3 tier0/round_c_merge.py "$DB" "$ID_CARRY"
+echo "== 4c2. round C merges =="; python3 tier0/round_c_merge.py "$DB" "$ID_CARRY" --names
 echo "== 5. clean ==";             python3 tier2/clean.py "$DB"
 echo "== 5b. corrections ==";      python3 tier2/corrections.py "$DB"
 echo "== 6. resolve ==";           python3 tier2/resolve.py "$DB"
 echo "== 6b. sanity ==";           python3 tier2/sanity.py "$DB" build
+echo "== 6c. duplicate-line merges =="; python3 tier0/round_c_merge.py "$DB" "$ID_CARRY" --resolved
+echo "== 6. resolve (again) ==";   python3 tier2/resolve.py "$DB"
+echo "== 6b. sanity (again) ==";   python3 tier2/sanity.py "$DB" build
 echo "== 7. audit ==";             python3 tier2/audit.py "$DB"
 echo "== 7b. redirects ==";        python3 tier0/carried_ids.py redirect "$DB" "$ID_CARRY"
                                    python3 tier2/resolve.py "$DB" --dates   # 7b moved claims: a projected date never outranks a real on
