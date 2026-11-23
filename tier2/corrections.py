@@ -332,10 +332,22 @@ def apply_anilist_pins(db, entries=None, verbose=True):
     (STALE CORRECTION) rather than silently pinning nothing."""
     pins = load_anilist_pins() if entries is None else entries
     for i, (line, aid) in enumerate(pins):
-        if not db.execute("UPDATE series SET anilist_id=? WHERE tome_id=?", (aid, line)).rowcount:
+        target = line
+        # the corrections round (2026-11-23): a pinned line a merge retired is still a pin -- it names the
+        # survivor through id_redirect (one hop per retired id; the export collapses chains)
+        for _ in range(8):
+            if db.execute("SELECT 1 FROM series WHERE tome_id=?", (target,)).fetchone():
+                break
+            nxt = db.execute("SELECT new_tome_id FROM id_redirect WHERE old_tome_id=?", (target,)).fetchone()
+            if not nxt:
+                break
+            target = nxt[0]
+        if not db.execute("UPDATE series SET anilist_id=? WHERE tome_id=?", (aid, target)).rowcount:
             print("\n  STALE CORRECTION -- anilist.json[%d]: line %s is not in the artifact"
                   % (i, line), flush=True)
             raise SystemExit(1)
+        if target != line and verbose:
+            print("  anilist pin on %s followed its redirect to %s" % (line, target))
     db.commit()
     if verbose:
         print("  anilist id pins applied            %8s" % format(len(pins), ","))

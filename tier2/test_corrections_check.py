@@ -739,3 +739,27 @@ class CheckTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)
+
+
+# ---- the corrections round (2026-11-23): a pin on a merged line follows its redirect ---------------------------
+def _pin_redirect_case():
+    import sqlite3 as _sq
+    import corrections as _corr
+    db = _sq.connect(":memory:")
+    db.executescript("""CREATE TABLE series(tome_id TEXT, anilist_id INTEGER);
+                        CREATE TABLE id_redirect(old_tome_id TEXT, new_tome_id TEXT);
+                        INSERT INTO series VALUES('rl_keep', NULL);
+                        INSERT INTO id_redirect VALUES('rl_gone', 'rl_mid');
+                        INSERT INTO id_redirect VALUES('rl_mid', 'rl_keep');""")
+    n = _corr.apply_anilist_pins(db, entries=[("rl_gone", 71539)], verbose=False)
+    got = db.execute("SELECT anilist_id FROM series WHERE tome_id='rl_keep'").fetchone()[0]
+    assert (n, got) == (1, 71539), (n, got)
+    try:
+        _corr.apply_anilist_pins(db, entries=[("rl_nowhere", 1)], verbose=False)
+        raise AssertionError("a pin on an unknown line must still fail")
+    except SystemExit:
+        pass
+    print("  ok   anilist pin follows a merged line's redirect chain; an unknown line still fails")
+
+
+_pin_redirect_case()

@@ -63,7 +63,8 @@ def catalogue(name, works):
                       "markets": {"original": {"market": ln[0], "isbn13": isbn, "date": date,
                                                "date_precision": "day" if date else None}}},
                      **({"arc_of": ln[4]} if len(ln) > 4 and ln[4] else {}),
-                     **({"wiki": ln[5]} if len(ln) > 5 else {}))
+                     **({"wiki": ln[5], "article": ("List of %s chapters" if ln[5] == "en" else "Liste des chapitres de %s") % title}
+                        if len(ln) > 5 else {}))
                 for ln in lines for n, isbn, date in ln[3]]
         load(db, title, recs, work_key=key)
     db.commit()
@@ -298,6 +299,9 @@ p = catalogue("kind-c-gap", [(AO, "Aoashi Sample", [("FR", "manga", "Aoashi Samp
                                                     ("FR", "manga", "Aoashi Sample (Tomes 21 à 30)", vols(9, 10, 21))])])
 done = m.run(p)
 eq("C: a gap keeps the chunks apart", (state(p, rl(AO, "FR", "Aoashi Sample (Tomes 21 à 30)"))[0], [d[3] for d in done]), (True, ["kept"]))
+eq("article_lang: shapes and the work's own titles",
+   [m.article_lang(t, [("ja", "ソード"), ("de", "Schwert")]) for t in ("List of Sword chapters", "Liste des chapitres de Sword", "ソード", "schwert", "Sword")],
+   ["en", "fr", "ja", "de", ""])
 eq("C: chunk pattern", [m.chunk_range(n) for n in ("= Volumes 1 à 10 =", "Tomes 21 à 30", "Volumes 11-20", "Tomes 31 à aujourd'hui", "Saison 1")],
    [(1, 10), (21, 30), (11, 20), None, None])
 

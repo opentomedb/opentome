@@ -17,7 +17,7 @@ matching, the decision stays. No redirect rows here: 7b redirects every retired 
 import json, os, re, sqlite3, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from release_lines import _OPEN_END, _ROUND_A
-from carried_ids import merge_line
+from carried_ids import merge_line, _table
 
 _W2 = "^(?:" + _ROUND_A + ")$"
 # the corrections round (2026-11-23): a pagination chunk, "= Volumes 1 à 10 =", "Tomes 21 à 30", "Volumes 11-20"
@@ -181,18 +181,39 @@ def chunk_chains(lines):
     return sorted(out)
 
 
+def article_lang(title, work_titles=()):
+    """The wiki an article title belongs to, for the D survivor rule: 'List of …' / 'Liste de(s) …' by shape, else
+    the language of the work's own title it equals (tier0/main_titles' work_title rows), else ''."""
+    t = (title or "").strip()
+    if not t:
+        return ""
+    if t.startswith("List of "):
+        return "en"
+    if t.startswith("Liste de") or t.startswith("Liste d'"):
+        return "fr"
+    for lang, wt in work_titles:
+        if wt and wt.strip().casefold() == t.casefold():
+            return lang
+    return ""
+
+
 def _lines(c):
     """The catalogue's lines as candidates() reads them. work_title: the work's primary_title (the
     export's wtitle); name: the first line_name claim by rowid (merge_line's read), else the work
     title (the export's `lname or wtitle`); arc_split: another line has this one as parent_id --
     schema/load.py writes a record's arc_of there, i.e. an arc was split out of this line's rows."""
+    titles = {}
+    if _table(c, "work_title"):
+        for wid, lang, t in c.execute("SELECT work_id, language, title FROM work_title"):
+            titles.setdefault(wid, []).append((lang, t))
     return [{"id": rid, "work_id": wid, "market": market, "medium": medium, "work_title": wtitle,
-             "name": name or wtitle, "arc_split": bool(arc), "via": via or "", "parent": parent}
-            for rid, wid, market, medium, wtitle, name, via, arc, parent in c.execute("""
+             "name": name or wtitle, "arc_split": bool(arc), "via": article_lang(article, titles.get(wid, ())),
+             "parent": parent}
+            for rid, wid, market, medium, wtitle, name, article, arc, parent in c.execute("""
         SELECT rl.id, rl.work_id, rl.market, rl.medium, w.primary_title,
                (SELECT value FROM claim WHERE entity='release_line' AND entity_id=rl.id
                   AND field='line_name' ORDER BY rowid LIMIT 1),
-               (SELECT via FROM claim WHERE entity='release_line' AND entity_id=rl.id
+               (SELECT source_url FROM claim WHERE entity='release_line' AND entity_id=rl.id
                   AND field='line_name' ORDER BY rowid LIMIT 1),
                EXISTS (SELECT 1 FROM release_line a WHERE a.parent_id=rl.id AND a.id<>rl.id), rl.parent_id
         FROM release_line rl JOIN work w ON w.id=rl.work_id ORDER BY rl.id""")]
