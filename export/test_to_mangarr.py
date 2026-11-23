@@ -206,15 +206,19 @@ def run():
        "(the row's own spelling, language and kind)",
        ([r for r in rc["carried"]["rl_de"] if r[0] == "Jigojisun"], ROM(rc["carried"]["rl_en"])),
        ([("Jigojisun", "ko", "romanized")], ["JI GO JI SUN", "Ji go ji sun", "Jigojisun"]))
-    eq("... never another work's own title, never a row of another kind",
-       [a for a, _, _ in rc["carried"]["rl_de"] if a in ("Other Work", "Old Official")], [])
+    eq("... never another work's own title, never a title in the line's own language (a DNB title fix stays E1's)",
+       [a for a, _, _ in rc["carried"]["rl_de"] if a in ("Other Work", "Alte Ausgabe")], [])
+    eq("... the original's own-script official title is carried the same way (2026-11-23: DNB's catalogued parts "
+       "carry only the set's romanised 240; the Korean 240 sat on the announcement records)",
+       [r for r in rc["carried"]["rl_de"] if r[0] == "Old Official"], [("Old Official", "ko", "official")])
     eq("... and only for library-born works (a Wikipedia work's alias loss stays E1's to judge)",
        ROM(rc["carried"].get("rl_j", [])), [])
     eq("... a curated removal (corrections/aliases.json) still wins, on its line only",
        (ROM(rc["removed"]["rl_en"]), ROM(rc["removed"]["rl_de"])),
        (["JI GO JI SUN", "Ji go ji sun"], ["Ji go ji sun", "Jigojisun"]))
-    eq("... the count is in the artifact's meta", (rc["meta"], rc["meta_removed"]),
-       ({"romanised_aliases_carried": "3"}, {"romanised_aliases_carried": "3"}))
+    eq("... the counts are in the artifact's meta", (rc["meta"], rc["meta_removed"]),
+       ({"romanised_aliases_carried": "3", "original_aliases_carried": "1"},
+        {"romanised_aliases_carried": "3", "original_aliases_carried": "1"}))
 
     # ---- KR/CN library lines (krcn-design §8, controller rulings 2, 3, 5) --------------------
     k = fixture_krcn()
@@ -724,7 +728,7 @@ def fixture_roman_continuity():
         for t, a, l, k in o.execute("""SELECT s.tome_id, a.alias, a.language, a.kind FROM series_alias a
                                        JOIN series s USING(gcd_series_id) WHERE a.kind<>'line' ORDER BY 1, 2"""):
             got.setdefault(t, []).append((a, l, k))
-        meta = dict(o.execute("SELECT key, value FROM meta WHERE key='romanised_aliases_carried'"))
+        meta = dict(o.execute("SELECT key, value FROM meta WHERE key IN ('romanised_aliases_carried', 'original_aliases_carried')"))
         o.close()
         return out_path, got, meta
 
@@ -737,7 +741,8 @@ def fixture_roman_continuity():
         (sid["rl_de"], "Jigojisun", "ko", "romanized"), (sid["rl_en"], "Jigojisun", "ko", "romanized"),
         (sid["rl_en"], "JI GO JI SUN", "ko", "romanized"),          # another spelling of a row the build still makes
         (sid["rl_de"], "Other Work", "ko", "romanized"),            # another work's own title
-        (sid["rl_de"], "Old Official", "ko", "official"),           # not a romanised title
+        (sid["rl_de"], "Old Official", "ko", "official"),           # the original's own-script title (2026-11-23: carried too)
+        (sid["rl_de"], "Alte Ausgabe", "de", "official"),           # the edition's own-language title: a title fix stays E1's
         (sid["rl_j"], "Wiki Romaji", "ja", "romanized")])           # not a library-born work
     c.commit()
     c.close()

@@ -560,9 +560,12 @@ def export(src_path, out_path, carry_ids_from=None):
         except sqlite3.OperationalError:
             pass
         try:
-            carry_roman = old.execute("""SELECT s.tome_id, a.alias, a.language FROM series_alias a
+            # the libraries' original-title rows: romanised, and (2026-11-23) the original's own-script
+            # official title -- never a title in the line's own language (a DNB title fix stays E1's)
+            carry_roman = old.execute("""SELECT s.tome_id, a.alias, a.language, a.kind FROM series_alias a
                                          JOIN series s ON s.gcd_series_id=a.gcd_series_id
-                                         WHERE a.kind='romanized' AND s.tome_id IS NOT NULL
+                                         WHERE s.tome_id IS NOT NULL AND (a.kind='romanized' OR
+                                               (a.kind='official' AND a.language IS NOT NULL AND a.language<>s.language))
                                          ORDER BY s.tome_id, a.alias""").fetchall()
         except sqlite3.OperationalError:        # a carry older than series_alias.kind (2026-09-24)
             pass
@@ -1208,17 +1211,24 @@ def export(src_path, out_path, carry_ids_from=None):
     # manual step every week. The title was read from a CC0 record and is still the work's title, so a romanised
     # alias row the carry ships stays on its line, as it shipped: only for a work in catalogue meta krcn:ids
     # `works` (a Wikipedia work's alias loss stays E1's to judge), never a string that is another work's own
-    # title. Before the removals below, so a curated removal still wins.
+    # title. Before the removals below, so a curated removal still wins. 2026-11-23: the original's own-script
+    # official title the same way (Positively yours lost '아기가 생겼어요' when DNB catalogued vols 1-5 as parts
+    # of their set, whose 240 is the romanised form only; the Korean 240 sits on the announcement records), never
+    # a title in the line's own language -- a DNB title fix of the German name stays E1's to judge.
     lib_works = set(json.loads((src.execute("SELECT value FROM meta WHERE key='krcn:ids'").fetchone()
                                 or ["{}"])[0]).get("works", []))
     line_now = {t: (i, w) for i, t, w in out.execute("SELECT gcd_series_id, tome_id, tome_work_id FROM series")}
-    n_roman = 0
-    for tid, alias, alang in carry_roman:
+    n_roman = n_orig = 0
+    for tid, alias, alang, akind in carry_roman:
         sid, wid = line_now.get(tid, (None, None))
         if sid is None or wid not in lib_works or other_titles.get(normalize(alias), set()) - {wid}:
             continue
-        n_roman += out.execute("""INSERT OR IGNORE INTO series_alias (gcd_series_id, alias, language, kind)
-                                  VALUES(?,?,?,'romanized')""", (sid, alias, alang)).rowcount
+        n = out.execute("""INSERT OR IGNORE INTO series_alias (gcd_series_id, alias, language, kind)
+                           VALUES(?,?,?,?)""", (sid, alias, alang, akind)).rowcount
+        if akind == "romanized":
+            n_roman += n
+        else:
+            n_orig += n
 
     # Curated alias REMOVALS (2026-09-23 cleanup, item 2): an exact string on an
     # exact line, not a rule. The automated version of this -- drop any alias
@@ -1417,6 +1427,7 @@ def export(src_path, out_path, carry_ids_from=None):
         ("correction_aliases", str(len(load_aliases()))),
         ("correction_alias_removals", str(n_removed)),
         ("romanised_aliases_carried", str(n_roman)),
+        ("original_aliases_carried", str(n_orig)),
         # Every excluded.json work id, so corrections.py --check can accept one
         # after a publish actually removes it from `series` (see corrections/
         # README.md, "excluded.json") instead of reporting it stale forever.

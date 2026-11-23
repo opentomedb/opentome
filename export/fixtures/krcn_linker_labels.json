@@ -186,9 +186,19 @@
   [
    "dnb:1380197465",
    "rl_9b3ea88520d6"
+  ],
+  [
+   "dnb:1394984715",
+   "rl_1d3eb61c54b9"
+  ],
+  [
+   "dnb:139498314X",
+   "rl_84b9859aeb60"
   ]
  ],
  "taken_ok_why": {
-  "dnb:1380197465 rl_9b3ea88520d6": "The Pawn's Revenge - 3rd Season (DE, Carlsen / Hayabusa). The published line held vol 1 (978-3-551-62439-0) and vol 4 (978-3-551-63022-3). DNB re-catalogued vol 1 on 2026-10-30 (IDN 1307414842) as a part of the multi-part set 1278917055 ('The pawn's revenge', 245 $n '3rd season' $n '1'), so it left this line; the line is now vol 4 alone, keyed on its record 1380197465, under the same name, publisher, work (w_d3f523b8f8a4) and volume id (v_8d78d563bb76). 1 of 2 carried ISBNs is no strict majority, the line is the same one. Checked against the live DNB records 2026-11-06."
+  "dnb:1380197465 rl_9b3ea88520d6": "The Pawn's Revenge - 3rd Season (DE, Carlsen / Hayabusa). The published line held vol 1 (978-3-551-62439-0) and vol 4 (978-3-551-63022-3). DNB re-catalogued vol 1 on 2026-10-30 (IDN 1307414842) as a part of the multi-part set 1278917055 ('The pawn's revenge', 245 $n '3rd season' $n '1'), so it left this line; the line is now vol 4 alone, keyed on its record 1380197465, under the same name, publisher, work (w_d3f523b8f8a4) and volume id (v_8d78d563bb76). 1 of 2 carried ISBNs is no strict majority, the line is the same one. Checked against the live DNB records 2026-11-06.",
+  "dnb:1394984715 rl_1d3eb61c54b9": "The Broken Ring - Diese Ehe ist zum Scheitern verurteilt (DE, papertoons). The published line held vols 4-7 (978-3-98950-203-1, -237-6, -274-1, -275-8). Between 2026-11-15 and 2026-11-23 DNB catalogued vols 4, 5 and 6 (IDN 1379672163, 1390485668, 1394985010) as parts of the multi-part set 1366412087 ('The broken ring', 245 $n 4 / 5 / 6, 773 $w (DE-101)1366412087), so they left this line for the set's; the line is now the announcement records vol 7 (1394984715), 8 (1422831051) and 9 (1422830594), keyed on 1394984715, under the same name (490 'The Broken Ring - Diese Ehe ist zum Scheitern verurteilt'), publisher and work. 1 of 4 carried ISBNs is no strict majority, the line is the same one. Checked against the live DNB records 2026-11-23",
+  "dnb:139498314X rl_84b9859aeb60": "Lady Eris - Nur der Tod kann mich erlösen (DE, papertoons). The published line held vols 5-8 (978-3-98950-120-1, -204-8, -248-2, -247-5). Between 2026-11-15 and 2026-11-23 DNB catalogued vols 5, 6 and 7 (IDN 1368929257, 1390487156, 1394985851) as parts of the multi-part set 134817370X ('Lady Eris', 245 $n 5 / 6 / 7, 773 $w (DE-101)134817370X), so they left this line for the set's; the line is now vol 8's announcement record 139498314X alone, keyed on it, under the same name (490 'Lady Eris - Nur der Tod kann mich erlösen'), publisher and work. 1 of 4 carried ISBNs is no strict majority, the line is the same one. Checked against the live DNB records 2026-11-23"
  }
 }
