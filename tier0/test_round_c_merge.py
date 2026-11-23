@@ -301,6 +301,19 @@ eq("C: a gap keeps the chunks apart", (state(p, rl(AO, "FR", "Aoashi Sample (Tom
 eq("C: chunk pattern", [m.chunk_range(n) for n in ("= Volumes 1 à 10 =", "Tomes 21 à 30", "Volumes 11-20", "Tomes 31 à aujourd'hui", "Saison 1")],
    [(1, 10), (21, 30), (11, 20), None, None])
 
+# a licensed line named like the retired twin is pinned to the survivor -- with a non-ASCII capital in the name
+# (SQLite's LOWER() leaves "Édition" as it is; the match is made in Python)
+CE = "fr:Cat Sample"
+cmain, ctwin, cfr = rl(CE, "JP", "Cat Sample"), rl(CE, "JP", "Cat Sample (Édition deluxe)"), rl(CE, "FR", "Cat Sample (Édition deluxe)")
+p = catalogue("accent-pin", [(CE, "Cat Sample", [("JP", "manga", "Cat Sample", vols(6, 10)),
+                                                 ("JP", "manga", "Cat Sample (Édition deluxe)", vols(6, 10)),
+                                                 ("FR", "manga", "Cat Sample (Édition deluxe)", vols(7, 10))])])
+m.run(p)
+D = sqlite3.connect(p)
+eq("a licensed line named like the retired twin (É) is pinned to the survivor",
+   D.execute("SELECT value, source FROM claim WHERE entity='release_line' AND entity_id=? AND field='origin_line'", (cfr,)).fetchone(), (cmain, "opentome"))
+D.close()
+
 # a derived origin pin (an earlier merge's) that names the twin a P merge retires follows it to the survivor
 DQ = "fr:Dragon Sample"
 jmain, jtwin, fr = rl(DQ, "JP", "Dragon Sample"), rl(DQ, "JP", "Dragon Sample (Édition 2020)"), rl(DQ, "FR", "Dragon Sample (Édition 2020)")

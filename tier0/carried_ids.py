@@ -242,12 +242,15 @@ def merge_line(c, dup, keep):
     name = (c.execute("""SELECT value FROM claim WHERE entity='release_line' AND entity_id=? AND field='line_name'
                          ORDER BY rowid""", (dup,)).fetchone() or [None])[0]
     if name and market in ORIGIN_MARKETS:
-        for (lid,) in c.execute("""SELECT rl.id FROM release_line rl JOIN claim n ON n.entity='release_line'
-                                   AND n.entity_id=rl.id AND n.field='line_name'
-                                   WHERE rl.work_id=? AND rl.medium=? AND rl.market<>? AND LOWER(TRIM(n.value))=?
+        # compared in Python: SQLite's LOWER() leaves "Édition" as it is, so a French-named twin never matched
+        # (the corrections round, 2026-11-23: two FR lines fell back to the JP main line)
+        key = name.strip().casefold()
+        for (lid,) in [(lid,) for lid, value in c.execute("""SELECT rl.id, n.value FROM release_line rl JOIN claim n
+                                   ON n.entity='release_line' AND n.entity_id=rl.id AND n.field='line_name'
+                                   WHERE rl.work_id=? AND rl.medium=? AND rl.market<>?
                                    AND NOT EXISTS (SELECT 1 FROM claim o WHERE o.entity='release_line'
                                                    AND o.entity_id=rl.id AND o.field='origin_line')""",
-                                (wid, medium, market, name.strip().lower())).fetchall():
+                                (wid, medium, market)).fetchall() if (value or "").strip().casefold() == key]:
             c.execute("""INSERT OR IGNORE INTO claim(entity,entity_id,field,value,source,source_url,licence,retrieved_at)
                          VALUES('release_line',?,'origin_line',?,'opentome',NULL,?,?)""", (lid, keep, LICENCE["opentome"], NOW))
     # a DERIVED pin an earlier merge wrote at dup follows dup into keep (the corrections round, 2026-11-23: the
