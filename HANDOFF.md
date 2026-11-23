@@ -1,6 +1,6 @@
 # HANDOFF — OpenTome
 
-## The corrections round (TypNull's four #corrections threads, 2026-11-22) -- **main PUSHED by Nick 2026-11-23 (25e97d9); FOUR MORE COMMITS LOCAL, NOT PUSHED (fd6b101 DNB probe, 7491df2 KR/CN re-keys, 429ed59 chunk order, this note); nothing published yet; replies drafted, not posted**
+## The corrections round (TypNull's four #corrections threads, 2026-11-22) -- **PUBLISHED 2026-11-23 as opentome-2026-11-23 (run 45263344899); Mangarr on it; the four replies posted. main PUSHED by Nick through 5614e0f; TWO COMMITS LOCAL, NOT PUSHED (db21959 AniList re-point, this note)**
 
 Nick, 2026-11-22 ~23:45 CST: "Start working on the other parts" (item 2 of the agreed order after the Mangarr build
 round; item 3, the pack re-grab rule, is in the Mangarr handoff). Local spec and plan under `docs/superpowers/`
@@ -37,13 +37,20 @@ within the allowance (moved 33 / retired 3, the CI run's numbers), taken_weak 0,
 13,466 -> 13,160; volumes 125,579 -> 121,977; ISBN dup pairs in a line 443 -> 0; ISBNs on lines of two languages
 78 -> 10 (Kazé); out-of-order day pairs 209 -> 130 (en 48 -> 47, ja 114 -> 45, fr 43 -> 35, ko 4 -> 3); page counts
 en 11,778 -> 10, fr 11,513 -> 10,613, de 13,620 -> 13,670; redirects 1,566 -> 5,646; merges P 101 / D 197 / C 3 (301
-lines); main lines with an edition word 15 -> 0; anilist pins applied 56. **Next:** Nick pushes main (four commits),
-build-only CI, `publish=true`, pages run + a minute of CDN, Mangarr MetadataUpdate + FlightLog line, the four replies
-(scratchpad `replies_draft.md`, `__LABEL__` = the release label). **After the publish:** corrections/anilist.json[50]
-(rl_40d16429f1d4) and [53] (rl_082654a60cf7) pin lines this round merged away -- the build follows the redirect (8a
-prints it) but `corrections.py --check` will call them STALE against the new artifact: re-point to rl_8ff18c007e5f /
-rl_ec88f560b25c in the next data commit. The pre-existing `STALE CORRECTION -- lines.json cluster_with dnb:139599577X`
-stays. Local LoC cache: rebuild 9 (killed mid-LoC-refresh) refreshed part of it (fresher than CI's); a local run with
+lines); main lines with an edition word 15 -> 0; anilist pins applied 56. **Done 2026-11-23 (after Nick's push of the four commits, 5614e0f):** build-only run 45262300380 green, DNB / LoC / BnF
+all reachable, no degraded or offline flag; publish run 45263344899 published **opentome-2026-11-23** (sha256
+8a9e52846d0b946bb9bb2b8983ad22905d9976abe056d94ee61c26996c6bbcab, 37,007,360 B, 13,160 lines / 121,976 volumes,
+carried from the live 11-13 artifact; the manifest at opentomedb.com served it on the first fetch). Mangarr took it at
+20:57Z (MetadataUpdate command 465544; `/config/metadatasource` version opentome-2026-11-23, 13,160 / 121,976; file
+sha verified on Tower; FlightLog line + backup `mangarr-manga-metadata.sqlite.before-20261123-opentome`). The four
+replies went out as Dr. Awesome from Nick's Chrome on his "Post it" (one per thread, 20:58-21:03Z). **db21959:**
+anilist.json[50] re-pointed to rl_8ff18c007e5f (Hanma Baki; rl_40d16429f1d4 merged into it) and [53] dropped
+(rl_082654a60cf7 merged into rl_ec88f560b25c, which already carries 71539); `corrections.py --check --artifact
+<the published file>` resolves all 55 pins. `build/manga-metadata.sqlite.published` is the new live artifact. The
+pre-existing `STALE CORRECTION -- lines.json cluster_with dnb:139599577X` stays. **Next:** Nick pushes main (two
+commits); watch the threads for TypNull's answers (a publisher page-count feed, the partial-run main-line choice);
+the Sunday build (09:00 UTC, never publishes) will show whether DNB's re-cataloguing wave moves more papertoons
+sets (the contract's `taken_weak` / E1 rules catch it; label the takes in krcn_linker_labels.json). Local LoC cache: rebuild 9 (killed mid-LoC-refresh) refreshed part of it (fresher than CI's); a local run with
 `LOC_REFRESH_DAYS=28` takes 40+ min (lx2.loc.gov pages at 20 s) -- leave the window unset locally.
 
 **Root causes found (measured on opentome-2026-11-13):**
