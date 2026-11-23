@@ -320,5 +320,75 @@
     "source_url": "https://en.wikipedia.org/wiki/Kurogane_(manga)",
     "reason": "The Japanese main line of Kei Toume's Kurogane (w_2bdd2c36614d) carries eight Shueisha volumes (ISBN 978-4-08-870359-6 .. 978-4-08-870651-1, 2011-12 to 2013-04): Haruto Ikezawa's Kurogane, another work. Toume's own Japanese run (1996-2003, Kodansha, ISBN 978-4-06-3380..) is rl_5a2e167d2417, which keeps 31598. Until the Japanese line is split, this line binds to nothing.",
     "checked": "2026-11-13"
+  },
+  {
+    "line": "rl_17781c08774e",
+    "anilist_id": 41425,
+    "source_url": "https://anilist.co/manga/41425",
+    "reason": "Grappler Baki (JP main line, 42 volumes, 1991): AniList 41425 'Grappler Baki', 42 volumes. The work's id 35157 is the 1999 sequel ('New Grappler Baki', 31 volumes), which the spread had copied onto this line (TypNull, #corrections 2026-11-22, 'Line structure')",
+    "checked": "2026-11-23"
+  },
+  {
+    "line": "rl_2f085f4070b3",
+    "anilist_id": 35157,
+    "source_url": "https://anilist.co/manga/35157",
+    "reason": "Baki (JP, 31 volumes, 1999-2005): AniList 35157 'New Grappler Baki: In Search of Our Strongest Hero', 31 volumes -- the sequel, kept on its own line",
+    "checked": "2026-11-23"
+  },
+  {
+    "line": "rl_73d1424f1fb2",
+    "anilist_id": 86056,
+    "source_url": "https://anilist.co/manga/86056",
+    "reason": "Baki-Dou (JP, 22 volumes, 2014-2018): AniList 86056 'Baki Dou', 22 volumes",
+    "checked": "2026-11-23"
+  },
+  {
+    "line": "rl_8502b983354e",
+    "anilist_id": 108066,
+    "source_url": "https://anilist.co/manga/108066",
+    "reason": "Bakidou (JP, 17 volumes, 2018-2023): AniList 108066 'Baki Dou (2018)', 17 volumes",
+    "checked": "2026-11-23"
+  },
+  {
+    "line": "rl_40d16429f1d4",
+    "anilist_id": 37760,
+    "source_url": "https://anilist.co/manga/37760",
+    "reason": "Hanma Baki: Son of Ogre (JP, 37 volumes, 2005-2012): AniList 37760 'Hanma Baki', 37 volumes",
+    "checked": "2026-11-23"
+  },
+  {
+    "line": "rl_384840f6788a",
+    "anilist_id": 169298,
+    "source_url": "https://anilist.co/manga/169298",
+    "reason": "Baki Rahen (JP, 2023-): AniList 169298 'Baki Rahen'",
+    "checked": "2026-11-23"
+  },
+  {
+    "line": "rl_ec88f560b25c",
+    "anilist_id": 71539,
+    "source_url": "https://anilist.co/manga/71539",
+    "reason": "The Honor Student at Magic High School (JP manga, 11 volumes): AniList 71539 'Mahouka Koukou no Yuutousei', MANGA, 11 volumes -- the spin-off manga, not the novel work's id (TypNull, 'Line structure')",
+    "checked": "2026-11-23"
+  },
+  {
+    "line": "rl_082654a60cf7",
+    "anilist_id": 71539,
+    "source_url": "https://anilist.co/manga/71539",
+    "reason": "Mahōka kōkō no yūtōsei (JP manga, the French list's line of the same spin-off, 10 volumes): AniList 71539, as its twin rl_ec88f560b25c",
+    "checked": "2026-11-23"
+  },
+  {
+    "line": "rl_caca01edcf06",
+    "anilist_id": 71539,
+    "source_url": "https://anilist.co/manga/71539",
+    "reason": "The Honor Student at Magic High School (EN manga, Yen Press, 11 volumes): AniList 71539 'The Honor Student at Magic High School', MANGA, 11 volumes",
+    "checked": "2026-11-23"
+  },
+  {
+    "line": "rl_a72ffba8a528",
+    "anilist_id": 41425,
+    "source_url": "https://anilist.co/manga/41425",
+    "reason": "Baki The Grappler (DE, 1 volume): the German edition of the 1991 'Grappler Baki' (AniList 41425, as its JP main line rl_17781c08774e); the spread copies the JP main line's pinned id here by name and the contract wants a pin to say so",
+    "checked": "2026-11-23"
   }
 ]

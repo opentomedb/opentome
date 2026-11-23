@@ -241,7 +241,10 @@ opentome-2026-11-13 differed from their resolution (Moonlight Act vol 12: row 20
 2011-01, artifact 2010-01-18). Now every article's value is a claim; `tier2/resolve.py` ranks by source precedence,
 then the value more claims of that rank carry, then the article (`en`, `ja`, `fr`, `de`: measured against openBD on
 1,702 disagreeing Japanese volumes, the English article agreed 1,138 times, the French 563); a day date no coarse
-month backs while a month of another source sits two months or more away loses to the month (`coarse_outranks`);
+month backs while a month of another source sits two months or more away loses to the month (`coarse_outranks`; 1,839
+volumes); a day the next-door month disagrees with stands (`adjacent_month`; 8,769 volumes, 8,519 of them the day just
+BEFORE openBD's month -- openBD carries the colophon month, which follows the sale date, so the old precedence had
+exported those a month late);
 resolve writes `release_date` (with its precision) and `isbn13` back onto the volume row. A cited publisher page
 whose address carries an ISBN-13 is the `publisher` claim's value; the cell's stays `wikipedia`'s.
 
