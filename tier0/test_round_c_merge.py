@@ -299,6 +299,21 @@ p = catalogue("kind-c-gap", [(AO, "Aoashi Sample", [("FR", "manga", "Aoashi Samp
                                                     ("FR", "manga", "Aoashi Sample (Tomes 21 à 30)", vols(9, 10, 21))])])
 done = m.run(p)
 eq("C: a gap keeps the chunks apart", (state(p, rl(AO, "FR", "Aoashi Sample (Tomes 21 à 30)"))[0], [d[3] for d in done]), (True, ["kept"]))
+# C: chunks fold in RANGE order whatever their ids sort like (the French Aoashi, rebuild 11: ids sorted 21-30 before
+# 11-20, so 21-30 met a one-chunk target and was kept as a "gap")
+names = ["%s (= Volumes %d à %d =)" % ("{b}", a, a + 9) for a in (1, 11, 21, 31)]
+for base in ("Chunk Sample %s" % ch for ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"):
+    key = "fr:" + base
+    ids = [rl(key, "FR", n.format(b=base)) for n in names]
+    if sorted(ids) != ids:
+        break
+else:
+    raise SystemExit("no base name whose chunk ids sort out of range order -- the C-order case needs one")
+p = catalogue("kind-c-order", [(key, base, [("FR", "manga", n.format(b=base), vols(9, 10, a)) for n, a in zip(names, (1, 11, 21, 31))])])
+done = m.run(p)
+eq("C: every chunk folds into the first in range order, whatever the ids sort like",
+   (state(p, ids[0])[1], [state(p, i)[0] for i in ids[1:]], sorted(d[3] for d in done)),
+   (list(range(1, 41)), [False, False, False], ["extend", "extend", "extend"]))
 eq("article_lang: shapes and the work's own titles",
    [m.article_lang(t, [("ja", "ソード"), ("de", "Schwert")]) for t in ("List of Sword chapters", "Liste des chapitres de Sword", "ソード", "schwert", "Sword")],
    ["en", "fr", "ja", "de", ""])

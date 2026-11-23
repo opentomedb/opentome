@@ -177,8 +177,10 @@ def chunk_chains(lines):
             continue
         chunks.sort()
         first = chunks[0][1]
-        out += [(cid, first) for _, cid in chunks[1:]]
-    return sorted(out)
+        out += [(rng, cid, first) for rng, cid in chunks[1:]]
+    # range order within a target (each chunk must extend the running line, so 11-20 before 21-30), targets
+    # in id order -- sorting by candidate id put the French Aoashi's 21-30 before its 11-20 and kept it as a gap
+    return [(cid, first) for _, cid, first in sorted(out, key=lambda t: (t[2], t[0]))]
 
 
 def article_lang(title, work_titles=()):
