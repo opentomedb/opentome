@@ -145,10 +145,13 @@ def load(db, series_title, records, medium="manga", work_key=None, titles=None):
                           " VALUES(?,?,?,?,?,?,?,?)",
                           (rlid, wid, parent, med, market, MARKET_LANG.get(market, "und"),
                            NOW, NOW))
+                # one line_name claim per line, the last article's (its article is the source_url): the name
+                # the export writes stays what it was before claim.via (the French list named 'xxxHOLiC',
+                # the English article 'xxxHolic'; a per-article claim here renamed 4 carried lines)
                 c.execute("INSERT OR REPLACE INTO claim"
                           "(entity,entity_id,field,value,source,source_url,licence,retrieved_at,via)"
-                          " VALUES('release_line',?,'line_name',?,'wikipedia',?,?,?,?)",
-                          (rlid, line, r.get("article"), LICENCE["wikipedia"], NOW, via))
+                          " VALUES('release_line',?,'line_name',?,'wikipedia',?,?,?,'')",
+                          (rlid, line, r.get("article"), LICENCE["wikipedia"], NOW))
                 lines[rlid] = (med, market, line)
 
             role_title = (r.get("title_licensed") if role == "licensed" else r.get("title_original")) or r.get("title")

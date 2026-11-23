@@ -1202,8 +1202,13 @@ def carried_isbn_moved(db, cat, C, ids, carried_ids):
     for vid, isbn in db.execute("SELECT tome_id, isbn13 FROM volumes WHERE isbn13 IS NOT NULL"):
         now.setdefault(isbn, set()).add(vid)
     present = {r[0] for r in db.execute("SELECT tome_id FROM volumes")}
+    # the corrections round (2026-11-23): stage 6b held this volume's ISBN (a second copy of a sibling's, or
+    # another market's group; build/isbn-held.tsv) -- the ISBN did not move, the duplicate was dropped
+    held_now = {v for (v,) in cat.execute("SELECT entity_id FROM claim WHERE entity='volume' AND field='isbn_held'")}
     out = []
     for vid, isbn in scope:
+        if vid in held_now:
+            continue
         # the carry's duplicate holders are exempt only while THIS volume still holds the ISBN: a carry
         # duplicate whose ISBN left vid for the other holder is a move
         others = now.get(isbn, set()) - {vid}

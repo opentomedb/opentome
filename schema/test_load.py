@@ -35,8 +35,9 @@ eq("the same article loaded twice replaces, never doubles",
    (L.load(db, "Sample Saga", [rec("fr", "Liste des chapitres de Sample Saga", "12", "2011-01-19", "9784091227713")]),
     db.execute("SELECT COUNT(*), MAX(value) FROM claim WHERE entity='volume' AND field='release_date' AND via='fr'").fetchone()),
    ((db.execute("SELECT id FROM work").fetchone()[0], 1, 1, 2), (1, "2011-01-19")))
-eq("the line's own claim carries the article's wiki too",
-   db.execute("SELECT via FROM claim WHERE entity='release_line' AND field='line_name' LIMIT 1").fetchone(), ("en",))
+eq("the line's name stays one claim, the last article's (names do not change with via)",
+   db.execute("SELECT via, source_url FROM claim WHERE entity='release_line' AND field='line_name'").fetchall(),
+   [("", "Liste des chapitres de Sample Saga")])
 
 # --- R2: the publisher's URL states the ISBN -------------------------------------------------------------
 db = fresh()

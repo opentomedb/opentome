@@ -127,12 +127,22 @@ def run(path):
     check("EN/FR/DE lines with 0 dated AND 0 ISBN volumes",
           g("""SELECT COUNT(*) FROM release_line rl WHERE rl.market IN ('EN','FR','DE')
                AND NOT EXISTS (SELECT 1 FROM volume v WHERE v.release_line_id=rl.id
-                   AND (v.release_date IS NOT NULL OR v.isbn13 IS NOT NULL))"""),
+                   AND (v.release_date IS NOT NULL OR v.isbn13 IS NOT NULL
+                        OR EXISTS (SELECT 1 FROM claim h WHERE h.entity='volume' AND h.entity_id=v.id
+                                   AND h.source='opentome' AND h.field IN ('isbn_held','date_held'))))"""),
           "phantom licensed lines: a market entry with no data")
+    # the corrections round (2026-11-23): a volume stage 6b held (its only datum was a wrong ISBN or a typo'd
+    # date, build/isbn-held.tsv / date-order.tsv) keeps its id and number and is reported here, not a phantom
+    HELD = """EXISTS (SELECT 1 FROM claim h WHERE h.entity='volume' AND h.entity_id=v.id AND h.source='opentome'
+                      AND h.field IN ('isbn_held','date_held'))"""
     check("licensed (non-JP) volumes with no date AND no ISBN",
           g("""SELECT COUNT(*) FROM volume v JOIN release_line rl ON rl.id=v.release_line_id
-               WHERE rl.market<>'JP' AND v.release_date IS NULL AND v.isbn13 IS NULL"""),
+               WHERE rl.market<>'JP' AND v.release_date IS NULL AND v.isbn13 IS NULL AND NOT """ + HELD),
           "a licensed edition nobody has data for is not a volume")
+    check("licensed volumes left with no data by a sanity hold",
+          g("""SELECT COUNT(*) FROM volume v JOIN release_line rl ON rl.id=v.release_line_id
+               WHERE rl.market<>'JP' AND v.release_date IS NULL AND v.isbn13 IS NULL AND """ + HELD),
+          "the only datum was a wrong ISBN or a typo'd date (build/isbn-held.tsv, date-order.tsv)", "info")
     # The omnibus signature the collapse acts on: consecutive integer rows,
     # same ISBN, same (or no) date. Anything left with that shape is a bug.
     check("collapsible omnibus rows left in a non-JP line",

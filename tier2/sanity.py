@@ -3,10 +3,12 @@ shape contradicts; never deletes a claim, never rewrites a value.
 
     python3 tier2/sanity.py build/opentome.db [build-dir]
 
-A. An ISBN whose registration group names another market than the line's (known groups only: 978-4 Japan,
-   978-0 / 978-1 / 979-8 English, 978-2 / 979-10 France, 978-3 Germany, 978-89 / 979-11 Korea, 978-7 China) is
-   held: the row's isbn13 is nulled and an `opentome` claim `isbn_held` = `market:<group's market>` records it.
-   TypNull (2026-11-22): of 25 ISBNs on lines of two languages all 25 belonged to one of them -- the group's.
+A. An ISBN whose registration group belongs to another market than the line's (known groups only: 978-4 Japan,
+   978-0 / 978-1 / 979-8 English, 978-2 / 979-10 the French-language area, 978-3 Germany) is held: the row's
+   isbn13 is nulled and an `opentome` claim `isbn_held` = `market:<group's market>` records it. A French-area
+   group on a GERMAN line is allowed: Kazé's German editions carry 978-2-88951 (the Swiss parent's numbers; 946
+   DNB volumes, measured 2026-11-23). TypNull (2026-11-22): of 25 ISBNs on lines of two languages all 25
+   belonged to one of them -- the group's.
 B. One ISBN on several volumes of a line stays on the lowest-numbered volume and is held on the others
    (`duplicate-of:<number>`): 7 of TypNull's 7 examples and the copy-paste-down shape of the sources.
 C. A day-precision date that is earlier than both its dated neighbours while its plus-one-year value falls back
@@ -21,10 +23,11 @@ import datetime, os, re, sqlite3, sys
 
 NOW = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 # registration group -> market, longest prefix first
-GROUP_MARKET = [("97910", "FR"), ("97911", "KR"), ("97889", "KR"), ("9784", "JP"), ("9780", "EN"), ("9781", "EN"),
-                ("9798", "EN"), ("9782", "FR"), ("9783", "DE"), ("9787", "CN")]
-# the markets the rule can judge: a line of another market (IT, ES, ...) is never held
-JUDGED = {"JP", "EN", "FR", "DE", "KR", "CN"}
+GROUP_MARKET = [("97910", "FR"), ("9784", "JP"), ("9780", "EN"), ("9781", "EN"), ("9798", "EN"), ("9782", "FR"),
+                ("9783", "DE")]
+# the line markets a group's ISBN may sit on; a line of another market (KR, CN, IT, ...) is never judged
+ALLOWED = {"JP": {"JP"}, "EN": {"EN"}, "DE": {"DE"}, "FR": {"FR", "DE"}}
+JUDGED = {"JP", "EN", "FR", "DE"}
 
 
 def isbn_market(isbn13):
@@ -66,7 +69,7 @@ def run(db, build_dir=None, verbose=True):
         if market not in JUDGED:
             continue
         group = isbn_market(isbn)
-        if group and group != market:
+        if group and market not in ALLOWED[group]:
             c.execute("UPDATE volume SET isbn13=NULL WHERE id=?", (vid,))
             _claim(c, vid, "isbn_held", "market:" + group)
             isbn_rows.append((vid, rid, num, isbn, "market:" + group))

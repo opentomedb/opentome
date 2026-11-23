@@ -250,6 +250,11 @@ def merge_line(c, dup, keep):
                                 (wid, medium, market, name.strip().lower())).fetchall():
             c.execute("""INSERT OR IGNORE INTO claim(entity,entity_id,field,value,source,source_url,licence,retrieved_at)
                          VALUES('release_line',?,'origin_line',?,'opentome',NULL,?,?)""", (lid, keep, LICENCE["opentome"], NOW))
+    # a DERIVED pin an earlier merge wrote at dup follows dup into keep (the corrections round, 2026-11-23: the
+    # carried 4c merge pinned the FR "Édition 2020" line to its JP twin, 4c2 then folded that twin; a stale pin
+    # names a line the export cannot find and falls back to the main line). A hand pin (a correction) is left.
+    c.execute("""UPDATE claim SET value=? WHERE entity='release_line' AND field='origin_line' AND source='opentome' AND value=?""",
+              (keep, dup))
     have = {n for (n,) in c.execute("SELECT number FROM volume WHERE release_line_id=?", (keep,))}
     moved = dropped = 0
     for vid, num in c.execute("SELECT id, number FROM volume WHERE release_line_id=?", (dup,)).fetchall():

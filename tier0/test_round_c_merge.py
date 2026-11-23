@@ -301,4 +301,19 @@ eq("C: a gap keeps the chunks apart", (state(p, rl(AO, "FR", "Aoashi Sample (Tom
 eq("C: chunk pattern", [m.chunk_range(n) for n in ("= Volumes 1 à 10 =", "Tomes 21 à 30", "Volumes 11-20", "Tomes 31 à aujourd'hui", "Saison 1")],
    [(1, 10), (21, 30), (11, 20), None, None])
 
+# a derived origin pin (an earlier merge's) that names the twin a P merge retires follows it to the survivor
+DQ = "fr:Dragon Sample"
+jmain, jtwin, fr = rl(DQ, "JP", "Dragon Sample"), rl(DQ, "JP", "Dragon Sample (Édition 2020)"), rl(DQ, "FR", "Dragon Sample (Édition 2020)")
+p = catalogue("stale-pin", [(DQ, "Dragon Sample", [("JP", "manga", "Dragon Sample", vols(2, 10)),
+                                                   ("JP", "manga", "Dragon Sample (Édition 2020)", vols(2, 10)),
+                                                   ("FR", "manga", "Dragon Sample (Édition 2020)", vols(3, 10))])])
+D = sqlite3.connect(p)
+D.execute("INSERT INTO claim VALUES('release_line',?,'origin_line',?,'opentome',NULL,'open','x','')", (fr, jtwin))
+D.commit(); D.close()
+m.run(p)
+D = sqlite3.connect(p)
+eq("stale derived pin: follows the retired twin to the survivor",
+   D.execute("SELECT value FROM claim WHERE entity='release_line' AND entity_id=? AND field='origin_line'", (fr,)).fetchone(), (jmain,))
+D.close()
+
 print("FAILED: %d" % len(FAILS) if FAILS else "all passed"); sys.exit(1 if FAILS else 0)
