@@ -1,5 +1,74 @@
 # HANDOFF — OpenTome
 
+## The corrections round (TypNull's four #corrections threads, 2026-11-22) -- **ON MAIN LOCALLY (f7a982a, 15 commits since 112bb06), NOT PUSHED; nothing published; replies drafted, not posted**
+
+Nick, 2026-11-22 ~23:45 CST: "Start working on the other parts" (item 2 of the agreed order after the Mangarr build
+round; item 3, the pack re-grab rule, is in the Mangarr handoff). Local spec and plan under `docs/superpowers/`
+(gitignored); the design is in `docs/schema-v1.md` (2026-11-23) and `docs/round-c.md` (classes P, D, C, E). The four
+threads: *The same ISBN on two volumes* (1573935676154585310), *Wrong page counts in several series*
+(1573940509062340618), *Release dates* (1573941975751594085), *Line structure* (1573942706819043358).
+
+**Root causes found (measured on opentome-2026-11-13):**
+- One claim per article was lost: `schema/load.py` kept the FIRST article's value on the volume row (`INSERT OR
+  IGNORE`) and the LAST article's as the claim (one key per source); the export read the row for dates and ISBNs.
+  12,366 Japanese, 478 English and 141 French dates differed from their resolution (Moonlight Act 12: row
+  2010-01-18, claim 2011-01-18, openBD 2011-01).
+- Duplicate ISBNs are source errors parsed faithfully (the English Prison School list repeats one Japanese ISBN on
+  rows 26-28 while each row cites the right kodansha page; its row 4 carries row 2's English ISBN and cites row 2's
+  page). 366 ISBN claims disagreed with the ISBN in their own cited URL.
+- Every English page count was Open Library's `number_of_pages`: library pagination ("147, [38] p."), exact for
+  14% of 762 French ISBNs against BnF; TypNull's 12 of 12 wrong. No second English source exists.
+- Dates: a year typo in one article (Mr. Tonegawa "June 6, 2016"), a lone day beating openBD's month by
+  precedence, the row/claim split above; 209 adjacent day pairs out of order, 112 the year-typo shape.
+- Line structure: 103 Japanese "<own line> (French section name)" twins with identical volumes, 160 plain-named
+  twin pairs, 23 main lines named with a first-edition word, Baki's 1991 main line carrying the 1999 sequel's
+  AniList id by the spread.
+
+**What shipped:** `claim.via` (one claim per article; the line name stays one claim; an article's FIRST row for a
+number is its claim); the cited publisher page's ISBN as the `publisher` claim; resolve: precedence, then
+majority, then the article (en, ja, fr, de), with the date rules `month_backed` / `day_majority` (two claims on a
+day beat a far month; 2,636) / `coarse_outranks` (a LONE day loses to a month two or more months away; 1,214) /
+`adjacent_month` (6,388; 6,191 the day just before openBD's colophon month) / `first_printing` (two sources' days a
+year or more apart, week-aligned; 69); resolve writes dates and ISBNs back onto the row; stage 6b `tier2/sanity.py`
+(an ISBN of another market's group -- Kazé's 978-2 on German lines allowed -- 702 held; one ISBN on two volumes of
+a line; a year typo between neighbours, 28 held; `build/isbn-held.tsv`, `build/date-order.tsv`); stage 6c: round C
+kinds P / D / C on the RESOLVED rows (one differing ISBN tolerated; the candidate's parent line a valid P target; a
+dropped twin's claims move to the kept volume; stale derived origin pins follow a merge; names matched in Python),
+then resolve and sanity again; export classes E / C; Open Library page counts not exported alone (NICK'S CALL,
+implemented as recommended); corrections/anilist.json: Baki ×7, the Honor Student manga ×3; a pin on a merged line
+follows its redirect (corrections and the contract); the audit and the contract treat a sanity-held volume as
+reported, not phantom. Tests: schema/test_load.py and tier2/test_sanity.py (new), test_resolve /
+test_round_c_merge / test_display_names / test_to_mangarr / test_corrections_check / test_artifact extended; stage 0
+runs them all.
+
+**Measured on the eighth local offline rebuild (carry = opentome-2026-11-13; contract 0 FAIL, measure gate ok, audit
+0 defects):** lines 13,468 -> 13,167; volumes 125,520 -> 121,948; ISBNs on two volumes of a line 443 -> 0; ISBNs on
+lines of two languages 78 -> 10 (Kazé); adjacent day pairs out of order 209 -> 130 (en 48 -> 47, ja 114 -> 45,
+fr 43 -> 35, ko 4 -> 3); on the 121,781 volumes in both artifacts: 39 lost their date (28 held, 11 with no datum
+left), 491 gained one, 1,174 went day -> month or year (the lone-day rule), 271 coarse -> day, 503 day dates
+changed; page counts en 11,778 -> 10, fr 11,513 -> 10,613, de 13,559 -> 13,620; 299 lines merged (P 101, D 197, C 1)
+on top of the carried T 40 / W2 48; redirects 1,553 -> 5,595; main lines with a section/edition word 15 -> 1. The
+measurement script: the scratchpad's `measure_round.py` (before copies `build/*.before-corrections`).
+
+**Nick's calls (before publishing):** (1) Open Library page counts out of the export (English loses ~11,800
+approximate counts, French ~900; recommended); (2) the push. Then: build-only CI (`gh workflow run catalogue.yml -f
+publish=false`), green -> `publish=true`, Mangarr MetadataUpdate + FlightLog line, the four replies on "post it"
+(drafts in the scratchpad `replies_draft.md`; only the artifact label is left to fill).
+
+**Not this round (the replies say so):** partial runs with restarted numbering (FR Hajime no Ippo "Saison", EN
+Freezing / Initial D "Part") stay separate lines; One Piece en vol 3 keeps Wikipedia's 2004-03-17 over Open
+Library's 2004-06-08 (two day sources, not week-aligned); Prison School en vol 4's ISBN is held (the article's row
+4 copies row 2's ISBN AND citation); a fallback after a hold (4 of 702 market-held ISBNs, 10 of 28 held dates have
+another claim) is not worth a rule yet; the macron fold.
+
+**Gotchas:** merges must be judged on RESOLVED rows (stage 6c), never at 4c2 (identical twins stayed apart over one
+article's typo or a blank ISBN); `via` in the claim key means positional `INSERT INTO claim VALUES(...)` in tests
+needs the ninth column; the carry for a local rebuild must be the PUBLISHED artifact (`build/manga-metadata.sqlite`;
+restore it from the `.before-corrections` copy before each rebuild -- the pipeline promotes `.new` over it);
+`classify_dates` called a day-against-month disagreement `single_source` since the first resolver (now
+`conflict`); the artifact's `release_date` is day-only, a month or year sits in `release_date_raw` (a demotion is
+not a lost date); eight local rebuilds, ~25 min each offline.
+
 ## The JP binding (round (c) in the chat) -- **PUSHED + PUBLISHED 2026-11-13 16:02 CST as `opentome-2026-11-13` (re-published a second time, same label, sha 0d97875a; main 647fcea); Mangarr pulled it 16:03; #general note posted 2026-11-14 09:13 CST (msg 1571181317276831865)**
 
 Promised to the Gutter developer in #general (09:15 and 13:02 posts). Spec `docs/superpowers/specs/2026-11-13-jp-native-title-binding-design.md`,
