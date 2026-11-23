@@ -48,7 +48,10 @@
 #   5b. corrections    hand-checked values (corrections/), applied after clean
 #                      so clean cannot undo them and before resolve so the
 #                      confidence layer reports them as manual_override
-#   6. resolve         claims -> values + confidence
+#   6. resolve         claims -> values + confidence, written back onto the volume rows
+#   6b. sanity         an ISBN of another market's group, one ISBN on two volumes of a line, a year typo
+#                      between its neighbours: held (row nulled, opentome claim, build/isbn-held.tsv and
+#                      build/date-order.tsv); every other out-of-order date pair reported (tier2/sanity.py)
 #   7. audit           report remaining defects -- EXITS NON-ZERO on any defect
 #   7b. redirects      every id of the carried (last published) artifact this build no longer
 #                      has -> id_redirect to its successor, any market, work / line / volume
@@ -170,9 +173,11 @@ echo "== 4c2. round C merges =="; python3 tier0/round_c_merge.py "$DB" "$ID_CARR
 echo "== 5. clean ==";             python3 tier2/clean.py "$DB"
 echo "== 5b. corrections ==";      python3 tier2/corrections.py "$DB"
 echo "== 6. resolve ==";           python3 tier2/resolve.py "$DB"
+echo "== 6b. sanity ==";           python3 tier2/sanity.py "$DB" build
 echo "== 7. audit ==";             python3 tier2/audit.py "$DB"
 echo "== 7b. redirects ==";        python3 tier0/carried_ids.py redirect "$DB" "$ID_CARRY"
-                                   python3 tier2/resolve.py "$DB" --dates   # 7b moved claims: a projected date never outranks a real one
+                                   python3 tier2/resolve.py "$DB" --dates   # 7b moved claims: a projected date never outranks a real on
+                                   python3 tier2/sanity.py "$DB" build      # 6b again: the moved rows read the same rulese
 if [ "$DB" != "$FINAL" ]; then
   mv -f "$DB" "$FINAL"
   echo "   catalogue -> $FINAL"
