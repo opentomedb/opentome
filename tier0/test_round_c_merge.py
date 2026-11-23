@@ -62,7 +62,8 @@ def catalogue(name, works):
         recs = [dict({"volume": n, "line": ln[2], "medium": ln[1],
                       "markets": {"original": {"market": ln[0], "isbn13": isbn, "date": date,
                                                "date_precision": "day" if date else None}}},
-                     **({"arc_of": ln[4]} if len(ln) > 4 else {}))
+                     **({"arc_of": ln[4]} if len(ln) > 4 and ln[4] else {}),
+                     **({"wiki": ln[5]} if len(ln) > 5 else {}))
                 for ln in lines for n, isbn, date in ln[3]]
         load(db, title, recs, work_key=key)
     db.commit()
@@ -239,4 +240,65 @@ eq("export: meta round_c_conflicts lists the refused carried merge, round_c_merg
    (json.loads(meta.get("round_c_conflicts", "null")), "round_c_merges" in meta),
    ([[tail, main, "verdict:kept"]], False))
 A.close()
+# ---- the corrections round (2026-11-23): kinds P, D, C -------------------------------------------------
+# P: "<own line> (any qualifier)" whose volumes DUPLICATE the own line merges; an extend never does
+eq("P candidate: any other qualifier on the own line",
+   m.candidates_all([L("s", "Black Butler (Saison 1 : La rage)"), L("b", "Black Butler")]), [("s", "b", "P", None)])
+eq("P: not the own line -> held as before", m.candidates_all([L("s", "Kuro (Saison 1)"), L("b", "Kuro")]), [("s", "b", "P", "not-own-line")])
+HS = "fr:Hajime no Sample"
+hmain, hs1, hs2, hsuite = (rl(HS, "JP", n) for n in ("Hajime no Sample", "Hajime no Sample (Saison 1 : La rage)",
+                                                       "Hajime no Sample (Saison 2 : Destins)", "Hajime no Sample (Suite)"))
+p = catalogue("kind-p", [(HS, "Hajime no Sample", [("JP", "manga", "Hajime no Sample", vols(7, 10)),
+                                                    ("JP", "manga", "Hajime no Sample (Saison 1 : La rage)", vols(7, 5)),
+                                                    ("JP", "manga", "Hajime no Sample (Saison 2 : Destins)", vols(8, 5)),
+                                                    ("JP", "manga", "Hajime no Sample (Suite)", vols(7, 5, 11))])])
+done = m.run(p)
+eq("P: the duplicate section line is gone", state(p, hs1)[0], False)
+eq("P: a section line with other ISBNs stays", state(p, hs2)[0], True)
+eq("P: a contiguous tail with a plain qualifier stays (P never extends)", state(p, hsuite)[0], True)
+eq("P: meta records the merge only (a kept P line is an ordinary sub-line)",
+   sorted((d[0], d[2], d[3]) for d in done), [(hs1, "P", "duplicate")])
+
+# D: two lines of one work, market and medium whose volumes duplicate each other (shared numbers carry the same
+# ISBNs, at least 3 of them) merge; the own line survives, else the unqualified name, else the English article's,
+# else the smaller id; the survivor takes the other's extra numbers
+SW = "en:Sword Sample"
+prog, arc1 = rl(SW, "JP", "Sword Sample: Progressive"), rl(SW, "JP", "Arc 1 - Sword Sample: Progressive")
+p = catalogue("kind-d", [(SW, "Sword Sample", [("JP", "manga", "Sword Sample: Progressive", vols(3, 7), None, "en"),
+                                               ("JP", "manga", "Arc 1 - Sword Sample: Progressive", vols(3, 7), None, "fr")])])
+done = m.run(p)
+eq("D: the French-article twin is gone, the English-article line survives", (state(p, arc1)[0], state(p, prog)[0]), (False, True))
+eq("D: meta row", [(d[0], d[1], d[2], d[3]) for d in done], [(arc1, prog, "D", "duplicate")])
+YS = "en:Yowamushi Sample"
+ymain, yvols = rl(YS, "JP", "Yowamushi Sample"), rl(YS, "JP", "Yowamushi Sample volumes")
+p = catalogue("kind-d-prefix", [(YS, "Yowamushi Sample", [("JP", "manga", "Yowamushi Sample", vols(4, 95)),
+                                                          ("JP", "manga", "Yowamushi Sample volumes", vols(4, 101))])])
+done = m.run(p)
+eq("D: the own line survives and takes the longer twin's extra numbers", (state(p, yvols)[0], state(p, ymain)[1][-1]), (False, 101))
+eq("D: meta row counts the moved numbers", [(d[0], d[1], d[2], d[3], d[4]) for d in done], [(yvols, ymain, "D", "duplicate", 6)])
+p = catalogue("kind-d-two", [(YS, "Yowamushi Sample", [("JP", "manga", "Yowamushi Sample", vols(4, 95)),
+                                                       ("JP", "manga", "Yowamushi Sample volumes", vols(5, 2))])])
+done = m.run(p)
+eq("D: fewer than three shared ISBNs is no evidence", (state(p, yvols)[0], done), (True, []))
+p = catalogue("kind-d-diff", [(YS, "Yowamushi Sample", [("JP", "manga", "Yowamushi Sample", vols(4, 10)),
+                                                        ("JP", "manga", "Yowamushi Sample (Perfect)", vols(5, 10))])])
+done = m.run(p)
+eq("D/P: other ISBNs on every number: nothing merges, nothing recorded", (state(p, rl(YS, "JP", "Yowamushi Sample (Perfect)"))[0], done), (True, []))
+
+# C: "(= Volumes N à M =)" chunks with continuous numbering and no own line fold into the lowest chunk
+AO = "fr:Aoashi Sample"
+c1, c2, c3 = (rl(AO, "FR", n) for n in ("Aoashi Sample (= Volumes 1 à 10 =)", "Aoashi Sample (= Volumes 11 à 20 =)", "Aoashi Sample (= Volumes 21 à 30 =)"))
+p = catalogue("kind-c", [(AO, "Aoashi Sample", [("FR", "manga", "Aoashi Sample (= Volumes 1 à 10 =)", vols(9, 10)),
+                                                ("FR", "manga", "Aoashi Sample (= Volumes 11 à 20 =)", vols(9, 10, 11)),
+                                                ("FR", "manga", "Aoashi Sample (= Volumes 21 à 30 =)", vols(9, 10, 21))])])
+done = m.run(p)
+eq("C: the later chunks are gone, the first holds 1-30", (state(p, c2)[0], state(p, c3)[0], state(p, c1)[1]), (False, False, list(range(1, 31))))
+eq("C: meta rows", [(d[0], d[1], d[2], d[3]) for d in done], [(c2, c1, "C", "extend"), (c3, c1, "C", "extend")])
+p = catalogue("kind-c-gap", [(AO, "Aoashi Sample", [("FR", "manga", "Aoashi Sample (= Volumes 1 à 10 =)", vols(9, 10)),
+                                                    ("FR", "manga", "Aoashi Sample (Tomes 21 à 30)", vols(9, 10, 21))])])
+done = m.run(p)
+eq("C: a gap keeps the chunks apart", (state(p, rl(AO, "FR", "Aoashi Sample (Tomes 21 à 30)"))[0], [d[3] for d in done]), (True, ["kept"]))
+eq("C: chunk pattern", [m.chunk_range(n) for n in ("= Volumes 1 à 10 =", "Tomes 21 à 30", "Volumes 11-20", "Tomes 31 à aujourd'hui", "Saison 1")],
+   [(1, 10), (21, 30), (11, 20), None, None])
+
 print("FAILED: %d" % len(FAILS) if FAILS else "all passed"); sys.exit(1 if FAILS else 0)

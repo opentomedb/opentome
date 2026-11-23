@@ -20,6 +20,15 @@ from release_lines import _OPEN_END, _ROUND_A
 from carried_ids import merge_line
 
 _W2 = "^(?:" + _ROUND_A + ")$"
+# the corrections round (2026-11-23): a pagination chunk, "= Volumes 1 à 10 =", "Tomes 21 à 30", "Volumes 11-20"
+_CHUNK = re.compile(r"^=?\s*(?:tomes?|volumes?)\s*(\d+)\s*(?:à|a|to|-|–)\s*(\d+)\s*=?$", re.I)
+D_MIN_SHARED = 3        # shared numbers carrying the same ISBN before two lines are one edition
+
+
+def chunk_range(q):
+    """(first, last) of a pagination-chunk qualifier, None for anything else (an open end is kind T's)."""
+    m = _CHUNK.match((q or "").strip())
+    return (int(m.group(1)), int(m.group(2))) if m else None
 
 
 def _num(n):
@@ -65,10 +74,12 @@ def candidates(lines):
 
 
 def candidates_all(lines):
-    """[(cand_id, target_id, kind, reason)] sorted: every line named "<a sibling line's name> (<T or W2
-    qualifier>)" in the same work, market and medium. reason None = mergeable; 'arc' = an arc was split
-    out of the candidate's rows; 'not-own-line' = the target is not named after the work (spec §3.2:
-    both are kept, and listed)."""
+    """[(cand_id, target_id, kind, reason)] sorted: every line named "<a sibling line's name> (<qualifier>)" in
+    the same work, market and medium -- kind T (open-end tail), W2 (round-A word) or, since the corrections
+    round, P (any other qualifier: a French section name on the Japanese market, "Hajime no Ippo (Saison 1 :
+    …)", "City Hunter (Première édition)"; P merges a duplicate only, never an extend). reason None =
+    mergeable; 'arc' = an arc was split out of the candidate's rows; 'not-own-line' = the target is not
+    named after the work (spec §3.2: both are kept, and listed)."""
     by_name = {}
     for l in lines:
         by_name.setdefault((l["work_id"], l["market"], l["medium"], l["name"]), l["id"])
@@ -83,7 +94,7 @@ def candidates_all(lines):
         elif re.match(_W2, q, re.I):
             kind = "W2"
         else:
-            continue
+            kind = "P"
         tid = by_name.get((l["work_id"], l["market"], l["medium"], target))
         if tid is None or tid == l["id"]:
             continue
@@ -104,16 +115,70 @@ def _vols(c, rid):
     return {_vnum(n): i for n, i in c.execute("SELECT number, isbn13 FROM volume WHERE release_line_id=?", (rid,))}
 
 
+def _qualified(name):
+    return name.endswith(")") and " (" in name
+
+
+def duplicate_pairs(lines, vols_of):
+    """Kind D (the corrections round): [(cand, target)] for two lines of one work, market and medium whose
+    shared numbers carry the same ISBN on at least D_MIN_SHARED of them and differ on none (the same books
+    under two names: "Sword Art Online (Arc 1)" / "Sword Art Online: Progressive"). The survivor is the work's
+    own line, else the one without a "( … )" qualifier, else the one the English article named, else the
+    smaller id; the other is the candidate and its extra numbers move over."""
+    by_key = {}
+    for l in lines:
+        by_key.setdefault((l["work_id"], l["market"], l["medium"]), []).append(l)
+    out = []
+    for group in by_key.values():
+        for i, a in enumerate(group):
+            for b in group[i + 1:]:
+                va, vb = vols_of(a["id"]), vols_of(b["id"])
+                shared = [n for n in va if n in vb and va[n] and vb[n]]
+                if len(shared) < D_MIN_SHARED or any(va[n] != vb[n] for n in shared):
+                    continue
+                rank = lambda l: (l["name"] != l["work_title"], _qualified(l["name"]), l.get("via", "") != "en", l["id"])
+                keep, cand = sorted((a, b), key=rank)
+                out.append((cand["id"], keep["id"]))
+    return sorted(out)
+
+
+def chunk_chains(lines):
+    """Kind C (the corrections round): [(cand, target)] -- pagination chunks "<base> (= Volumes 1 à 10 =)",
+    "<base> (Tomes 11 à 20)" of one work, market and medium with no line named <base> fold into the lowest
+    chunk, in range order (each must extend the running line; a gap keeps it)."""
+    by_key, names = {}, {}
+    for l in lines:
+        names[(l["work_id"], l["market"], l["medium"], l["name"])] = l["id"]
+    for l in lines:
+        if not _qualified(l["name"]):
+            continue
+        base, q = l["name"][:-1].rsplit(" (", 1)
+        rng = chunk_range(q)
+        if rng is None or (l["work_id"], l["market"], l["medium"], base) in names:
+            continue
+        by_key.setdefault((l["work_id"], l["market"], l["medium"], base), []).append((rng, l["id"]))
+    out = []
+    for chunks in by_key.values():
+        if len(chunks) < 2:
+            continue
+        chunks.sort()
+        first = chunks[0][1]
+        out += [(cid, first) for _, cid in chunks[1:]]
+    return sorted(out)
+
+
 def _lines(c):
     """The catalogue's lines as candidates() reads them. work_title: the work's primary_title (the
     export's wtitle); name: the first line_name claim by rowid (merge_line's read), else the work
     title (the export's `lname or wtitle`); arc_split: another line has this one as parent_id --
     schema/load.py writes a record's arc_of there, i.e. an arc was split out of this line's rows."""
     return [{"id": rid, "work_id": wid, "market": market, "medium": medium, "work_title": wtitle,
-             "name": name or wtitle, "arc_split": bool(arc)}
-            for rid, wid, market, medium, wtitle, name, arc in c.execute("""
+             "name": name or wtitle, "arc_split": bool(arc), "via": via or ""}
+            for rid, wid, market, medium, wtitle, name, via, arc in c.execute("""
         SELECT rl.id, rl.work_id, rl.market, rl.medium, w.primary_title,
                (SELECT value FROM claim WHERE entity='release_line' AND entity_id=rl.id
+                  AND field='line_name' ORDER BY rowid LIMIT 1),
+               (SELECT via FROM claim WHERE entity='release_line' AND entity_id=rl.id
                   AND field='line_name' ORDER BY rowid LIMIT 1),
                EXISTS (SELECT 1 FROM release_line a WHERE a.parent_id=rl.id AND a.id<>rl.id)
         FROM release_line rl JOIN work w ON w.id=rl.work_id ORDER BY rl.id""")]
@@ -154,16 +219,40 @@ def run(db_path, carry_path=None):
         if cand in merged or not exists(cand) or not exists(target):
             continue
         if why:
-            done.append([cand, target, kind, "kept", 0, 0, "rule", why])
+            if kind != "P":                 # a kept P line is an ordinary sub-line: not a record
+                done.append([cand, target, kind, "kept", 0, 0, "rule", why])
             continue
         # volumes read now, not up front: an earlier merge into the same target changed them
         v, why = verdict_why(_vols(c, cand), _vols(c, target))
+        if kind == "P" and v == "extend":
+            v, why = "kept", "extend"          # a plain qualifier may name a sequel: P folds duplicates only
         if v in ("extend", "duplicate"):
             moved, dropped = merge_line(c, cand, target)
             merged.add(cand)
             done.append([cand, target, kind, v, moved, dropped, "rule"])
-        else:
+        elif kind != "P":
             done.append([cand, target, kind, v, 0, 0, "rule", why])
+    # kind D: the same books under two names (read after the P merges; volumes live)
+    live = lambda rid: _vols(c, rid) if exists(rid) else {}
+    for cand, target in duplicate_pairs([l for l in lines if l["id"] not in merged], live):
+        if cand in merged or target in merged or not exists(cand) or not exists(target):
+            continue
+        kind_of[(cand, target)] = "D"
+        moved, dropped = merge_line(c, cand, target)
+        merged.add(cand)
+        done.append([cand, target, "D", "duplicate", moved, dropped, "rule"])
+    # kind C: pagination chunks with no own line fold into the lowest chunk, in range order
+    for cand, target in chunk_chains([l for l in lines if l["id"] not in merged]):
+        if cand in merged or target in merged or not exists(cand) or not exists(target):
+            continue
+        kind_of[(cand, target)] = "C"
+        v, why = verdict_why(_vols(c, cand), _vols(c, target))
+        if v == "extend":
+            moved, dropped = merge_line(c, cand, target)
+            merged.add(cand)
+            done.append([cand, target, "C", v, moved, dropped, "rule"])
+        else:
+            done.append([cand, target, "C", "kept", 0, 0, "rule", why])
     key = lambda rid: c.execute("SELECT work_id, market, medium FROM release_line WHERE id=?", (rid,)).fetchone()
     for cand, target, cv, ckind in read_carry(carry_path):
         # an earlier build's decision, by id: both ids are here (the ids hash work, medium, market and
