@@ -1,12 +1,50 @@
 # HANDOFF — OpenTome
 
-## The corrections round (TypNull's four #corrections threads, 2026-11-22) -- **ON MAIN LOCALLY (f7a982a, 15 commits since 112bb06), NOT PUSHED; nothing published; replies drafted, not posted**
+## The corrections round (TypNull's four #corrections threads, 2026-11-22) -- **main PUSHED by Nick 2026-11-23 (25e97d9); FOUR MORE COMMITS LOCAL, NOT PUSHED (fd6b101 DNB probe, 7491df2 KR/CN re-keys, 429ed59 chunk order, this note); nothing published yet; replies drafted, not posted**
 
 Nick, 2026-11-22 ~23:45 CST: "Start working on the other parts" (item 2 of the agreed order after the Mangarr build
 round; item 3, the pack re-grab rule, is in the Mangarr handoff). Local spec and plan under `docs/superpowers/`
 (gitignored); the design is in `docs/schema-v1.md` (2026-11-23) and `docs/round-c.md` (classes P, D, C, E). The four
 threads: *The same ISBN on two volumes* (1573935676154585310), *Wrong page counts in several series*
 (1573940509062340618), *Release dates* (1573941975751594085), *Line structure* (1573942706819043358).
+
+**Publish day (2026-11-23, after Nick's push of 25e97d9).** Build-only run 45195498260 was green on every gate but
+DEGRADED: DNB's SRU answered HTTP 403 to every request (their site: services "disabled as a precautionary measure"
+over a software vulnerability; the 11-22 weekly build had the same), and publish.sh refuses a degraded build.
+**fd6b101:** the workflow probes DNB before the build like LoC / BnF; unreachable -> `DNB_OFFLINE=1` +
+`DNB_UNREACHABLE=1`, the complete cache served, `meta dnb:offline` (artifact `meta.dnb_offline`), publishable and
+said out loud (docs/german-market.md). DNB came back at 14:52Z. The second build-only run 45198962035 (DNB refreshed,
++54 records, 70 live requests) FAILED two KR/CN contract rules -- not the corrections round: between 11-15 and 11-23
+DNB catalogued the papertoons volumes that had been standalone announcement records as parts of their multi-part sets
+(The Broken Ring 4-6 -> set 1366412087, Lady Eris 5-7 -> 134817370X, How to win my Husband over 4 -> 1363918052,
+Juvelian 8 -> 1310923604, Positively yours 1-5 -> 1379588057). Four `cluster_with` corrections of 2026-10-01 named
+keys that were no longer lines (STALE CORRECTION), the leftover announcement lines took the carried ids with 1 of 4 /
+1 of 4 ISBNs (`taken_weak`), and Positively yours lost its Korean official title '아기가 생겼어요' (E1): the Korean 240
+sits on the announcement records only, the set's 240 is the romanised form. **7491df2:** lines.json re-keyed (Broken
+Ring -> dnb:1394984715, Lady Eris -> dnb:139498314X, Husband -> dnb:1394979894; the Juvelian entry dropped: its record
+is a twin of the catalogued part, no line of its own; the collector's-edition record left the channels), `taken_ok` +
+why for the two takes (the Pawn's Revenge precedent, 476816f; the Husband id is `left` -- its only carried volume
+moved to the set -- so no label), and the export carries the original's own-script official title like the romanised
+one (`original_aliases_carried`; never a title in the line's own language). **429ed59:** kind C folded chunks in
+candidate-id order, so the French Aoashi's "= Volumes 21 à 30 =" met a one-chunk target and was kept as a "gap"
+(C merges 1 of 3); `chunk_chains` now orders by (target, range) -- the French Aoashi is one 36-volume line "Aoashi".
+**Measurement baseline:** the eighth-rebuild numbers below were measured against the 13:03 publish of 11-13
+(37,437,440 B; 13,468 lines / 125,520 volumes), not the live 16:03 JP-binding republish (sha 0d97875a; 13,466 /
+125,579) -- `build/manga-metadata.sqlite.before-corrections` was that older local copy. Local rebuild 12 on the live
+artifact as carry (download it: `curl -fsSL -o build/manga-metadata.sqlite https://github.com/opentomedb/mangarr-metadata/releases/download/metadata/manga-metadata.sqlite`;
+DNB cache of 11-23 = the CI run's records; 5 min on the warm cache): contract ok, measure gate ok, DE volumes retired
+within the allowance (moved 33 / retired 3, the CI run's numbers), taken_weak 0, E1 0. Against the live artifact: lines
+13,466 -> 13,160; volumes 125,579 -> 121,977; ISBN dup pairs in a line 443 -> 0; ISBNs on lines of two languages
+78 -> 10 (Kazé); out-of-order day pairs 209 -> 130 (en 48 -> 47, ja 114 -> 45, fr 43 -> 35, ko 4 -> 3); page counts
+en 11,778 -> 10, fr 11,513 -> 10,613, de 13,620 -> 13,670; redirects 1,566 -> 5,646; merges P 101 / D 197 / C 3 (301
+lines); main lines with an edition word 15 -> 0; anilist pins applied 56. **Next:** Nick pushes main (four commits),
+build-only CI, `publish=true`, pages run + a minute of CDN, Mangarr MetadataUpdate + FlightLog line, the four replies
+(scratchpad `replies_draft.md`, `__LABEL__` = the release label). **After the publish:** corrections/anilist.json[50]
+(rl_40d16429f1d4) and [53] (rl_082654a60cf7) pin lines this round merged away -- the build follows the redirect (8a
+prints it) but `corrections.py --check` will call them STALE against the new artifact: re-point to rl_8ff18c007e5f /
+rl_ec88f560b25c in the next data commit. The pre-existing `STALE CORRECTION -- lines.json cluster_with dnb:139599577X`
+stays. Local LoC cache: rebuild 9 (killed mid-LoC-refresh) refreshed part of it (fresher than CI's); a local run with
+`LOC_REFRESH_DAYS=28` takes 40+ min (lx2.loc.gov pages at 20 s) -- leave the window unset locally.
 
 **Root causes found (measured on opentome-2026-11-13):**
 - One claim per article was lost: `schema/load.py` kept the FIRST article's value on the volume row (`INSERT OR
