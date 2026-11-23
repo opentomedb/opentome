@@ -208,7 +208,12 @@ CREATE TABLE claim (
     licence      TEXT NOT NULL,         -- cc0 | open | facts_only | restricted
                                         -- 'restricted' NEVER enters the clean view
     retrieved_at TEXT NOT NULL,
-    PRIMARY KEY (entity, entity_id, field, source)
+    -- the corrections round (2026-11-23): the wiki a Wikipedia-derived claim was read from (en | fr | de | ja),
+    -- '' for every other source. A Japanese volume is read from the English article's original slot AND the
+    -- French article's; both are 'wikipedia' (or 'publisher'), and one key per source kept only the last
+    -- article's value while the volume row kept the first's. One claim per article lets resolve weigh them.
+    via          TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (entity, entity_id, field, source, via)
 );
 CREATE INDEX idx_claim_lookup  ON claim(entity, entity_id, field);
 CREATE INDEX idx_claim_licence ON claim(licence);

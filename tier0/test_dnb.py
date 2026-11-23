@@ -274,7 +274,7 @@ cat.execute("INSERT INTO work_title VALUES('w_sa1','en','Narutaru','official')")
 cat.execute("INSERT INTO work_title VALUES('w_gs','en','Priestess','alias')")
 for wid, who in (("w_op", "Eiichiro Oda"), ("w_gs", "Kumo Kagyu"), ("w_long", "Mikoto Takano"),
                  ("w_se", "Yuhiro Tsujitsugu")):
-    cat.execute("INSERT INTO claim VALUES('work',?,'author',?,'wikipedia',NULL,'facts_only',?)", (wid, json.dumps([who]), T))
+    cat.execute("INSERT INTO claim VALUES('work',?,'author',?,'wikipedia',NULL,'facts_only',?,'')", (wid, json.dumps([who]), T))
 idx = L.Index(cat)
 eq("high: official title + author", L.link(idx, ["One Piece 12"], ["Oda, Eiichirō"])[:2], ("high", "w_op"))
 eq("high via the romaji (macron fold)", L.link(idx, ["Wan pīsu"], ["Oda, Eiichiro"])[:2], ("high", "w_op"))
@@ -321,7 +321,7 @@ eq("none", L.link(idx, ["Gogo monster"], ["Matsumoto, Taiyō"])[0], "none")
 # ---- merge with Wikipedia, load, reload, redirect ----------------------------------------------
 cat.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at) "
             "VALUES('rl_wiki','w_se','manga','DE','de',?,?)", (T, T))
-cat.execute("INSERT INTO claim VALUES('release_line','rl_wiki','line_name','Snowball Earth','wikipedia',NULL,'facts_only',?)", (T,))
+cat.execute("INSERT INTO claim VALUES('release_line','rl_wiki','line_name','Snowball Earth','wikipedia',NULL,'facts_only',?,'')", (T,))
 cat.execute("INSERT INTO volume(id,release_line_id,number,isbn13,release_date,release_date_precision,release_date_type,"
             "created_at,updated_at) VALUES('v_w1','rl_wiki','1',?,'2019-12-20','day','unknown',?,?)", (I1, T, T))
 cat.execute("INSERT INTO volume(id,release_line_id,number,created_at,updated_at) VALUES('v_w2','rl_wiki','2',?,?)", (T, T))
@@ -368,7 +368,7 @@ eq("rebuild from the same records: same line keys and ids",
 cat2 = sqlite3.connect(":memory:")
 cat2.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
 cat2.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_se','Snowball Earth',?,?)", (T, T))
-cat2.execute("INSERT INTO claim VALUES('work','w_se','author',?,'wikipedia',NULL,'facts_only',?)",
+cat2.execute("INSERT INTO claim VALUES('work','w_se','author',?,'wikipedia',NULL,'facts_only',?,'')",
              (json.dumps(["Yuhiro Tsujitsugu"]), T))
 TS = ("100", [("a", "Tsujitsugu, Yuhiro"), ("4", "aut")])
 before = {r["cf"]["001"]: r for r in (
@@ -412,7 +412,7 @@ eq("no orphaned ids", orphans, [])
 cat5 = sqlite3.connect(":memory:")
 cat5.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
 cat5.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_se','Snowball Earth',?,?)", (T, T))
-cat5.execute("INSERT INTO claim VALUES('work','w_se','author',?,'wikipedia',NULL,'facts_only',?)",
+cat5.execute("INSERT INTO claim VALUES('work','w_se','author',?,'wikipedia',NULL,'facts_only',?,'')",
              (json.dumps(["Yuhiro Tsujitsugu"]), T))
 W5, wi5 = B.wiki_lines(cat5)
 carried_isbns = B.carried_isbns(art)
@@ -532,7 +532,7 @@ l3, _, _ = B.build(before, {}, L.Index(cat3), W3, wi3, carried={old_rl: "w_se"})
 eq("with it, the published line is kept under its published work",
    [(ln["role"], ln["work"]) for ln in l3], [("kept", "w_se")])
 cat3.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_other','Snowball Earth',?,?)", (T, T))
-cat3.execute("INSERT INTO claim VALUES('work','w_other','author',?,'wikipedia',NULL,'facts_only',?)",
+cat3.execute("INSERT INTO claim VALUES('work','w_other','author',?,'wikipedia',NULL,'facts_only',?,'')",
              (json.dumps(["Junji Ito"]), T))
 l3, _, _ = B.build(before, {}, L.Index(cat3), W3, wi3, carried={old_rl: "w_other"})
 eq("... but not against counter-evidence: the creators disagree with the published work -> not kept",

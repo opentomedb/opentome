@@ -4,7 +4,7 @@ IDs are derived from a STABLE NATURAL KEY via hash, so re-runs are
 idempotent -- but they are stored opaquely and never parsed. If a natural
 key ever changes, the old id must be written to id_redirect, never dropped.
 """
-import hashlib, json, os, sqlite3, sys, datetime
+import hashlib, json, os, re, sqlite3, sys, datetime
 
 import os
 
@@ -76,12 +76,35 @@ def _id(prefix, *parts):
     return prefix + hashlib.sha256(key.encode()).hexdigest()[:12]
 
 
+ISBN_IN_URL = re.compile(r"(?<![0-9])(97[89](?:[- ]?[0-9]){10})(?![0-9])")
+
+
+def url_isbn(url):
+    """The ISBN-13 a cited publisher page carries in its own address (kodansha ?isbn=, shueisha ?isbn=978-4-…,
+    yenpress /9781975…, hachette …/9780316346153/), normalised to 13 digits; None when the address carries
+    none or the check digit fails. The corrections round (2026-11-23): a row's cell can carry a neighbour's
+    ISBN (the English Prison School list repeats one Japanese ISBN on rows 26-28; its row 4 carries row 2's
+    English one) while the row's own citation names the right page -- that address is the publisher's statement."""
+    if not url:
+        return None
+    m = ISBN_IN_URL.search(url)
+    if not m:
+        return None
+    digits = re.sub(r"[- ]", "", m.group(1))
+    if len(digits) != 13 or not digits.isdigit():
+        return None
+    total = sum(int(d) * (1 if i % 2 == 0 else 3) for i, d in enumerate(digits[:12]))
+    return digits if (10 - total % 10) % 10 == int(digits[12]) else None
+
+
 def _src_name(url):
     if not url:
         return "wikipedia"
     u = url.lower()
     for host, name in (("shueisha", "publisher"), ("viz.com", "publisher"),
                        ("kodansha", "publisher"), ("yenpress", "publisher"),
+                       ("hachettebookgroup", "publisher"),    # Yen Press's parent: the EN lists cite it
+                       ("tokyopop", "publisher"),
                        ("pika.fr", "publisher"), ("glenat", "publisher")):
         if host in u:
             return name
@@ -103,6 +126,7 @@ def load(db, series_title, records, medium="manga", work_key=None, titles=None):
 
     lines, nvol, nclaim = {}, 0, 0
     for r in records:
+        via = r.get("wiki") or ""      # the article's wiki: one claim per article (schema.sql, claim.via)
         # the original slot's market (JP by convention, ISBN-corrected) is
         # what a licensed omnibus volume's composition refers back to
         orig_market = (r.get("markets", {}).get("original") or {}).get("market", "JP")
@@ -122,9 +146,9 @@ def load(db, series_title, records, medium="manga", work_key=None, titles=None):
                           (rlid, wid, parent, med, market, MARKET_LANG.get(market, "und"),
                            NOW, NOW))
                 c.execute("INSERT OR REPLACE INTO claim"
-                          "(entity,entity_id,field,value,source,source_url,licence,retrieved_at)"
-                          " VALUES('release_line',?,'line_name',?,'wikipedia',?,?,?)",
-                          (rlid, line, r.get("article"), LICENCE["wikipedia"], NOW))
+                          "(entity,entity_id,field,value,source,source_url,licence,retrieved_at,via)"
+                          " VALUES('release_line',?,'line_name',?,'wikipedia',?,?,?,?)",
+                          (rlid, line, r.get("article"), LICENCE["wikipedia"], NOW, via))
                 lines[rlid] = (med, market, line)
 
             role_title = (r.get("title_licensed") if role == "licensed" else r.get("title_original")) or r.get("title")
@@ -150,14 +174,21 @@ def load(db, series_title, records, medium="manga", work_key=None, titles=None):
                     (vid, json.dumps(contains), _id("rl_", wid, med, orig_market, line)))
 
             src = _src_name(m.get("date_source"))
-            for field, val in (("release_date", m.get("date")),
-                               ("isbn13", m.get("isbn13"))):
+            claims = [("release_date", m.get("date"), src)]
+            page_isbn = url_isbn(m.get("date_source")) if src == "publisher" else None
+            if page_isbn and page_isbn != m.get("isbn13"):
+                # the cited publisher page names the ISBN; the cell's value stays Wikipedia's own claim
+                claims += [("isbn13", page_isbn, "publisher"), ("isbn13", m.get("isbn13"), "wikipedia")]
+            else:
+                claims.append(("isbn13", m.get("isbn13"), src))
+            for field, val, csrc in claims:
                 if not val:
                     continue
                 c.execute("""INSERT OR REPLACE INTO claim
-                    (entity,entity_id,field,value,source,source_url,licence,retrieved_at)
-                    VALUES('volume',?,?,?,?,?,?,?)""",
-                    (vid, field, val, src, m.get("date_source"), LICENCE[src], NOW))
+                    (entity,entity_id,field,value,source,source_url,licence,retrieved_at,via)
+                    VALUES('volume',?,?,?,?,?,?,?,?)""",
+                    (vid, field, val, csrc, m.get("date_source") if csrc != "wikipedia" or src == "wikipedia" else None,
+                     LICENCE[csrc], NOW, via))
                 nclaim += 1
 
             # composition: this volume contains these chapters (the unifying primitive)

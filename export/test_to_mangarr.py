@@ -622,11 +622,11 @@ def fixture_krcn():
                                      ("rl_lib2", "Stale Name", "opentome", None, "open"),
                                      ("rl_lib2", "Omniscient Reader", "loc", "https://lccn.loc.gov/2021011111", "us_gov_pd"),
                                      ("rl_wiki", "Wiki Line", "wikipedia", "https://en.wikipedia.org/wiki/Y", "facts_only")):
-        db.execute("INSERT INTO claim VALUES('release_line',?,'line_name',?,?,?,?,'x')", (rid, name, src, url, lic))
+        db.execute("INSERT INTO claim VALUES('release_line',?,'line_name',?,?,?,?,'x','')", (rid, name, src, url, lic))
     db.execute("""INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at)
                   VALUES('v_lib1','rl_lib','1','9781975319434','x','x')""")
     db.execute("""INSERT INTO claim VALUES('volume','v_lib1','isbn13_alt','9781975399990','loc',
-                  'https://lccn.loc.gov/2020950228','us_gov_pd','x')""")
+                  'https://lccn.loc.gov/2020950228','us_gov_pd','x','')""")
     held = "loc:2099000001"
     db.execute("""INSERT INTO krcn_line(key,source,market,rl_id,carried,work,name,publisher,role,exported,target)
                   VALUES('loc:2021000001','loc','EN','rl_wiki',0,'w_o','Merged Lib Title','Lib Pub',

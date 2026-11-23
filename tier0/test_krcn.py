@@ -85,7 +85,7 @@ eq("a line carrying only the Hangul original links through it", (tier, work), ("
 def line_row(db, rid, wid, medium, market, lang, source="wikipedia"):
     db.execute("INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at) "
                "VALUES(?,?,?,?,?,'x','x')", (rid, wid, medium, market, lang))
-    db.execute("INSERT INTO claim VALUES('release_line',?,'publisher','x',?,NULL,'facts_only','x')", (rid, source))
+    db.execute("INSERT INTO claim VALUES('release_line',?,'publisher','x',?,NULL,'facts_only','x','')", (rid, source))
 
 db = schema_db()
 for wid, title in (("w_wind", "Wind Breaker"), ("w_mag", "Ultramarine Magmell"), ("w_priest", "Priest"),
@@ -98,8 +98,8 @@ line_row(db, "rl_p1", "w_priest", "manhwa", "EN", "en")
 line_row(db, "rl_h1", "w_hell", "manga", "KR", "ko")            # a Korean work tagged manga (§1)
 line_row(db, "rl_o1", "w_ouro", "manga", "JP", "ja")
 line_row(db, "rl_s1", "w_sl", "manhwa", "EN", "en")
-db.execute("""INSERT INTO claim VALUES('work','w_sl','author','["Chugong"]','wikipedia',NULL,'facts_only','x')""")
-db.execute("""INSERT INTO claim VALUES('work','w_priest','author','["Park Sun-young"]','wikipedia',NULL,'facts_only','x')""")
+db.execute("""INSERT INTO claim VALUES('work','w_sl','author','["Chugong"]','wikipedia',NULL,'facts_only','x','')""")
+db.execute("""INSERT INTO claim VALUES('work','w_priest','author','["Park Sun-young"]','wikipedia',NULL,'facts_only','x','')""")
 idx = L.Index(db)
 eq("KR/CN work set: manhwa/manhua lines and KR/CN/TW markets",
    idx.krcn_works, {"w_wind", "w_mag", "w_priest", "w_hell", "w_sl"})
@@ -136,11 +136,11 @@ eq("JP rule unchanged by default (family name within one edit)", t[0], "high")
 # a line stage 3f loads (DE / manhwa, a dnb line_name claim) onto a KR-market work tagged manga
 # (King of Hell) must not move the work into out_of_scope: the work sets never read a library line
 line_row(db, "rl_h_de", "w_hell", "manhwa", "DE", "de", source="dnb")
-db.execute("INSERT INTO claim VALUES('release_line','rl_h_de','line_name','King of Hell','dnb',NULL,'cc0','x')")
+db.execute("INSERT INTO claim VALUES('release_line','rl_h_de','line_name','King of Hell','dnb',NULL,'cc0','x','')")
 line_row(db, "rl_o_loc", "w_ouro", "manhwa", "US", "en", source="loc")      # a 3f LoC line: ignored too
 db.execute("INSERT INTO work VALUES('w_tog','Tower of God',NULL,NULL,NULL,NULL,'x','x')")
 line_row(db, "rl_t1", "w_tog", "manhwa", "EN", "en")
-db.execute("""INSERT INTO claim VALUES('work','w_tog','author','["SIU", "Kim Min-soo"]','wikipedia',NULL,'facts_only','x')""")
+db.execute("""INSERT INTO claim VALUES('work','w_tog','author','["SIU", "Kim Min-soo"]','wikipedia',NULL,'facts_only','x','')""")
 idx2 = L.Index(db)
 eq("a 3f-loaded DE/manhwa line (dnb claim) leaves out_of_scope unchanged",
    idx2.out_of_scope, {"w_mag", "w_priest", "w_sl", "w_tog"})
@@ -152,7 +152,7 @@ db.execute("INSERT INTO work VALUES('w_corr','Corrected Manhwa',NULL,NULL,NULL,N
 line_row(db, "rl_c1", "w_corr", "manhwa", "EN", "en", source="correction")
 db.execute("INSERT INTO work VALUES('w_dewiki','German Wiki Manhua',NULL,NULL,NULL,NULL,'x','x')")
 line_row(db, "rl_dw1", "w_dewiki", "manhua", "DE", "de")
-db.execute("INSERT INTO claim VALUES('release_line','rl_dw1','line_name','German Wiki Manhua','dnb',NULL,'cc0','x')")
+db.execute("INSERT INTO claim VALUES('release_line','rl_dw1','line_name','German Wiki Manhua','dnb',NULL,'cc0','x','')")
 idx3 = L.Index(db)
 eq("a correction-created manhwa line counts (KR/CN work set and out_of_scope)",
    ("w_corr" in idx3.krcn_works, "w_corr" in idx3.out_of_scope), (True, True))
@@ -402,14 +402,14 @@ B.load(db, [], [], {}, {})                                     # creates the sta
 db.execute("INSERT INTO dnb_member VALUES('1','dnb:1','1',NULL,'v_jp','created',NULL,0)")
 db.execute("INSERT INTO dnb_line(key,rl_id,role,exported) VALUES('dnb:1','rl_jp','linked',1)")
 for eid, ent in (("v_jp", "volume"), ("rl_jp", "release_line"), ("v_kr", "volume")):
-    db.execute("INSERT INTO claim VALUES(?,?,'isbn13','x','dnb',NULL,'cc0','x')", (ent, eid))
+    db.execute("INSERT INTO claim VALUES(?,?,'isbn13','x','dnb',NULL,'cc0','x','')", (ent, eid))
 B.unload(db.cursor())
 eq("scoped unload: only 3e's own dnb claims go (a KR/CN 3f claim stays)",
    [r[0] for r in db.execute("SELECT entity_id FROM claim WHERE source='dnb'")], ["v_kr"])
 db = schema_db()
 B.load(db, [], [], {}, {})
 db.execute("INSERT INTO dnb_line(key,rl_id,role,exported) VALUES('dnb:2','rl_wiki','merged',1)")
-db.execute("INSERT INTO claim VALUES('release_line','rl_wiki','line_name','x','dnb',NULL,'cc0','x')")
+db.execute("INSERT INTO claim VALUES('release_line','rl_wiki','line_name','x','dnb',NULL,'cc0','x','')")
 B.unload(db.cursor())
 eq("scoped unload: a merged row's rl_id is the Wikipedia line (3e writes no line claim there)",
    [r[0] for r in db.execute("SELECT entity_id FROM claim WHERE source='dnb'")], ["rl_wiki"])
@@ -2022,7 +2022,7 @@ db.execute("INSERT INTO work VALUES('w_wiki','Wiki',NULL,NULL,NULL,NULL,'x','x')
 db.execute("INSERT INTO work_title VALUES('w_wiki','en','Wiki','official')")
 line_row(db, "rl_x", "w_wiki", "manhwa", "EN", "en")
 line_row(db, "rl_lib", "w_wiki", "manhwa", "EN", "en")
-db.execute("INSERT INTO claim VALUES('work','w_wiki','author','[\"A\"]','wikipedia',NULL,'facts_only','x')")
+db.execute("INSERT INTO claim VALUES('work','w_wiki','author','[\"A\"]','wikipedia',NULL,'facts_only','x','')")
 KI.rename_work(db.cursor(), "w_wiki", "w_lib")
 eq("rename_work: every row follows", [db.execute(q).fetchone()[0] for q in (
     "SELECT COUNT(*) FROM work WHERE id='w_lib'", "SELECT COUNT(*) FROM work_title WHERE work_id='w_lib'",
@@ -2032,7 +2032,7 @@ for vid, rid, n, isbn, date, prec in (("v_l1", "rl_lib", "1", "a1", "2021", "yea
                                       ("v_x2", "rl_x", "2", "a2", "2021-06-01", "day")):
     db.execute("INSERT INTO volume(id,release_line_id,number,isbn13,release_date,release_date_precision,"
                "release_date_type,created_at,updated_at) VALUES(?,?,?,?,?,?,'published','x','x')", (vid, rid, n, isbn, date, prec))
-    db.execute("INSERT INTO claim VALUES('volume',?,'release_date',?,?,NULL,'x','x')",
+    db.execute("INSERT INTO claim VALUES('volume',?,'release_date',?,?,NULL,'x','x','')",
                (vid, date, "loc" if rid == "rl_lib" else "wikipedia"))
 KI.adopt_line(db.cursor(), "rl_x", "rl_lib")
 eq("adopt_line: the internal line is gone", db.execute("SELECT COUNT(*) FROM release_line WHERE id='rl_x'").fetchone()[0], 0)
@@ -2609,8 +2609,8 @@ for wid, title in (("w_3b", "The Three-Body Problem"), ("w_orv", "Omniscient Rea
     db5.execute("INSERT INTO work VALUES(?,?,NULL,NULL,NULL,NULL,'x','x')", (wid, title))
 line_row(db5, "rl_3b", "w_3b", "manhua", "EN", "en")
 line_row(db5, "rl_orv", "w_orv", "manhwa", "EN", "en")
-db5.execute("""INSERT INTO claim VALUES('work','w_3b','author','["Liu Cixin"]','wikipedia',NULL,'facts_only','x')""")
-db5.execute("""INSERT INTO claim VALUES('work','w_orv','author','["Sing Shong"]','wikipedia',NULL,'facts_only','x')""")
+db5.execute("""INSERT INTO claim VALUES('work','w_3b','author','["Liu Cixin"]','wikipedia',NULL,'facts_only','x','')""")
+db5.execute("""INSERT INTO claim VALUES('work','w_orv','author','["Sing Shong"]','wikipedia',NULL,'facts_only','x','')""")
 idx5 = L.Index(db5)
 ls = [mkline("loc:2024000050", "EN", "The three-body problem : the comic edition",
              titles=["The three-body problem : the comic edition"], authors=["Liu, Cixin"], origin="chi"),
@@ -2774,7 +2774,7 @@ import subprocess, shutil
 from load import LICENCE
 eq("LoC licence label", LICENCE.get("loc"), "us_gov_pd")
 db = schema_db()
-db.execute("INSERT INTO claim VALUES('volume','v1','isbn13','9781975319434','loc','https://lccn.loc.gov/2020950228','us_gov_pd','x')")
+db.execute("INSERT INTO claim VALUES('volume','v1','isbn13','9781975319434','loc','https://lccn.loc.gov/2020950228','us_gov_pd','x','')")
 eq("clean_claim lists us_gov_pd (a new label must not fall OUT of the commercial subset)",
    db.execute("SELECT COUNT(*) FROM clean_claim WHERE source='loc'").fetchone()[0], 1)
 
@@ -2848,7 +2848,7 @@ def lic_gate(claims, cover=None, cover_source="openlibrary", staging=""):
             ("volume", "v_b", "volume_number", "1", "bnf", "https://catalogue.bnf.fr/ark:/12148/cb47253773p", "open"),
             ("volume", "v_e", "page_count", "200", "bnf",
              "https://catalogue.bnf.fr/api/SRU?query=bib.isbn+all+%229782811600000%22", "open")]
-    C.executemany("INSERT OR REPLACE INTO claim VALUES(?,?,?,?,?,?,?,'x')", base + list(claims))
+    C.executemany("INSERT OR REPLACE INTO claim VALUES(?,?,?,?,?,?,?,'x','')", base + list(claims))
     C.commit()
     A = sqlite3.connect(artp)
     A.executescript("""CREATE TABLE volumes (cover_url TEXT, cover_source TEXT); CREATE TABLE series (tome_id TEXT);
@@ -3058,13 +3058,13 @@ try:
     fr.execute("INSERT INTO work VALUES('w_fr','X',NULL,NULL,NULL,NULL,'x','x')")
     line_row(fr, "rl_fr", "w_fr", "manhwa", "FR", "fr")
     fr.execute("INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at) VALUES('v_fr1','rl_fr','1','9782382880371','x','x')")
-    fr.execute("INSERT INTO claim VALUES('volume','v_fr1','isbn13','9782382880371','bnf','https://catalogue.bnf.fr/ark:/12148/cb47253773p','open','x')")
+    fr.execute("INSERT INTO claim VALUES('volume','v_fr1','isbn13','9782382880371','bnf','https://catalogue.bnf.fr/ark:/12148/cb47253773p','open','x','')")
     eq("enrich_bnf skips a volume with a BnF line-source claim (0 requests)", EM.enrich_bnf(fr), (0, 0, 0))
     before = sorted(db.execute("SELECT id FROM release_line"))
     before_c = sorted(db.execute("SELECT entity, entity_id, field, source, source_url FROM claim"))
     # another stage's claim on an attached volume (3e / enrich_bnf) must survive the rerun's unload
     db.execute("INSERT INTO claim VALUES('volume','v_sl2','page_count','200','bnf',"
-               "'https://catalogue.bnf.fr/api/SRU?query=bib.isbn+all+%229781975319458%22','open','x')")
+               "'https://catalogue.bnf.fr/api/SRU?query=bib.isbn+all+%229781975319458%22','open','x','')")
     db.commit()
     BK.run(cat, None)                                             # a rerun on the same catalogue: unload + reload
     eq("rerun: the same lines", sorted(db.execute("SELECT id FROM release_line")), before)
@@ -3273,7 +3273,7 @@ dbm.execute("INSERT INTO work VALUES('w_fr','X',NULL,NULL,NULL,NULL,'x','x')")
 line_row(dbm, "rl_fr", "w_fr", "manhwa", "FR", "fr")
 dbm.execute("INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at) VALUES('v_fr1','rl_fr','1','9782382880371','x','x')")
 SRU_URL = "https://catalogue.bnf.fr/api/SRU?query=bib.isbn+all+%229782382880371%22"
-dbm.execute("INSERT INTO claim VALUES('volume','v_fr1','volume_number','1','bnf',?,'open','x')", (SRU_URL,))
+dbm.execute("INSERT INTO claim VALUES('volume','v_fr1','volume_number','1','bnf',?,'open','x','')", (SRU_URL,))
 ark = "bnf:ark:/12148/cb47253773p"
 bfl = dict(lib_line("bnf:ark:/12148/cb47253773p", "rl_bfl", "linked", None, vols=[("1", "9782382880371", ark)], work="w_fr"),
            source="bnf", market="FR", language="fr", loc=[])
@@ -3390,7 +3390,7 @@ def gate_pair(taken_weak=(), dups=()):
     line_row(cat, "rl_new", "w_new", "manhwa", "EN", "en")
     cat.execute("INSERT INTO volume(id,release_line_id,number,isbn13,created_at,updated_at) VALUES('v_n1','rl_new','1','9798400900648','x','x')")
     for f_, v_, u_ in (("isbn13", "9798400900648", "2023941160"), ("release_date", "2023", "2023000077")):
-        cat.execute("INSERT INTO claim VALUES('volume','v_n1',?,?,'loc',?,'us_gov_pd','x')", (f_, v_, "https://lccn.loc.gov/" + u_))
+        cat.execute("INSERT INTO claim VALUES('volume','v_n1',?,?,'loc',?,'us_gov_pd','x','')", (f_, v_, "https://lccn.loc.gov/" + u_))
     cat.execute("""INSERT INTO krcn_line(key,source,market,rl_id,carried,name,medium,n_volumes,origin,explicit,comic,role,work,exported)
                    VALUES('loc:2023941160','loc','EN','rl_new',0,'New','manhwa',1,'kor',1,1,'new_work','w_new',1),
                          ('dnb:77','dnb','DE',NULL,0,'Held','manhwa',3,'kor',1,1,'held',NULL,0)""")
@@ -3478,7 +3478,7 @@ eq("a KR/CN novel line in a work without a comic line fails", has(krcn_fails(
 eq("dnb_line and krcn_line keys overlapping fails", has(krcn_fails(
     ["CREATE TABLE dnb_line (key TEXT); INSERT INTO dnb_line VALUES('dnb:77');"]), "overlap"), True)
 eq("the licence gate runs inside run_krcn (a loc summary fails its allowlist)", has(krcn_fails(
-    ["INSERT INTO claim VALUES('volume','v_n1','summary','A story','loc','https://lccn.loc.gov/2023000077','us_gov_pd','x');"]),
+    ["INSERT INTO claim VALUES('volume','v_n1','summary','A story','loc','https://lccn.loc.gov/2023000077','us_gov_pd','x','');"]),
     "field allowlist"), True)
 eq("no stage 3f staging: fails closed", has(krcn_fails(["DROP TABLE krcn_line;"]), "staging missing"), True)
 eq("first KR/CN build: an unlabelled new work fails (P19/P21)", has(krcn_fails(fx=krcn_fx()), "not labelled"), True)

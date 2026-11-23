@@ -294,7 +294,7 @@ WP = "en:Pinned"
 pin_db = catalogue("pin", [(WP, "Pinned", [("JP", "manga", "Pinned", vols(18, 2)), ("EN", "manga", "Pinned", vols(19, 2)),
                                            ("FR", "manga", "Pinned (fr)", vols(20, 2))])])
 db = sqlite3.connect(pin_db)
-db.execute("""INSERT INTO claim VALUES('release_line',?,'origin_line',?,'opentome',NULL,'open','x')""",
+db.execute("""INSERT INTO claim VALUES('release_line',?,'origin_line',?,'opentome',NULL,'open','x','')""",
            (rl(WP, "FR", "Pinned (fr)"), rl(WP, "EN", "Pinned")))
 db.commit(); db.close()
 pin_art = artifact(pin_db)
