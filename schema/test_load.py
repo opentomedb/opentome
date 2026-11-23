@@ -39,6 +39,20 @@ eq("the line's name stays one claim, the last article's (names do not change wit
    db.execute("SELECT via, source_url FROM claim WHERE entity='release_line' AND field='line_name'").fetchall(),
    [("", "Liste des chapitres de Sample Saga")])
 
+# --- one article, two rows for one number (a collected-edition table repeats the number): the FIRST row is the
+# article's claim, as it was the row's value before claim.via; the last row's reissue date pushed 19 English
+# volumes out of order in the seventh local rebuild ("I'm in Love with the Villainess" vol 3: 2021-06-03, then
+# 2024-08-29). A later load of the same article still replaces (a corrected re-run).
+db = fresh()
+L.load(db, "Sample Saga", [rec("en", "List of Sample Saga chapters", "3", "2021-06-03", "9781645058526"),
+                           rec("en", "List of Sample Saga chapters", "3", "2024-08-29", "9798888433874")])
+eq("the first row of an article is its claim; a repeated number in the same article is ignored",
+   db.execute("SELECT field, value FROM claim WHERE entity='volume' AND via='en' ORDER BY field").fetchall(),
+   [("isbn13", "9781645058526"), ("release_date", "2021-06-03")])
+L.load(db, "Sample Saga", [rec("en", "List of Sample Saga chapters", "3", "2021-06-10", "9781645058526")])
+eq("the same article loaded again (a re-run) replaces the first row's claim",
+   db.execute("SELECT value FROM claim WHERE entity='volume' AND via='en' AND field='release_date'").fetchall(), [("2021-06-10",)])
+
 # --- R2: the publisher's URL states the ISBN -------------------------------------------------------------
 db = fresh()
 L.load(db, "Prison Sample", [rec("en", "List of Prison Sample chapters", "4", "2016-07-19", "9780316346122",

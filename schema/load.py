@@ -125,6 +125,7 @@ def load(db, series_title, records, medium="manga", work_key=None, titles=None):
                      VALUES(?,?,?,'official')""", (wid, lang, t))
 
     lines, nvol, nclaim = {}, 0, 0
+    written = set()     # (volume, field, source) this call wrote: an article's FIRST row for a number is its claim
     for r in records:
         via = r.get("wiki") or ""      # the article's wiki: one claim per article (schema.sql, claim.via)
         # the original slot's market (JP by convention, ISBN-corrected) is
@@ -187,6 +188,12 @@ def load(db, series_title, records, medium="manga", work_key=None, titles=None):
             for field, val, csrc in claims:
                 if not val:
                     continue
+                # one article, two rows for one number (a collected-edition table repeats it): the first row is
+                # the article's claim, as the row's value was before claim.via; the last row's reissue date
+                # pushed 19 English volumes out of order. A later load of the same article still replaces.
+                if (vid, field, csrc) in written:
+                    continue
+                written.add((vid, field, csrc))
                 c.execute("""INSERT OR REPLACE INTO claim
                     (entity,entity_id,field,value,source,source_url,licence,retrieved_at,via)
                     VALUES('volume',?,?,?,?,?,?,?,?)""",
