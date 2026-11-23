@@ -1344,6 +1344,9 @@ def export(src_path, out_path, carry_ids_from=None):
 
     src_counts = dict(src.execute("SELECT source, COUNT(*) FROM claim GROUP BY source"))
     dnb_degraded = (src.execute("SELECT value FROM meta WHERE key='dnb:degraded'").fetchone() or [None])[0]
+    # an offline build of the complete DNB cache (the CI probe found DNB unreachable; tier0/build_dnb.py
+    # offline_note): publishable, and the manifest says the German data was not refreshed
+    dnb_offline = (src.execute("SELECT value FROM meta WHERE key='dnb:offline'").fetchone() or [None])[0]
     # tier0/carried_ids.py merge (stage 4c): [duplicate line id, surviving line] pairs, carried so
     # the next build merges the same duplicate the same way (not a consumer field)
     merged_lines = json.dumps(sorted([d[2], d[3]] for d in json.loads(
@@ -1436,6 +1439,7 @@ def export(src_path, out_path, carry_ids_from=None):
                                    "release_date_raw with release_date_precision; release_date_type "
                                    "says which milestone (projected = a planned month, not a publication)."),
     ] + ([("dnb_degraded", dnb_degraded)] if dnb_degraded else []) \
+      + ([("dnb_offline", dnb_offline)] if dnb_offline else []) \
       + ([("krcn_ids", krcn_ids)] if krcn_ids else []) \
       + ([("loc_degraded", loc_degraded)] if loc_degraded else []) \
       + ([("bnf_degraded", bnf_degraded)] if bnf_degraded else []) \
@@ -1446,7 +1450,8 @@ def export(src_path, out_path, carry_ids_from=None):
       + ([("round_c_conflicts", round_c_conflicts)] if round_c_conflicts != "[]" else []) \
       + ([("round_c_names", round_c_names)] if DISPLAY_NAMES else []):
         # dnb_degraded / loc_degraded / bnf_degraded: the source failed during this build's refresh --
-        # export/publish.sh refuses it
+        # export/publish.sh refuses it; dnb_offline: DNB was unreachable before the build started, the
+        # complete cache served (publish.sh accepts it and says so)
         out.execute("INSERT OR REPLACE INTO meta VALUES(?,?)", (k, v))
 
     # Read before publishing: what title_for_export kept vs rejected, and why (fix

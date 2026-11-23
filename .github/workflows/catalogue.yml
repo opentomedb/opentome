@@ -91,6 +91,30 @@ jobs:
       # columns (start, status 200 / HTTP<code> / ERR, seconds, bytes, url). A fallback is traced,
       # never blocking (P13): LOC_UNREACHABLE / BNF_UNREACHABLE make stage 3f write the non-blocking
       # meta loc:offline / bnf:offline (stale sets counted) and a line in build/krcn-report.json.
+      # DNB first: a DNB that does not answer (2026-11-22: HTTP 403 on every SRU request while DNB had
+      # "disabled some services as a precautionary measure" over a software vulnerability, for everyone,
+      # for days) would otherwise fail its weekly refresh and mark the build degraded, which publish.sh
+      # refuses -- with the catalogue then frozen for as long as the outage lasts. With DNB_OFFLINE=1 the
+      # build serves every result set from the cache (complete sets only, dnb_sru) and asks for nothing:
+      # the offline rebuild of a complete cache publish.sh accepts. DNB_UNREACHABLE=1 makes stage 3e
+      # record it (meta dnb:offline -> artifact meta.dnb_offline: German data not refreshed, last live
+      # request's day) and publish.sh print it. A set missing from the cache still fails the build loudly.
+      - name: DNB reachability
+        run: |
+          mkdir -p build
+          url="https://services.dnb.de/sru/dnb?version=1.1&operation=searchRetrieve&query=idn%3D1398593192&recordSchema=MARC21-xml&maximumRecords=1"
+          start=$(date +%Y-%m-%dT%H:%M:%S.%3N)
+          if out=$(curl -fsS -m 20 -o /dev/null -w '%{http_code} %{size_download} %{time_total}' -A "OpenTome-CI/1.0 (reachability probe)" "$url"); then ok=1; else ok=0; fi
+          read -r code size secs <<< "${out:-000 0 0}"
+          if [ "$ok" = 1 ]; then status=200; elif [ "$code" = 000 ]; then status=ERR; size=0; else status="HTTP$code"; size=0; fi
+          printf '%s\t%s\t%.2f\t%s\t%s\n' "$start" "$status" "$secs" "$size" "$url" >> build/dnb-netlog.tsv
+          if [ "$ok" = 1 ]; then
+            echo "DNB reachable"
+          else
+            echo "::warning::services.dnb.de unreachable from this runner ($status) -- DNB is read from the cache (DNB_OFFLINE=1): German data not refreshed this build"
+            echo "DNB_OFFLINE=1" >> "$GITHUB_ENV"
+            echo "DNB_UNREACHABLE=1" >> "$GITHUB_ENV"
+          fi
       - name: LoC reachability
         run: |
           mkdir -p build
@@ -156,7 +180,9 @@ jobs:
       # ~62 SRU requests a week at >= 3 s, plus up to 42 small recounts when a total moved.
       # A DNB failure in a refresh run keeps each affected result set's previous complete page
       # set and marks the build degraded (built and gated, never published); a result set with
-      # no complete earlier set fails the build (an unseeded cache is not a refresh).
+      # no complete earlier set fails the build (an unseeded cache is not a refresh). A DNB the
+      # probe above could not reach is read from the cache instead (DNB_OFFLINE=1: not a refresh,
+      # not degraded, publishable, recorded as meta.dnb_offline).
       - name: rebuild (every gate)
         env:
           DNB_REFRESH_DAYS: "6"

@@ -215,6 +215,14 @@ a refresh window, >25 retired carried German volumes fail the contract; `kept` n
 "authors differ"; a single cased book keeps its cased ISBN (Death Note All-in-One is back);
 245$c role labels stripped after the last ':'; photo books are extras.
 
+A DNB that is down before the build starts is not a degraded refresh (2026-11-23: DNB answered HTTP
+403 to every SRU request for days, having "disabled some services as a precautionary measure"). The
+workflow's DNB reachability probe then sets `DNB_OFFLINE=1`: every result set is the cache's complete
+copy, nothing is asked for, and the build is the offline rebuild of a complete cache that
+`export/publish.sh` accepts. `DNB_UNREACHABLE=1` next to it makes stage 3e write `meta dnb:offline`
+(artifact `meta.dnb_offline`: German data not refreshed, the day of the last live DNB request), which
+publish.sh prints. A set missing from the cache still fails the build.
+
 ## Korean and Chinese editions
 
 Since the KR/CN coverage round, German manhwa and manhua come from stage 3f's own staging

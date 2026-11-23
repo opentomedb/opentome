@@ -16,7 +16,8 @@
 #                      Wikipedia lines, linked to works by title + author (high/medium ship,
 #                      low/ambiguous -> build/dnb-review.tsv). ~390 SRU requests at >= 3 s
 #                      on a cold cache (~20 min), zero on a warm one, ~62 a week with
-#                      DNB_REFRESH_DAYS set (CI) (tier0/build_dnb.py)
+#                      DNB_REFRESH_DAYS set (CI); DNB_OFFLINE=1 + DNB_UNREACHABLE=1 (CI, DNB
+#                      down): the complete cache served, meta dnb:offline (tier0/build_dnb.py)
 #   3f. krcn           Korean / Chinese print editions (docs/krcn-design.md): DNB spo=kor/chi (German),
 #                      BnF publisher channels (French), Library of Congress DLC-created records (English;
 #                      the canary first). Lines link to existing works, merge by ISBN, cluster across

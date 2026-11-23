@@ -131,6 +131,15 @@ if [ -n "$DEGRADED" ]; then
     exit 1
   fi
 fi
+# The offline rebuild of a complete cache: the workflow's DNB reachability probe found DNB down
+# before the build started (DNB_OFFLINE=1 + DNB_UNREACHABLE=1), so no set was asked for and every
+# set is the cache's complete copy (tier0/build_dnb.py offline_note -> meta.dnb_offline). Publishable;
+# said here so the publish log states that the German data was not refreshed, and from when it dates.
+OFFLINE_NOTE="$(q dnb_offline)"
+if [ -n "$OFFLINE_NOTE" ]; then
+  echo
+  echo "DNB OFFLINE (German data not refreshed this build; the complete cache served): $OFFLINE_NOTE" >&2
+fi
 # The KR/CN sources (docs/krcn-design.md §3): a LoC or BnF refresh that kept a previous complete result
 # set is built and gated, never published.
 for SRC_FLAG in loc_degraded bnf_degraded; do

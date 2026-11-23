@@ -186,6 +186,8 @@ def run():
     eq("a retired integer stays reserved in id_map", idmap.get("rl_twin"), (555555, "retired"))
     eq("a degraded DNB refresh reaches the artifact as meta.dnb_degraded (publish.sh refuses it)",
        FIX_META.get("dnb_degraded"), '{"reason": "HTTP 502"}')
+    eq("an offline DNB build (the CI probe found DNB unreachable) reaches the artifact as meta.dnb_offline",
+       FIX_META.get("dnb_offline"), '{"reason": "unreachable"}')
     eq("meta markets counts lines per language", markets, {"de": 1})
     eq("meta.krcn_ids carries the library-born works and lines to the next build's carry (P3)",
        json.loads(FIX_META.get("krcn_ids") or "null"), {"works": ["w_r"], "created": ["w_r"], "lines": {"rl_new": "loc"}})
@@ -575,6 +577,7 @@ def fixture_redirect_carry():
     db.execute("INSERT INTO id_redirect VALUES('rl_older','rl_old','release_line','correction','x')")
     db.execute("INSERT INTO id_redirect VALUES('rl_twin','rl_new','release_line','duplicate_merge','x')")
     db.execute("""INSERT INTO meta VALUES('dnb:degraded','{"reason": "HTTP 502"}')""")
+    db.execute("""INSERT INTO meta VALUES('dnb:offline','{"reason": "unreachable"}')""")
     db.execute("""INSERT INTO meta VALUES('krcn:ids','{"works": ["w_r"], "created": ["w_r"], "lines": {"rl_new": "loc"}}')""")
     db.execute("""INSERT INTO meta VALUES('loc:degraded','{"reason": "LadderExhausted"}')""")
     db.commit()
@@ -596,7 +599,7 @@ def fixture_redirect_carry():
         "SELECT old_tome_id, new_tome_id, entity, old_series_id FROM id_redirect")}
     idmap = {o: (i, k) for o, i, k in out.execute("SELECT opentome_id, int_id, kind FROM id_map")}
     FIX_META["dnb_degraded"] = (out.execute("SELECT value FROM meta WHERE key='dnb_degraded'").fetchone() or [None])[0]
-    for k in ("krcn_ids", "loc_degraded", "attribution"):
+    for k in ("krcn_ids", "loc_degraded", "dnb_offline", "attribution"):
         FIX_META[k] = (out.execute("SELECT value FROM meta WHERE key=?", (k,)).fetchone() or [None])[0]
     markets = json.loads(out.execute("SELECT value FROM meta WHERE key='markets'").fetchone()[0])
     return sid, rtype, red, idmap, markets

@@ -972,6 +972,21 @@ def review_file(lines, idx, path):
     return len(rows)
 
 
+
+def offline_note(env=os.environ, last_request=None):
+    """meta 'dnb:offline' for a build whose reachability probe found DNB down (DNB_UNREACHABLE=1 next to
+    DNB_OFFLINE=1, .github/workflows/catalogue.yml): every result set was served from the cache, none
+    refreshed. Not degraded -- the cache only ever holds complete sets, so this is the offline rebuild
+    of a complete cache export/publish.sh accepts -- but said out loud, with the day of the last live
+    DNB request (the .dnb-last-request stamp's mtime) so a reader knows how old the German data is.
+    None when the probe reached DNB (or did not run)."""
+    if env.get("DNB_UNREACHABLE") != "1":
+        return None
+    day = (datetime.datetime.fromtimestamp(last_request, datetime.timezone.utc).strftime("%Y-%m-%d")
+           if last_request else None)
+    return {"reason": "services.dnb.de unreachable from the runner (reachability probe): every DNB result set "
+                      "served from the cache, none refreshed", "last_dnb_request": day}
+
 def run(dbpath, carry=None):
     db = sqlite3.connect(dbpath, timeout=60)
     print("  enumerating (cached; live requests are logged to build/dnb-netlog.tsv)", flush=True)
@@ -1000,6 +1015,17 @@ def run(dbpath, carry=None):
         print("  WARNING DNB refresh degraded (%s): %d result set(s) kept their previous complete page "
               "set; gaps %s -- this build will not publish" % (degraded, len(tally.get("degraded_queries", [])), gaps),
               flush=True)
+    # An unreachable DNB (the CI probe sets DNB_UNREACHABLE=1 with DNB_OFFLINE=1) is not a failed refresh:
+    # nothing was asked, every set is the cache's complete copy -- an offline build of a complete cache,
+    # which publish.sh accepts. Recorded as meta 'dnb:offline' (artifact meta.dnb_offline) so the manifest
+    # says the German data was not refreshed, and from when it dates.
+    db.execute("DELETE FROM meta WHERE key='dnb:offline'")
+    note = offline_note(last_request=os.path.getmtime(S.STAMP) if os.path.exists(S.STAMP) else None)
+    if note:
+        db.execute("INSERT INTO meta(key,value) VALUES('dnb:offline',?)", (json.dumps(note),))
+        print("  DNB OFFLINE (unreachable from this runner): every result set served from the cache, none "
+              "refreshed; last live DNB request %s -- an offline build of the complete cache, publishable"
+              % (note["last_dnb_request"] or "unknown"), flush=True)
     db.commit()
     # a rerun on a populated catalogue first takes back what the last run wrote, so the
     # Wikipedia side and the linker's index are read exactly as the first run read them

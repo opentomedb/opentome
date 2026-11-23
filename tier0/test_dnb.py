@@ -885,6 +885,22 @@ r = subprocess.run(["bash", os.path.join(pub, "export", "publish.sh"), art], cwd
 eq("... but its dry run (the weekly build's manifest step) still passes and says so",
    (r.returncode, "DNB DEGRADED" in r.stderr), (0, True))
 
+# ---- an unreachable DNB (the CI probe's DNB_UNREACHABLE=1 next to DNB_OFFLINE=1) is an offline build of the
+# complete cache: recorded as meta dnb:offline, never degraded, and publish.sh accepts it, saying so ----
+_nov15 = datetime.datetime(2026, 11, 15, 12, tzinfo=datetime.timezone.utc).timestamp()
+eq("offline_note: DNB_UNREACHABLE=1 writes the note with the last live DNB request's day",
+   (B.offline_note({"DNB_UNREACHABLE": "1"}, last_request=_nov15) or {}).get("last_dnb_request"), "2026-11-15")
+eq("offline_note: without a stamp the day is unknown, the note still stands",
+   (B.offline_note({"DNB_UNREACHABLE": "1"}, last_request=None) or {}).get("last_dnb_request"), None)
+eq("offline_note: a reachable DNB writes nothing", B.offline_note({}, last_request=_nov15), None)
+A.executescript("""DELETE FROM meta WHERE key='dnb_degraded';
+    INSERT INTO meta VALUES('dnb_offline','{"reason": "unreachable", "last_dnb_request": "2026-11-15"}');""")
+A.commit()
+r = subprocess.run(["bash", os.path.join(pub, "export", "publish.sh"), art], cwd=pub, env=env,
+                   capture_output=True, text=True)
+eq("publish.sh accepts an offline build of the complete cache (meta.dnb_offline) and says so",
+   (r.returncode, "DNB OFFLINE" in r.stderr, "refusing" in r.stderr), (0, True, False))
+
 sys.path.insert(0, os.path.join(ROOT, "export"))
 import importlib
 TA = importlib.import_module("test_artifact")
