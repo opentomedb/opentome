@@ -63,7 +63,8 @@ def classify_dates(values):
         return "agreed_coarse", 0.90
     ds = [x for x in (_d(v) for v in values) if x]
     if len(ds) < 2:
-        return "single_source", 0.70
+        return "conflict", 0.50      # a day against a month or year that disagrees at the coarser precision
+                                     # (labelled single_source until the corrections round: it never was one)
     offs = {abs((a - b).days) for a in ds for b in ds if a != b}
     if not offs:
         return "agreed", 0.97
@@ -167,10 +168,12 @@ def pick_date(claims):
         counts = {}
         for d in days:
             counts[d[0]] = counts.get(d[0], 0) + 1
-        if max(counts.values()) >= 2:
-            return None, None                          # two claims agree on the day: not a lone typo (Dragon Ball
-                                                       # vol 1, three claims on 1985-09-10 against openBD's 1992-11
-                                                       # reprint month); the caller's rules decide
+        top = max(counts.values())
+        if top >= 2:
+            # two claims agree on the day: not a lone typo. The month is a reprint (Dragon Ball vol 1: three claims
+            # on 1985-09-10 against openBD's 1992-11) or the colophon (Black Butler vol 1: two articles on
+            # 2007-02-27 against 2007-03); falling through handed both to precedence, i.e. to openBD's month
+            return pick([d for d in days if counts[d[0]] == top]), "day_majority"
         if min(abs(_months(d[0]) - _months(m[0])) for d in days for m in months) >= MONTH_GAP:
             return pick(months), "coarse_outranks"
         return pick(days), "adjacent_month"            # a late-June release catalogued under July: the day stands
@@ -253,7 +256,7 @@ def resolve(db, verbose=False):
             if rule:
                 best = ruled
                 basis, conf = rule, {"month_backed": 0.85, "coarse_outranks": 0.60, "adjacent_month": 0.55,
-                                     "first_printing": 0.50}[rule]
+                                     "first_printing": 0.50, "day_majority": 0.80}[rule]
             elif basis == "agreed_coarse":
                 # The sources AGREE; one is merely less precise. Publish the
                 # most precise value, not the highest-ranked source's coarse

@@ -335,7 +335,8 @@ def apply_anilist_pins(db, entries=None, verbose=True):
         target = line
         # the corrections round (2026-11-23): a pinned line a merge retired is still a pin -- it names the
         # survivor through id_redirect (one hop per retired id; the export collapses chains)
-        for _ in range(8):
+        has_redirects = db.execute("SELECT 1 FROM sqlite_master WHERE name='id_redirect'").fetchone()
+        for _ in range(8 if has_redirects else 0):
             if db.execute("SELECT 1 FROM series WHERE tome_id=?", (target,)).fetchone():
                 break
             nxt = db.execute("SELECT new_tome_id FROM id_redirect WHERE old_tome_id=?", (target,)).fetchone()
