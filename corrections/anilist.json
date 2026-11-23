@@ -350,10 +350,10 @@
     "checked": "2026-11-23"
   },
   {
-    "line": "rl_40d16429f1d4",
+    "line": "rl_8ff18c007e5f",
     "anilist_id": 37760,
     "source_url": "https://anilist.co/manga/37760",
-    "reason": "Hanma Baki: Son of Ogre (JP, 37 volumes, 2005-2012): AniList 37760 'Hanma Baki', 37 volumes",
+    "reason": "Hanma Baki: Son of Ogre (JP, 37 volumes, 2005-2012): AniList 37760 'Hanma Baki', 37 volumes; the corrections round merged rl_40d16429f1d4 into this line",
     "checked": "2026-11-23"
   },
   {
@@ -368,13 +368,6 @@
     "anilist_id": 71539,
     "source_url": "https://anilist.co/manga/71539",
     "reason": "The Honor Student at Magic High School (JP manga, 11 volumes): AniList 71539 'Mahouka Koukou no Yuutousei', MANGA, 11 volumes -- the spin-off manga, not the novel work's id (TypNull, 'Line structure')",
-    "checked": "2026-11-23"
-  },
-  {
-    "line": "rl_082654a60cf7",
-    "anilist_id": 71539,
-    "source_url": "https://anilist.co/manga/71539",
-    "reason": "Mahōka kōkō no yūtōsei (JP manga, the French list's line of the same spin-off, 10 volumes): AniList 71539, as its twin rl_ec88f560b25c",
     "checked": "2026-11-23"
   },
   {
