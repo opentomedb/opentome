@@ -240,18 +240,28 @@ read the row for `release_date` and `isbn13` -- 12,366 Japanese, 478 English and
 opentome-2026-11-13 differed from their resolution (Moonlight Act vol 12: row 2010-01-18, claim 2011-01-18, openBD
 2011-01, artifact 2010-01-18). Now every article's value is a claim; `tier2/resolve.py` ranks by source precedence,
 then the value more claims of that rank carry, then the article (`en`, `ja`, `fr`, `de`: measured against openBD on
-1,702 disagreeing Japanese volumes, the English article agreed 1,138 times, the French 563); a day date no coarse
-month backs while a month of another source sits two months or more away loses to the month (`coarse_outranks`; 1,839
-volumes); a day the next-door month disagrees with stands (`adjacent_month`; 8,769 volumes, 8,519 of them the day just
-BEFORE openBD's month -- openBD carries the colophon month, which follows the sale date, so the old precedence had
-exported those a month late);
-resolve writes `release_date` (with its precision) and `isbn13` back onto the volume row. A cited publisher page
+1,702 disagreeing Japanese volumes, the English article agreed 1,138 times, the French 563). Dates: a LONE day no
+coarse month backs, while a month of another source sits two months or more away, loses to the month
+(`coarse_outranks`; 1,214 volumes: a year typo in one article, Ocha Nigosu vol 2); two claims agreeing on a day
+win over a disagreeing month (`day_majority`; 2,636 volumes: openBD's month is a reprint, Dragon Ball vol 1
+1985-09-10 against 1992-11, or the colophon); a lone day the next-door month disagrees with stands
+(`adjacent_month`; 6,388 volumes, 6,191 of them the day just BEFORE openBD's month -- openBD carries the
+colophon month, which follows the sale date, so the old precedence had exported those a month late); two sources' day
+dates a year or more apart and week-aligned are an edition and its reissue, the earlier is the first printing
+(`first_printing`; 69 volumes: Given vol 1, the list's 2026-11-10 against Open Library's 2020-02-11).
+Resolve writes `release_date` (with its precision) and `isbn13` back onto the volume row; the artifact's
+`release_date` column stays day-only, a month or year travels in `release_date_raw` with its precision. A cited publisher page
 whose address carries an ISBN-13 is the `publisher` claim's value; the cell's stays `wikipedia`'s.
 
 Stage 6b (`tier2/sanity.py`) then holds, with an `opentome` claim (`isbn_held`, `date_held`) and a report
 (`build/isbn-held.tsv`, `build/date-order.tsv`): an ISBN of another market's registration group, the same ISBN on a
 second volume of a line (the lowest number keeps it), a day date earlier than both its neighbours whose plus-one-year
 value falls back between them. Claims and the resolution are never deleted.
+
+Stage 6c (`tier0/round_c_merge.py --resolved`) then folds duplicate lines on the rows resolve wrote (`docs/round-c.md`
+classes P, D, C): judged on the raw first-article rows at stage 4c2, identical twins stayed apart over one article's
+ISBN typo or a blank. A dropped twin volume's claims move to the kept volume of the same number (the kept volume's own
+rows win on a clash), so a date or ISBN only the twin's article carried survives; resolve and sanity run again.
 
 `volumes.page_count`: a count Open Library alone gave is not exported (TypNull's 12 of 12 wrong English volumes;
 Open Library exact for 14% of 762 French ISBNs against BnF). BnF, DNB, LoC and corrections stay.

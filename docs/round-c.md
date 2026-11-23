@@ -15,8 +15,8 @@ Names are changed at export only, so no id moves. Merges happen in a pipeline st
 | M | A section word that says the medium, on a line tagged manga | `Hyouka (Roman)` is retagged to the word's medium |
 | T | A continuation tail beside its main line | FR `Black Butler (Tomes 31 à aujourd'hui)` merges into `Black Butler` |
 | W2 | A section-word line beside a same-name sibling | `Insomniacs After School (Mangas)` merges into `Insomniacs After School` |
-| P | A line named after the own line with any other qualifier whose volumes duplicate it by number and ISBN (the corrections round, 2026-11-23); an extend never folds | JP `Hajime no Ippo (Saison 1 : La rage de vaincre)` merges into `Hajime no Ippo` |
-| D | Two lines of one work, market and medium whose shared numbers carry the same ISBN on three or more and differ on none; the own line survives, else the unqualified name, else the English article's, else the smaller id, and takes the other's extra numbers | JP `Arc 1 - Sword Art Online: Progressive` merges into `Sword Art Online: Progressive` |
+| P | A line named after the own line, or after the line it hangs under, with any other qualifier whose volumes duplicate it by number and ISBN -- three or more shared numbers agree, at most one differs (one article's typo) -- judged on the resolved rows at stage 6c (the corrections round, 2026-11-23); an extend never folds | JP `Hajime no Ippo (Saison 1 : La rage de vaincre)` merges into `Hajime no Ippo` |
+| D | Two lines of one work, market and medium whose shared numbers carry the same ISBN on three or more and differ on at most one, judged at stage 6c; the own line survives, else the unqualified name, else the English article's, else the smaller id, and takes the other's extra numbers | JP `Arc 1 - Sword Art Online: Progressive` merges into `Sword Art Online: Progressive` |
 | C | Pagination chunks with no own line fold into the lowest chunk in range order | FR `Aoashi (= Volumes 11 à 20 =)` merges into `Aoashi (= Volumes 1 à 10 =)` |
 | E | A first-edition word, or `Act I` with no Act II in its market, on a line's name (export rename) | `City Hunter (Première édition)` becomes `City Hunter`; `Aoashi (= Volumes 1 à 10 =)` becomes `Aoashi` (C) |
 
@@ -41,7 +41,7 @@ A merge needs the target to be the work's own line and no arc split out of the c
 
 ## How merges retire ids
 
-- Stage 4c2 (`tier0/round_c_merge.py`) merges the candidate into the target with `carried_ids.merge_line` and records every decision in the build database as `roundc:merged`, with each candidate's pipeline name as `roundc:names`.
+- Stage 4c2 (`tier0/round_c_merge.py --names`: classes T and W2, on the raw rows) and stage 6c (`--resolved`: classes P, D and C, on the rows resolve wrote; a dropped twin volume's claims move to the kept volume, then resolve and sanity run again) merge the candidate into the target with `carried_ids.merge_line` and record every decision in the build database as `roundc:merged`, with each candidate's pipeline name as `roundc:names` (both stages append).
 - Stage 7b writes a redirect for each retired line and volume, so a client holding an old id follows it to the surviving one. It reads `roundc:merged` before any ISBN vote: the candidate line goes to its target, and each volume to the target's volume of the same number. Lines without ISBNs would otherwise tie or retire.
 - The artifact meta carries `round_c_merges` (applied merges, rows of candidate, target, verdict, kind and the candidate's name) and `round_c_conflicts` (carried merges the data now refuses). The next build re-applies each carried merge by id, under the same verdict, so a carried merge with a gap becomes a `carry-conflict`.
 - The re-ship gate fails the build if a carried merge candidate is still shipped, except the ids listed in `round_c_conflicts`.
