@@ -137,7 +137,9 @@ suite() {
 }
 echo "== 0. unit tests =="
 suite parser      tier0/test_parser.py
+suite load        schema/test_load.py
 suite resolve     tier2/test_resolve.py
+suite sanity      tier2/test_sanity.py
 suite anilist     export/test_resolve_anilist.py
 suite "anilist recorded" export/private/test_resolve_anilist_recorded.py
 suite measure     export/test_measure_fixture.py
