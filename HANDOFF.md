@@ -1,6 +1,16 @@
 # HANDOFF — OpenTome
 
-## The corrections round (TypNull's four #corrections threads, 2026-11-22) -- **PUBLISHED 2026-11-23 as opentome-2026-11-23 (run 45263344899); Mangarr on it; the four replies posted. main PUSHED by Nick through 5614e0f; TWO COMMITS LOCAL, NOT PUSHED (db21959 AniList re-point, this note)**
+## The corrections round (TypNull's four #corrections threads, 2026-11-22) -- **PUBLISHED 2026-11-23 as opentome-2026-11-23 (run 45263344899); Mangarr on it; the four replies posted; main PUSHED by Nick through bf61813 (11-23 15:04 CST). 11-24: three threads CLOSED (archived, not locked) on Nick's "close those remaining issues"; the page-count thread stays open for the reply to TypNull's 11-23 answer (drafted, needs his "post it")**
+
+**Done 2026-11-24 (~15:00 CST).** Read the four threads from Nick's Chrome (the bot-token reader was refused by the permission
+classifier; the plugin's fetch_messages only reads allowlisted channels). *The same ISBN on two volumes*, *Release dates*, *Line
+structure*: TypNull reacted to each reply, no follow-up -> closed via the sidebar context menu "Close Post" (archive; a new reply
+reopens it; "Lock Post" and "Delete Post" untouched). *Wrong page counts in several series*: TypNull answered 11-23 21:11 CST:
+no publisher feed he knows of within OpenTome's terms, and "a page count can not be licensed as it falls under facts". Reply drafted
+(agree on copyright; Google Books is out on its API terms, a contract on use, not a claim on the number; Open Library's number is a
+different fact, library pagination; Mangarr still asks Google Books per lookup; the hold stays until a publisher or trade feed turns
+up) -- waits for Nick's "post it", then close that thread too. Nothing else owed on the round; Sunday 11-29's scheduled build is
+the next event (papertoons sets: contract rules catch a re-key; fix = labels in krcn_linker_labels.json).
 
 Nick, 2026-11-22 ~23:45 CST: "Start working on the other parts" (item 2 of the agreed order after the Mangarr build
 round; item 3, the pack re-grab rule, is in the Mangarr handoff). Local spec and plan under `docs/superpowers/`
