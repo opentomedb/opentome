@@ -1260,6 +1260,13 @@ ALIAS_LOSS_OK.update({
     for t, a in (("rl_0f652148e6d2", "The Pawn's Revenge"),
                  ("rl_0f652148e6d2", "The Pawn's Revenge – 3rd Season"),
                  ("rl_9e8ed759862f", "The Pawn's Revenge – 3rd Season"))})
+# base drift (2026-11-24): the Kurogane split (tier0/work_identity.py's Japanese-article guard) gives Haruto
+# Ikezawa's 2011 series its own work, so "Kurogane" now names two works and the export's ambiguity rule keeps the
+# bare title off Kei Toume's English line (rl_1b66d4b8b80f); "Kurogane (manga)" and the normalized "kurogane manga"
+# stay, and the line's own name still matches a "Kurogane" folder.
+ALIAS_LOSS_OK.update({
+    ("rl_1b66d4b8b80f", "Kurogane"): "Kurogane split (base drift): the bare title names two works now; the line's "
+                                     "own name and its '(manga)' aliases stay"})
 # E3: carried lines whose orig_series_id may change, with the reason. Measured 2026-09-28 on the pipeline-order
 # dry run (build/krcn-replay/exportfix): the comic-family origin rule only fills a line whose own medium has no
 # origin line; one carried line gains one, 0 in a work with a Japanese line, 0 sibling-pick changes.

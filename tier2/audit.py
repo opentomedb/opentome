@@ -17,6 +17,31 @@ def _build(name):
     return os.path.join(d, name)
 
 
+def duplicate_titles(db):
+    """Display titles that more than one work carries, minus the groups Wikipedia tells apart:
+    when every work in the group has a Japanese title (work_title ja, else native_title) and no
+    two of them agree, they are different works that happen to share a title -- Kei Toume's
+    Kurogane (黒鉄) and Haruto Ikezawa's Kurogane (クロガネ), 2026-11-24 -- not one work ingested
+    twice. A group with a work that has no Japanese title, or two that share one, is still
+    reported: nothing there says they differ."""
+    rows = db.execute("""SELECT LOWER(TRIM(w.primary_title)),
+                                COALESCE((SELECT MIN(title) FROM work_title t
+                                          WHERE t.work_id=w.id AND t.language='ja'),
+                                         NULLIF(TRIM(w.native_title), ''))
+                         FROM work w""").fetchall()
+    groups = collections.defaultdict(list)
+    for title, ja in rows:
+        groups[title].append(ja)
+    out = []
+    for title, jas in sorted(groups.items()):
+        if len(jas) < 2:
+            continue
+        if all(jas) and len(set(jas)) == len(jas):
+            continue
+        out.append(title)
+    return out
+
+
 def run(path):
     db = sqlite3.connect(path, timeout=60)
     g = lambda q, *a: db.execute(q, a).fetchone()[0]
@@ -60,10 +85,9 @@ def run(path):
           "work_title() failed to strip")
     check("work titles starting 'Liste des'",
           g("SELECT COUNT(*) FROM work WHERE primary_title LIKE 'Liste des %'"))
-    dupes = db.execute("""SELECT LOWER(TRIM(primary_title)) t, COUNT(*) c FROM work
-                          GROUP BY t HAVING c>1""").fetchall()
+    dupes = duplicate_titles(db)
     check("duplicate work titles (case-insensitive)", len(dupes),
-          "same work ingested twice" if dupes else "")
+          "same work ingested twice: " + ", ".join(dupes[:5]) if dupes else "")
 
     print("\n=== DATES ===")
     check("dates in the future (> today+2y)",

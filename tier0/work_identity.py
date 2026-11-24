@@ -82,17 +82,42 @@ def ensure_corpus(path):
     return out
 
 
-def build(corpus_path=None, out_path=None):
-    corpus_path = corpus_path or os.path.join(BUILD, "corpus.json")
-    out_path = out_path or os.path.join(BUILD, "work_identity.json")
-    corpus = ensure_corpus(corpus_path)
+def _reduced(key):
+    from build_corpus import work_title
+    return work_title(key.partition(":")[2]).strip().lower()
+
+
+def ja_article(key):
+    """The Japanese article a class member IS, or None. A section link ("ja:〈物語〉シリーズ#漫画",
+    the manga section of the Monogatari series article) says the subject is a part of that
+    article, not the article, so it is no evidence about which work the article is: it returns
+    None. (Counting it as its article split Bakemonogatari's manga from its French edition,
+    whose own langlink names the novel's article 化物語 -- one work, two Japanese articles.)"""
+    lang, _, art = key.partition(":")
+    if lang != "ja" or "#" in art:
+        return None
+    return art.strip() or None
+
+
+def disagree(ja_a, ja_b):
+    """True when both classes hold a Japanese article and share none: Wikipedia's langlinks have
+    already said the two are different subjects. Only Japanese is compared -- the manga's home
+    wiki keeps one article per work, with adaptations as sections, so two plain articles are two
+    works; in English, French and German, list articles, section links and franchise articles
+    differ by title all the time (16 pairs on the 2026-11-24 corpus, 15 of them one work)."""
+    return bool(ja_a) and bool(ja_b) and ja_a.isdisjoint(ja_b)
+
+
+def classify(corpus, links_by_lang):
+    """Union the corpus articles into works. corpus: {lang: [article]}; links_by_lang:
+    {lang: {article: {lang2: title2}}} as langlinks() returns it. Returns
+    {key: {"canonical": key, "titles": {lang: title}}} for every article key seen."""
     u = Union()
     titles_by_key = {}
 
     for lang in ("en", "fr"):
         arts = corpus.get(lang, [])
-        print("  resolving %s (%d articles)…" % (lang, len(arts)), flush=True)
-        lm = langlinks(lang, arts)
+        lm = links_by_lang.get(lang, {})
         for art, links in lm.items():
             key = "%s:%s" % (lang, art)
             u.find(key)
@@ -118,11 +143,19 @@ def build(corpus_path=None, out_path=None):
     # Manga titles are distinctive enough that a cross-language exact match is
     # far more likely to be the same work than a coincidence, and the langlink
     # pass has already run, so genuine collisions are rare.
-    from build_corpus import work_title
+    #
+    # Rare, not absent (2026-11-24): the English "Kurogane (manga)" is Kei Toume's
+    # 1996 series, the French "Kurogane (manga)" is Haruto Ikezawa's 2011 one, and
+    # the title pass filed Ikezawa's eight Shueisha volumes as the Japanese main
+    # line of Toume's work. The langlink pass already knew better: the two classes
+    # named different Japanese articles (黒鉄, クロガネ). So a title match is refused
+    # when both classes already hold a Japanese article and share none (disagree());
+    # a class with no Japanese article is joined as before -- the title match is
+    # the only evidence there, and it still wins. Refused pairs are printed.
     by_title = {}
+    ja = {}                            # class root -> {Japanese articles}
     for k in list(u.p):
-        lang, _, art = k.partition(":")
-        t = work_title(art).strip().lower()
+        t = _reduced(k)
         # Guard was len>2, which excluded legitimately short titles: CLAMP's "X"
         # split into two works, and two-character Japanese titles (蟲師, 屍鬼)
         # were excluded from the union entirely. Verified safe: of 36 titles of
@@ -130,13 +163,29 @@ def build(corpus_path=None, out_path=None):
         # lowering the bound merges exactly that case and nothing else.
         if t:
             by_title.setdefault(t, []).append(k)
+        art = ja_article(k)
+        if art:
+            ja.setdefault(u.find(k), set()).add(art)
     merged = 0
+    blocked = []
     for members in by_title.values():
         for m in members[1:]:
-            if u.find(m) != u.find(members[0]):
-                merged += 1
+            ra, rb = u.find(members[0]), u.find(m)
+            if ra == rb:
+                continue
+            if disagree(ja.get(ra), ja.get(rb)):
+                blocked.append((members[0], m))
+                continue
             u.union(members[0], m)
-    print("  title-union merged %d additional article keys" % merged, flush=True)
+            root = u.find(m)
+            gone = rb if root == ra else ra
+            if gone in ja:
+                ja.setdefault(root, set()).update(ja.pop(gone))
+            merged += 1
+    print("  title-union merged %d additional article keys, refused %d pairs that name "
+          "different Japanese articles" % (merged, len(blocked)), flush=True)
+    for a, b in blocked:
+        print("    kept apart: %s | %s" % (a, b), flush=True)
 
     classes = {}
     for k in list(u.p):
@@ -151,6 +200,19 @@ def build(corpus_path=None, out_path=None):
                 titles.setdefault(l, t)
         for m in members:
             result[m] = {"canonical": canon, "titles": titles}
+    return result
+
+
+def build(corpus_path=None, out_path=None):
+    corpus_path = corpus_path or os.path.join(BUILD, "corpus.json")
+    out_path = out_path or os.path.join(BUILD, "work_identity.json")
+    corpus = ensure_corpus(corpus_path)
+    links_by_lang = {}
+    for lang in ("en", "fr"):
+        arts = corpus.get(lang, [])
+        print("  resolving %s (%d articles)…" % (lang, len(arts)), flush=True)
+        links_by_lang[lang] = langlinks(lang, arts)
+    result = classify(corpus, links_by_lang)
     json.dump(result, open(out_path, "w"), ensure_ascii=False)
     print("  wrote %s (%d keys)" % (out_path, len(result)), flush=True)
     return result

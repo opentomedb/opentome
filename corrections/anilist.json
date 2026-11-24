@@ -315,13 +315,6 @@
     "checked": "2026-11-12"
   },
   {
-    "line": "rl_85cef1a1d2cb",
-    "anilist_id": null,
-    "source_url": "https://en.wikipedia.org/wiki/Kurogane_(manga)",
-    "reason": "The Japanese main line of Kei Toume's Kurogane (w_2bdd2c36614d) carries eight Shueisha volumes (ISBN 978-4-08-870359-6 .. 978-4-08-870651-1, 2011-12 to 2013-04): Haruto Ikezawa's Kurogane, another work. Toume's own Japanese run (1996-2003, Kodansha, ISBN 978-4-06-3380..) is rl_5a2e167d2417, which keeps 31598. Until the Japanese line is split, this line binds to nothing.",
-    "checked": "2026-11-13"
-  },
-  {
     "line": "rl_17781c08774e",
     "anilist_id": 41425,
     "source_url": "https://anilist.co/manga/41425",
@@ -383,5 +376,12 @@
     "source_url": "https://anilist.co/manga/41425",
     "reason": "Baki The Grappler (DE, 1 volume): the German edition of the 1991 'Grappler Baki' (AniList 41425, as its JP main line rl_17781c08774e); the spread copies the JP main line's pinned id here by name and the contract wants a pin to say so",
     "checked": "2026-11-23"
+  },
+  {
+    "line": "rl_b8f11a5c2e16",
+    "anilist_id": 59447,
+    "source_url": "https://anilist.co/manga/59447",
+    "reason": "Kurogane (JP manga, Shueisha, 2011-12 to 2013-04, 8 volumes, ISBN 978-4-08-870359-6 .. 978-4-08-870651-1; author Haruto Ikezawa): AniList 59447 'Kurogane' (native クロガネ, 2011, 8 volumes) is this series. Its own work since 2026-11-24 (the title-union guard split it from Kei Toume's Kurogane, w_2bdd2c36614d, AniList 31598); the JP binder found the match but refused it as a name collision with Toume's work.",
+    "checked": "2026-11-24"
   }
 ]

@@ -157,6 +157,8 @@ suite "carried ids" tier0/test_carried_ids.py
 suite "comic medium" tier0/test_comic_medium.py
 suite krcn        tier0/test_krcn.py
 suite "round C merge" tier0/test_round_c_merge.py
+suite "work identity" tier0/test_work_identity.py
+suite audit       tier2/test_audit.py
 echo "== 1. work identity ==";     python3 tier0/work_identity.py
 echo "== 2. corpus en+fr ==";      python3 tier0/build_corpus.py "$DB"
 echo "== 3. corpus de ==";         python3 tier0/build_corpus_de.py "$DB"

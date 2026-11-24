@@ -1,5 +1,69 @@
 # HANDOFF — OpenTome
 
+## The Kurogane split (TypNull's AniList thread, the 11-13 promise) -- **BUILT 2026-11-24: local offline rebuild green (stage 0 all suites, audit 0 defects, contract 0 FAIL, measure gate ok, label opentome-2026-11-24, artifact sha 9b4424db…); COMMITTED on main, Nick's push owed; then build-only CI -> publish -> Mangarr MetadataUpdate**
+
+Nick, 11-24 ~15:10 CST: "start that" (the one open promise after the issues were closed: "the Japanese side of
+Kurogane has the 2011 Shueisha serial mixed into Kei Toume's work; that's a separate fix on the Japanese line and
+is on the list", posted 11-13 in *Anilist corrections*).
+
+**Root cause (not a parser bug, not a data error):** `tier0/work_identity.py`'s second pass unions articles across
+languages by bare title. The English "Kurogane (manga)" is Kei Toume's 1996 series (langlinks fr "Kuro Gane", ja
+黒鉄); the French "Kurogane (manga)" is Haruto Ikezawa's 2011 Shueisha series (langlinks ja クロガネ). Both reduce to
+"kurogane", so the title pass joined the two langlink classes, and the French article's eight Shueisha volumes became
+the Japanese main line (rl_85cef1a1d2cb, "Kodansha / Kei Toume") of Toume's work w_2bdd2c36614d.
+
+**Fix at the root (`tier0/work_identity.py`, new `classify()` + `disagree()` + `ja_article()`, TDD in
+`tier0/test_work_identity.py`, stage 0):** a title match is refused when both classes already hold a Japanese
+article and share none. Measured on the corpus: comparing EVERY shared language refused 16 pairs of which 15 were one
+work (list articles, section links, franchise articles: Vampire Knight, One Piece, Radiant, Moyashimon, Arslan...);
+counting a Japanese section link (〈物語〉シリーズ#漫画) as its article split Bakemonogatari's manga from its French
+edition (whose own langlink is the novel's article 化物語); the Japanese-article rule with section links ignored
+refuses exactly the Kurogane pair (works 4,641 -> 4,642; title-union merges 264 -> 263). Refused pairs print as
+`kept apart:` in stage 1. `docs/cleanup-v1.md` item 3 carries the note.
+
+**Audit (`tier2/audit.py` `duplicate_titles()`, `tier2/test_audit.py`, stage 0):** two works titled "Kurogane"
+tripped "duplicate work titles = same work ingested twice" and stopped the first rebuild at stage 7. The check now
+exempts a group whose works all carry a Japanese title (work_title ja, else native_title) with no two alike; a group
+with a work lacking one, or two alike, is still a defect. 0 defects on the rebuild (CI's 11-23 run: 0 too).
+
+**Corrections:** `anilist.json` lost the 11-13 unbind pin on rl_85cef1a1d2cb (its reason was "until the Japanese
+line is split") and gained a pin: rl_b8f11a5c2e16 -> 59447 (AniList "Kurogane", native クロガネ, 2011, 8 volumes =
+Ikezawa's; the JP binder found the match but refused it as a name collision with Toume's work, `collision` in
+build/jp-anilist-bindings.tsv). `corrections.py --check --artifact` ok (55 anilist entries).
+
+**Measured (carry = the published opentome-2026-11-23):** works 5,061 -> 5,062; lines 13,160 -> 13,160 (one gone,
+one new); volumes 121,976 -> 121,977 (the 8 Shueisha volumes re-keyed under the new work; +1 unrelated: the LoC canary's
+live request added vol 7 to the EN "My secretly hot husband" line, CI would do the same); redirects 5,646 -> 5,655
+(rl_85cef1a1d2cb -> rl_b8f11a5c2e16 and its 8 volumes, reason `correction`); no other line changed work. New work
+w_7fa7cf3185b8 "Kurogane" (fr "Kurogane (manga)", ja クロガネ): one JP line rl_b8f11a5c2e16, 8 volumes, is_main,
+AniList 59447 by pin; no author / publisher (stage 3c reads the English main article only -- a FR-canonical work has
+none; pre-existing for every FR-only work, noted below). Toume's work keeps w_2bdd2c36614d, EN main rl_1b66d4b8b80f
+(31598), JP lines rl_5a2e167d2417 (1996) and rl_52b46e28d61e (Kurogane Kai, 2018).
+
+**Contract:** E1 flagged rl_1b66d4b8b80f losing the alias "Kurogane" -- the bare title now names two works and the
+export's ambiguity rule keeps it off the line ("Kurogane (manga)", "kurogane manga" and the line's own name stay);
+allowed in `export/test_artifact.py` ALIAS_LOSS_OK with that reason. The pre-existing 3f `STALE CORRECTION
+cluster_with dnb:139599577X` and the 3e `NO SUCCESSOR for 32x` lines are in CI's 11-23 log too (not this change).
+
+**Not done, measured, for a round of its own (Nick's call):** with the wrong line gone, Toume's two Japanese lines tie
+for the JP main slot (neither named after the work, 5 volumes each) and `export/to_mangarr.py` breaks the tie by id,
+so "Kurogane Kai" (2018) is the JP main and the 1996 original hangs under it (before: both hung under Ikezawa's line).
+An earliest-first-date tie-break would fix it and change the main line of 32 carried series (Jing: King of Bandits
+"Original series" over "Twilight Tales", Urusei Yatsura "Tankōbon" over "Shinsōban", Tomie "Original release" over
+"Re-release", Rick and Morty "Volume 1" over "Volume 7", Kimagure Orange Road "Première" over "Seconde édition"...),
+each an is_main / parent / work-alias move E1 would need an allowance for. Script: the scratchpad's measurement
+(groups 10,878; ties at the top 85; picks changed 32). Also pre-existing: 1,159 of 5,062 works have no
+native_title, and a work whose canonical article is French gets no author / publisher from stage 3c.
+
+**Next:** Nick's push (code + data: `git push github main && git push forgejo main`), then
+`gh workflow run catalogue.yml --ref main -f publish=false` -> green -> `-f publish=true` -> Mangarr
+MetadataUpdate (`POST /api/v1/command {"name":"MetadataUpdate"}`) + FlightLog line -> a one-line note in the (closed)
+*Anilist corrections* thread on Nick's "post it" ("the Japanese side of Kurogane is its own work in
+opentome-2026-11-2x: Haruto Ikezawa's 2011 series, AniList 59447; Kei Toume's keeps 31598"). The library fixture
+(`export/fixtures/library.json`, gitignored) was regenerated 11-24 from the FlightLog readarr.db backup with
+`export/snapshot_library.py`; the Mini's reboot wiped the scratchpad copy.
+
+
 ## The corrections round (TypNull's four #corrections threads, 2026-11-22) -- **PUBLISHED 2026-11-23 as opentome-2026-11-23 (run 45263344899); Mangarr on it; the four replies posted; main PUSHED by Nick through bf61813 (11-23 15:04 CST). 11-24: all four threads answered and CLOSED (archived, not locked) on Nick's "close those remaining issues" + "post it"; the 11-12 *Anilist corrections* post closed too (answered 11-13, no follow-up); NOTHING OWED on the round. STILL OPEN in the data: the Kurogane JP line (promised "on the list" in that thread 11-13; see the OPEN finding below -- rl_85cef1a1d2cb is still the JP main line of w_2bdd2c36614d in opentome-2026-11-23, Shueisha 978-4-08 ISBNs under "Kodansha / Kei Toume"; the unbind pin only keeps the AniList id off it)**
 
 **Done 2026-11-24 (~15:00 CST).** Read the four threads from Nick's Chrome (the bot-token reader was refused by the permission

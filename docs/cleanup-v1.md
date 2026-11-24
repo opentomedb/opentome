@@ -39,6 +39,16 @@ because data was lost.
 3. **Title-union**, fixing a regression *this pass introduced*: keying identity on the
    article split same-language multi-part articles ("List of Naruto chapters (Part I)"
    and "(Part II)") into separate works. The old title-hash keying did not have that bug.
+   *Guarded 2026-11-24:* a title match is refused when the two langlink classes already
+   hold Japanese articles and share none -- the English "Kurogane (manga)" (Kei Toume,
+   1996, ja 黒鉄) and the French "Kurogane (manga)" (Haruto Ikezawa, 2011, ja クロガネ) had
+   been one work, with Ikezawa's eight Shueisha volumes as the Japanese main line of
+   Toume's. Only Japanese is compared, and a section link (〈物語〉シリーズ#漫画) counts as no
+   article: measured on the corpus, comparing every shared language refused 16 pairs of
+   which 15 were one work (list articles, section links, franchise articles), and
+   counting a section link as its article split Bakemonogatari's manga from its French
+   edition; the Japanese-article rule refuses exactly the Kurogane pair. Refused pairs
+   are printed by stage 1 (`kept apart:`) so the next one is reviewed, not guessed at.
 4. **Year and alternative-grouping headings** — "1998", "Story arcs", "Tomes classiques"
    are organisational groupings, not release lines.
 
