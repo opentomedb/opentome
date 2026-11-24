@@ -1,6 +1,6 @@
 # HANDOFF — OpenTome
 
-## The corrections round (TypNull's four #corrections threads, 2026-11-22) -- **PUBLISHED 2026-11-23 as opentome-2026-11-23 (run 45263344899); Mangarr on it; the four replies posted; main PUSHED by Nick through bf61813 (11-23 15:04 CST). 11-24: all four threads answered and CLOSED (archived, not locked) on Nick's "close those remaining issues" + "post it"; NOTHING OWED on the round**
+## The corrections round (TypNull's four #corrections threads, 2026-11-22) -- **PUBLISHED 2026-11-23 as opentome-2026-11-23 (run 45263344899); Mangarr on it; the four replies posted; main PUSHED by Nick through bf61813 (11-23 15:04 CST). 11-24: all four threads answered and CLOSED (archived, not locked) on Nick's "close those remaining issues" + "post it"; the 11-12 *Anilist corrections* post closed too (answered 11-13, no follow-up); NOTHING OWED on the round. STILL OPEN in the data: the Kurogane JP line (promised "on the list" in that thread 11-13; see the OPEN finding below -- rl_85cef1a1d2cb is still the JP main line of w_2bdd2c36614d in opentome-2026-11-23, Shueisha 978-4-08 ISBNs under "Kodansha / Kei Toume"; the unbind pin only keeps the AniList id off it)**
 
 **Done 2026-11-24 (~15:00 CST).** Read the four threads from Nick's Chrome (the bot-token reader was refused by the permission
 classifier; the plugin's fetch_messages only reads allowlisted channels). *The same ISBN on two volumes*, *Release dates*, *Line
