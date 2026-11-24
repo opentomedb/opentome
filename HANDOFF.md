@@ -1,6 +1,6 @@
 # HANDOFF — OpenTome
 
-## The corrections round (TypNull's four #corrections threads, 2026-11-22) -- **PUBLISHED 2026-11-23 as opentome-2026-11-23 (run 45263344899); Mangarr on it; the four replies posted; main PUSHED by Nick through bf61813 (11-23 15:04 CST). 11-24: three threads CLOSED (archived, not locked) on Nick's "close those remaining issues"; the page-count thread stays open for the reply to TypNull's 11-23 answer (drafted, needs his "post it")**
+## The corrections round (TypNull's four #corrections threads, 2026-11-22) -- **PUBLISHED 2026-11-23 as opentome-2026-11-23 (run 45263344899); Mangarr on it; the four replies posted; main PUSHED by Nick through bf61813 (11-23 15:04 CST). 11-24: all four threads answered and CLOSED (archived, not locked) on Nick's "close those remaining issues" + "post it"; NOTHING OWED on the round**
 
 **Done 2026-11-24 (~15:00 CST).** Read the four threads from Nick's Chrome (the bot-token reader was refused by the permission
 classifier; the plugin's fetch_messages only reads allowlisted channels). *The same ISBN on two volumes*, *Release dates*, *Line
@@ -9,7 +9,7 @@ reopens it; "Lock Post" and "Delete Post" untouched). *Wrong page counts in seve
 no publisher feed he knows of within OpenTome's terms, and "a page count can not be licensed as it falls under facts". Reply drafted
 (agree on copyright; Google Books is out on its API terms, a contract on use, not a claim on the number; Open Library's number is a
 different fact, library pagination; Mangarr still asks Google Books per lookup; the hold stays until a publisher or trade feed turns
-up) -- waits for Nick's "post it", then close that thread too. Nothing else owed on the round; Sunday 11-29's scheduled build is
+up) -- POSTED ~15:20 CST on his "post it" (from his Chrome, as Dr. Awesome), thread closed the same way. Nothing owed on the round; Sunday 11-29's scheduled build is
 the next event (papertoons sets: contract rules catch a re-key; fix = labels in krcn_linker_labels.json).
 
 Nick, 2026-11-22 ~23:45 CST: "Start working on the other parts" (item 2 of the agreed order after the Mangarr build
