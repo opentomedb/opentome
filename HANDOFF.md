@@ -1,6 +1,6 @@
 # HANDOFF — OpenTome
 
-## The Kurogane split (TypNull's AniList thread, the 11-13 promise) -- **PUBLISHED 2026-11-26 as opentome-2026-11-26 (publish run 45863564957 after the green build-only run 45862347367; sha256 616d8150…, 36,937,728 B, 13,160 lines / 121,976 volumes, 5,062 works, 5,655 redirects); Mangarr on it (11:04 CST, FlightLog line + backup); the thread note waits for Nick's "post it"**
+## The Kurogane split (TypNull's AniList thread, the 11-13 promise) -- **PUBLISHED 2026-11-26 as opentome-2026-11-26 (publish run 45863564957 after the green build-only run 45862347367; sha256 616d8150…, 36,937,728 B, 13,160 lines / 121,976 volumes, 5,062 works, 5,655 redirects); Mangarr on it (11:04 CST, FlightLog line + backup); the thread note POSTED 11:10 CST on Nick's "post it" and the thread closed again; NOTHING OWED on the Kurogane round**
 
 Nick, 11-24 ~15:10 CST: "start that" (the one open promise after the issues were closed: "the Japanese side of
 Kurogane has the 2011 Shueisha serial mixed into Kei Toume's work; that's a separate fix on the Japanese line and
@@ -61,8 +61,9 @@ manifest served it on the first fetch; the asset's sha matched). The published a
 rl_b8f11a5c2e16 (8 volumes, AniList 59447), rl_85cef1a1d2cb -> rl_b8f11a5c2e16 in id_redirect, Toume's work unchanged but
 for the alias. Mangarr took it at 11:04 CST (MetadataUpdate over the API; `/config/metadatasource` version
 opentome-2026-11-26, 13,160 / 121,976; file sha verified on Tower; health []; FlightLog line + backups
-`mangarr-manga-metadata.sqlite.before-20261126-kurogane` / `LEDGER.md.20261126-kurogane`). Left: the one-line note in the
-closed *Anilist corrections* thread (draft in the session scratchpad `reply_kurogane_typnull.md`), on Nick's "post it".
+`mangarr-manga-metadata.sqlite.before-20261126-kurogane` / `LEDGER.md.20261126-kurogane`). The one-line note went into the
+*Anilist corrections* thread at 11:10 CST on Nick's "post it" (as Dr. Awesome, from his Chrome) and the thread was closed
+again (sidebar / header "Close Post"; archive, not lock). Nothing owed on this round.
 
 **Next:** Nick's push (code + data: `git push github main && git push forgejo main`), then
 `gh workflow run catalogue.yml --ref main -f publish=false` -> green -> `-f publish=true` -> Mangarr
