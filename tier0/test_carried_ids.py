@@ -412,6 +412,31 @@ K.redirects(db, carry, excluded=set())
 eq("no successor line: retired to the work's main line of that market",
    db.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (rl(WN, "JP", "Undated (Arc)"),)).fetchone(),
    (rl(WN, "JP", "Undated"), "retired"))
+# 2026-11-26: a line whose MARKET has no line left in the work (a German DNB line whose link the work's
+# new author fact withdrew: "Rin!" by Kannagi / Honami was never Harold Sakuishi's "Rin") retires to the
+# work's main line of another market -- the origin's -- rather than vanishing without a redirect
+before = catalogue("ret5", [(WN, "Undated", [("JP", "manga", "Undated", vols(7, 3)),
+                                             ("DE", "manga", "Undated!", [("1", "9783551000019", "2015-01-01"), ("2", "9783551000026", "2015-06-01")])])])
+carry = artifact(before)
+after3 = catalogue("ret6", [(WN, "Undated", [("JP", "manga", "Undated", vols(7, 3))])])
+db3 = sqlite3.connect(after3)
+K.redirects(db3, carry, excluded=set())
+eq("no line left in its market: retired to the work's origin-market main line",
+   db3.execute("SELECT new_id, reason FROM id_redirect WHERE old_id=?", (rl(WN, "DE", "Undated!"),)).fetchone(),
+   (rl(WN, "JP", "Undated"), "retired"))
+eq("... and its volumes retire to that line too",
+   db3.execute("SELECT COUNT(*) FROM id_redirect WHERE new_id=? AND reason='retired' AND entity='volume'",
+              (rl(WN, "JP", "Undated"),)).fetchone()[0], 2)
+eq("... the gate passes", ids_ok(artifact(after3, carry), carry), [])
+db3.close()
+# the earlier case's catalogue and carry continue below
+before = catalogue("ret1b", [(WN, "Undated", [("JP", "manga", "Undated", vols(7, 3)),
+                                              ("JP", "manga", "Undated (Arc)", [("1", None, None), ("2", None, None)])])])
+carry = artifact(before)
+after = catalogue("ret2b", [(WN, "Undated", [("JP", "manga", "Undated", vols(7, 3))])])
+db = sqlite3.connect(after)
+K.redirects(db, carry, excluded=set())
+
 # review C2 (repro1): the retired arc's vol 1 is NOT the main line's vol 1 -- another book
 arc_vols = [db.execute("SELECT new_id, entity, reason FROM id_redirect WHERE old_id=?",
                        (_id("v_", rl(WN, "JP", "Undated (Arc)"), n),)).fetchone() for n in ("1", "2")]

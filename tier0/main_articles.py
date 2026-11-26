@@ -28,7 +28,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "schema"))
-from wikipedia_volumes import wikitext, parse_date, _clean, EN_MONTHS
+from wikipedia_volumes import wikitext, parse_date, _clean, EN_MONTHS, FR_MONTHS
 from main_titles import main_article, _norm
 from load import LICENCE
 
@@ -36,6 +36,12 @@ NOW = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
 INFOBOX = re.compile(r"\{\{\s*Infobox animanga/(Print|Manga|Novel)\b", re.I)
 HEADER = re.compile(r"\{\{\s*Infobox animanga/Header\b", re.I)
+# the French wiki's infobox (2026-11-26): /Livre is the print block, /Entête the header
+INFOBOX_FR = re.compile(r"\{\{\s*Infobox Animation et bande dessinée asiatiques/Livre\b", re.I)
+HEADER_FR = re.compile(r"\{\{\s*Infobox Animation et bande dessinée asiatiques/Entête\b", re.I)
+LANG_TPL = re.compile(r"\{\{\s*lang(?:ue)?\s*\|[^|}]*\|([^}]*)\}\}", re.I)
+DEMOGRAPHICS = (("shōnen", "Shōnen"), ("shonen", "Shōnen"), ("shōjo", "Shōjo"), ("shojo", "Shōjo"),
+                ("seinen", "Seinen"), ("josei", "Josei"), ("kodomo", "Kodomo"))
 
 
 def _block(w, start):
@@ -291,6 +297,69 @@ def parse_main(w, list_article=None):
     return out
 
 
+def _demographic(*values):
+    for v in values:
+        t = _clean(_unlink(v or "")).strip().lower()
+        for key, canon in DEMOGRAPHICS:
+            if t.startswith(key):
+                return canon
+    return None
+
+
+def parse_main_fr(w):
+    """-> the facts parse_main() returns, read from a French article's infobox: the first
+    /Livre block (the print edition; a /Vidéo block's people are the anime's) and the /Entête
+    header. Plus `publisher_fr`, the first French publisher (éditeur_francophone), for the
+    French lines. 2026-11-26: 407 works have no English article, so stage 3c had read nothing
+    for them -- no author, no publisher, no dates."""
+    w = w or ""
+    blocks = [_fields(_block(w, m.start())) for m in INFOBOX_FR.finditer(w)]
+    h = HEADER_FR.search(w)
+    hf = _fields(_block(w, h.start())) if h else {}
+    if not blocks and not hf:
+        return {}
+    f = blocks[0] if blocks else {}
+    out = {}
+    nm = _clean(_unlink(LANG_TPL.sub(r"\1", hf.get("titre") or f.get("titre") or "")))
+    if nm:
+        out["name"] = nm
+    kanji = _clean(_unlink(LANG_TPL.sub(r"\1", hf.get("titrekanji") or hf.get("titreKanji") or "")))
+    if kanji:
+        out["ja_kanji"] = kanji
+    genres = [x for x in _list_items(hf.get("genre", "")) if 1 < len(x) <= 40][:6]
+    if genres:
+        out["genre"] = genres
+    for key, field in (("author", "auteur"), ("illustrator", "dessinateur"), ("illustrator", "illustrateur")):
+        if key in out:
+            continue
+        people = [x for x in _list_items(f.get(field, "")) if len(x) <= 60][:4]
+        if people:
+            out[key] = people
+    pub = _publisher_field(f.get("éditeur_original") or f.get("éditeur") or "")
+    if pub:
+        out["publisher"] = pub
+    pub_fr = _publisher_field(f.get("éditeur_francophone", ""))
+    if pub_fr:
+        out["publisher_fr"] = pub_fr
+    mag = _clean(_unlink(_first_of_list(f.get("prépublié", ""))))
+    if mag:
+        out["magazine"] = mag
+    first, _ = parse_date(f.get("premier_volume", ""), FR_MONTHS) if f.get("premier_volume") else (None, None)
+    last, _ = parse_date(f.get("dernier_volume", ""), FR_MONTHS) if f.get("dernier_volume") else (None, None)
+    if first:
+        out["first"] = first
+    if last:
+        out["last"] = last
+        out["status"] = "ended"
+    mv = re.match(r"(\d{1,4})", _clean(f.get("nb_volumes", "")))
+    if mv:
+        out["volumes"] = int(mv.group(1))
+    demo = _demographic(f.get("public_cible"), hf.get("type"))
+    if demo:
+        out["demographic"] = demo
+    return out
+
+
 def _names_back(facts, work_title, list_article):
     """A title-guessed page counts only if its infobox names the work back: the
     header's `name` carries the work's title, or `volume_list` is the very list
@@ -301,6 +370,56 @@ def _names_back(facts, work_title, list_article):
     return bool(facts.get("volume_list")) and _norm(facts["volume_list"]) == _norm(list_article)
 
 
+def _write_facts(c, wid, facts, src):
+    """Write one work's main-article facts: status / dates / volumes and demographic onto `work`, people and
+    lists as claims, the image pointer, the original publisher onto the JP lines, the English one onto the
+    EN lines and (French infobox) the French one onto the FR lines. -> (status written 0/1, lines given a
+    publisher)."""
+    n_status, n_pub = 0, 0
+    if facts.get("status"):
+        c.execute("UPDATE work SET status=?, year_started=COALESCE(year_started, ?) WHERE id=?",
+                  (facts["status"], int(facts["first"][:4]) if facts.get("first") else None, wid))
+        for field in ("status", "first", "last", "volumes"):
+            if facts.get(field) is not None:
+                c.execute("""INSERT OR REPLACE INTO claim
+                    (entity,entity_id,field,value,source,source_url,licence,retrieved_at)
+                    VALUES('work',?,?,?,'wikipedia',?,?,?)""",
+                    (wid, field, str(facts[field]), src, LICENCE["wikipedia"], NOW))
+        n_status += 1
+    if facts.get("demographic"):
+        c.execute("UPDATE work SET demographic=COALESCE(demographic, ?) WHERE id=?",
+                  (facts["demographic"], wid))
+    if facts.get("ja_kanji"):
+        c.execute("UPDATE work SET native_title=COALESCE(native_title, ?) WHERE id=?",
+                  (facts["ja_kanji"], wid))
+    # title-page facts: people and lists as JSON, the rest as text
+    for field in ("author", "illustrator", "genre", "magazine", "imprint", "ja_kanji", "ja_romaji"):
+        val = facts.get(field)
+        if val:
+            c.execute("""INSERT OR REPLACE INTO claim
+                (entity,entity_id,field,value,source,source_url,licence,retrieved_at)
+                VALUES('work',?,?,?,'wikipedia',?,?,?)""",
+                (wid, field, json.dumps(val, ensure_ascii=False) if isinstance(val, list) else val,
+                 src, LICENCE["wikipedia"], NOW))
+    if facts.get("image"):
+        # a pointer to Wikipedia's non-free infobox image: restricted, never exported
+        c.execute("""INSERT OR REPLACE INTO claim
+            (entity,entity_id,field,value,source,source_url,licence,retrieved_at)
+            VALUES('work',?,'image',?,'wikipedia_image',?,?,?)""",
+            (wid, facts["image"], src, LICENCE["wikipedia_image"], NOW))
+    # publisher: the original one onto the JP lines, the English one onto EN lines
+    for market, key in (("JP", "publisher"), ("EN", "publisher_en")):
+        if facts.get(key):
+            n_pub += c.execute("""UPDATE release_line SET publisher=?
+                                  WHERE work_id=? AND market=? AND publisher IS NULL""",
+                               (facts[key], wid, market)).rowcount
+    if facts.get("publisher_fr"):
+        n_pub += c.execute("""UPDATE release_line SET publisher=?
+                              WHERE work_id=? AND market='FR' AND publisher IS NULL""",
+                           (facts["publisher_fr"], wid, )).rowcount
+    return n_status, n_pub
+
+
 def run(dbpath, limit=None, verbose=True):
     db = sqlite3.connect(dbpath, timeout=60)
     c = db.cursor()
@@ -309,7 +428,7 @@ def run(dbpath, limit=None, verbose=True):
                          WHERE t.language='en' AND t.kind='official'""").fetchall()
     if limit:
         works = works[:limit]
-    done = {r[0] for r in c.execute("SELECT key FROM meta WHERE key LIKE 'main:%'")}
+    done = {r[0] for r in c.execute("SELECT key FROM meta WHERE key LIKE 'main:%' OR key LIKE 'mainfr:%'")}
     t0, n_ok, n_status, n_pub, n_err = time.time(), 0, 0, 0, 0
     for i, (wid, art, prim) in enumerate(works, 1):
         target, _ = main_article(art, work_title=prim)
@@ -328,43 +447,9 @@ def run(dbpath, limit=None, verbose=True):
             if via == "title" and not _names_back(facts, prim, art):
                 facts = {}
             src = "https://en.wikipedia.org/wiki/" + target.replace(" ", "_")
-            if facts.get("status"):
-                c.execute("UPDATE work SET status=?, year_started=COALESCE(year_started, ?) WHERE id=?",
-                          (facts["status"], int(facts["first"][:4]) if facts.get("first") else None, wid))
-                for field in ("status", "first", "last", "volumes"):
-                    if facts.get(field) is not None:
-                        c.execute("""INSERT OR REPLACE INTO claim
-                            (entity,entity_id,field,value,source,source_url,licence,retrieved_at)
-                            VALUES('work',?,?,?,'wikipedia',?,?,?)""",
-                            (wid, field, str(facts[field]), src, LICENCE["wikipedia"], NOW))
-                n_status += 1
-            if facts.get("demographic"):
-                c.execute("UPDATE work SET demographic=COALESCE(demographic, ?) WHERE id=?",
-                          (facts["demographic"], wid))
-            if facts.get("ja_kanji"):
-                c.execute("UPDATE work SET native_title=COALESCE(native_title, ?) WHERE id=?",
-                          (facts["ja_kanji"], wid))
-            # title-page facts: people and lists as JSON, the rest as text
-            for field in ("author", "illustrator", "genre", "magazine", "imprint", "ja_kanji", "ja_romaji"):
-                val = facts.get(field)
-                if val:
-                    c.execute("""INSERT OR REPLACE INTO claim
-                        (entity,entity_id,field,value,source,source_url,licence,retrieved_at)
-                        VALUES('work',?,?,?,'wikipedia',?,?,?)""",
-                        (wid, field, json.dumps(val, ensure_ascii=False) if isinstance(val, list) else val,
-                         src, LICENCE["wikipedia"], NOW))
-            if facts.get("image"):
-                # a pointer to Wikipedia's non-free infobox image: restricted, never exported
-                c.execute("""INSERT OR REPLACE INTO claim
-                    (entity,entity_id,field,value,source,source_url,licence,retrieved_at)
-                    VALUES('work',?,'image',?,'wikipedia_image',?,?,?)""",
-                    (wid, facts["image"], src, LICENCE["wikipedia_image"], NOW))
-            # publisher: the original one onto the JP lines, the English one onto EN lines
-            for market, key in (("JP", "publisher"), ("EN", "publisher_en")):
-                if facts.get(key):
-                    n_pub += c.execute("""UPDATE release_line SET publisher=?
-                                          WHERE work_id=? AND market=? AND publisher IS NULL""",
-                                       (facts[key], wid, market)).rowcount
+            ns, np_ = _write_facts(c, wid, facts, src)
+            n_status += ns
+            n_pub += np_
             c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)",
                       ("main:" + wid, json.dumps(facts, ensure_ascii=False)[:500]))
             n_ok += 1
@@ -378,6 +463,41 @@ def run(dbpath, limit=None, verbose=True):
                 el = time.time() - t0
                 print("  %d/%d ok=%d status=%d publishers=%d err=%d  %.1f/s"
                       % (i, len(works), n_ok, n_status, n_pub, n_err, i / el), flush=True)
+    # The French article (2026-11-26). A work with no English article had no main-article facts at
+    # all (407 works: no author, no publisher, no dates); its French article's infobox gives them.
+    # Every work with a French article also gets the French publisher onto its French lines
+    # (1,470 French lines had none): the English infobox never names it.
+    en_works = {wid for wid, _, _ in works}
+    frs = c.execute("""SELECT t.work_id, t.title FROM work_title t
+                       WHERE t.language='fr' AND t.kind='official'""").fetchall()
+    if limit:
+        frs = frs[:limit]
+    n_fr, n_fr_pub = 0, 0
+    for wid, art in frs:
+        if ("mainfr:" + wid) in done:
+            continue
+        try:
+            w = wikitext(art, "fr")
+            facts = parse_main_fr(w) if w else {}
+            src = "https://fr.wikipedia.org/wiki/" + art.replace(" ", "_")
+            if wid in en_works:
+                facts = {"publisher_fr": facts["publisher_fr"]} if facts.get("publisher_fr") else {}
+            ns, np_ = _write_facts(c, wid, facts, src)
+            n_status += ns
+            n_fr_pub += np_
+            n_fr += 1 if facts else 0
+            c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)",
+                      ("mainfr:" + wid, json.dumps(facts, ensure_ascii=False)[:500]))
+        except Exception as e:
+            n_err += 1
+            if verbose:
+                print("    fr %s: %s" % (art, e), flush=True)
+        if verbose and n_fr and n_fr % 200 == 0:
+            db.commit()
+    db.commit()
+    if verbose:
+        print("  French articles: %d read, %d with facts, %d French lines given a publisher"
+              % (len(frs), n_fr, n_fr_pub), flush=True)
     db.commit()
     if verbose:
         print("  main articles: ok=%d with status=%d publisher rows=%d err=%d (%.1f min)"

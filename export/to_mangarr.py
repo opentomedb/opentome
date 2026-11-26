@@ -722,20 +722,62 @@ def export(src_path, out_path, carry_ids_from=None):
         other_titles.setdefault(normalize(t), set()).add(wid)
 
     # main line per (work, market, medium): the line named after the work, else
-    # the biggest. Only main lines carry the work-level aliases.
+    # the biggest, else the one whose first dated volume shipped earliest (2026-11-26:
+    # the original run over its sequel or reissue -- Kei Toume's Kurogane had "Kurogane
+    # Kai", 2018, as its Japanese main over the 1996 run because the ids sorted that
+    # way; measured on the catalogue the date breaks 32 of 85 ties, every one toward the
+    # earlier edition). Only main lines carry the work-level aliases.
     # Carried lines keep precedence (export fixes E1, 2026-09-28): a NEW library-born line -- in this build's
     # krcn:ids, absent from the carry -- is main, or the named line an unnamed line hangs under, only in a group
     # where no carried line competes. Named after the work, a Kbooks 4/15/17 line took is_main, the parent slot,
     # the work aliases and the FR local_name from the carried 19-volume "Solo Leveling (Médias)".
     carried = set(prev_status)
     new_lib = lambda r: r in born and r not in carried
+    # Earliest dated volume per line (day/month precision, like last_dated_of below), for
+    # pick_origin()'s step 2: whichever candidate market's main line shipped first.
+    first_dated_of = dict(src.execute("""SELECT release_line_id, MIN(release_date) FROM volume
+                                         WHERE release_date IS NOT NULL
+                                           AND release_date_precision IN ('day','month')
+                                         GROUP BY 1"""))
+    # The same, counting only what has shipped: the main-line tie-break reads it. An announced
+    # month (DNB's projected volumes, "2026-12") is not a shipping date -- a line that is only
+    # announced must not take the slot from an undated one.
+    shipped_first_of = dict(src.execute("""SELECT release_line_id, MIN(release_date) FROM volume
+                                           WHERE release_date IS NOT NULL
+                                             AND release_date_precision IN ('day','month')
+                                             AND release_date <= DATE('now')
+                                           GROUP BY 1"""))
+    # Round C's display plan (spec 2026-10-02 §3.1): the name and medium each line is WRITTEN with,
+    # planned from pipeline values; its guards run further down, after the pick, and need the pick.
+    # It is computed here because the pick needs one thing from it (2026-11-26): a line the plan
+    # writes in ANOTHER medium (rule M: "(Roman)" names a novel) is no candidate for its pipeline
+    # group's slot while that group has a line it keeps -- the slot would otherwise sit on a line
+    # consumers see in a different library, and the group it is written in would have no main
+    # (Kabaneri of the Iron Fortress: the "(Roman)" line, novel, took the manga slot from the
+    # "(Littérature)" line once the date broke their tie).
+    pipe = {rid: (lname or wtitle, medium) for rid, wid, market, medium, *_rest, wtitle, lname in lines}
+    planned = {}
+    if DISPLAY_NAMES:
+        isbns = {}
+        for vrid, i13 in src.execute("SELECT release_line_id, isbn13 FROM volume WHERE isbn13 IS NOT NULL"):
+            i13 = re.sub(r"[^0-9X]", "", i13.upper())
+            if i13:
+                isbns.setdefault(vrid, set()).add(i13)
+        planned = plan_names([{"tome_id": rid, "work_id": wid, "work_title": wtitle, "market": market,
+                               "medium": medium, "family": _family(medium), "name": lname or wtitle,
+                               "born": rid in born or rid in dnb_born}
+                              for rid, wid, market, medium, *_rest, wtitle, lname in lines
+                              ], carry_pairs, isbns)
+    retagged_plan = {rid for rid, pl in planned.items() if pl["medium"] != pipe[rid][1]}
     by_group = {}
     for rid, wid, market, medium, *_rest, wtitle, lname in lines:
         n = src.execute("SELECT COUNT(*) FROM volume WHERE release_line_id=?", (rid,)).fetchone()[0]
         named = (not lname) or normalize(lname) == normalize(wtitle)
-        by_group.setdefault((wid, market, medium), []).append((not named, -n, rid))
+        first = shipped_first_of.get(rid)
+        by_group.setdefault((wid, market, medium), []).append((rid in retagged_plan, not named, -n, first is None,
+                                                              first or "", rid))
     held_back = {k for k, v in by_group.items() if any(r in carried for *_, r in v)}
-    main_of = {k: sorted(v, key=lambda e: (k in held_back and new_lib(e[2]),) + e)[0][2] for k, v in by_group.items()}
+    main_of = {k: sorted(v, key=lambda e: (k in held_back and new_lib(e[-1]),) + e)[0][-1] for k, v in by_group.items()}
 
     # For the status rule: a licensed line's counterpart in the work's original
     # market -- the same-named line there, else that market's main line -- and
@@ -762,13 +804,6 @@ def export(src_path, out_path, carry_ids_from=None):
     origin_line_override = {rid: (val, source) for rid, val, source in src.execute(
         """SELECT entity_id, value, source FROM claim WHERE entity='release_line' AND field='origin_line'
            ORDER BY source='correction', rowid""")}
-    # Earliest dated volume per line (day/month precision, like last_dated_of below),
-    # for pick_origin()'s step 2: whichever candidate market's main line shipped first.
-    first_dated_of = dict(src.execute("""SELECT release_line_id, MIN(release_date) FROM volume
-                                         WHERE release_date IS NOT NULL
-                                           AND release_date_precision IN ('day','month')
-                                         GROUP BY 1"""))
-
     origin_of, family_origin = origin_markets(markets_of, main_of, first_dated_of)
     int_max = dict(src.execute("""SELECT release_line_id, MAX(CAST(number AS INTEGER)) FROM volume
                                   WHERE number GLOB '[0-9]*' AND number NOT GLOB '*[^0-9]*'
@@ -837,21 +872,9 @@ def export(src_path, out_path, carry_ids_from=None):
                 continue        # E1: never the parent of a carried line's group
             named_line.setdefault((wid, market, medium), rid)
 
-    # Round C (spec 2026-10-02 §3.1): the name and medium each line is WRITTEN with. Planned from pipeline
-    # values; everything above and below that reads lname / medium for a decision keeps the pipeline value.
-    pipe = {rid: (lname or wtitle, medium) for rid, wid, market, medium, *_rest, wtitle, lname in lines}
-    planned = {}
+    # Round C (spec 2026-10-02 §3.1): the plan's guards. `pipe` and `planned` were computed above, before
+    # the main-line pick; everything that reads lname / medium for a decision keeps the pipeline value.
     if DISPLAY_NAMES:
-        isbns = {}
-        for vrid, i13 in src.execute("SELECT release_line_id, isbn13 FROM volume WHERE isbn13 IS NOT NULL"):
-            i13 = re.sub(r"[^0-9X]", "", i13.upper())
-            if i13:
-                isbns.setdefault(vrid, set()).add(i13)
-        planned = plan_names([{"tome_id": rid, "work_id": wid, "work_title": wtitle, "market": market,
-                               "medium": medium, "family": _family(medium), "name": lname or wtitle,
-                               "born": rid in born or rid in dnb_born}
-                              for rid, wid, market, medium, *_rest, wtitle, lname in lines
-                              ], carry_pairs, isbns)
         line_of = {rid: (wid, market) for rid, wid, market, *_ in lines}
 
         def hold(t, label):

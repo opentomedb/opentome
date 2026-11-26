@@ -1,5 +1,59 @@
 # HANDOFF — OpenTome
 
+## The close-out round: the main-line tie-break + the French main article -- **BUILT 2026-11-26, local offline rebuild green (stage 0 all suites, audit 0 defects, contract 0 FAIL, measure gate ok); COMMITTED on main, Nick's push owed; then build-only CI -> publish -> Mangarr MetadataUpdate**
+
+Nick, 11-26 ~12:00 CST: "go ahead with that so we can close everything" (the two items the Kurogane round deferred).
+
+**1. The main-line tie-break (`export/to_mangarr.py`, test `fixture_main_tie` in `export/test_to_mangarr.py`).** Main
+line per (work, market, medium): named after the work, else the biggest, else -- new -- the one whose first dated
+volume SHIPPED earliest (release_date <= today; DNB's announced months are not shipping dates: an announced-only
+"Meine ganz besondere Hochzeit. Light Novel" must not take the slot from the undated manga line), only then the id.
+And a line the display plan writes in another medium (rule M, "(Roman)" -> novel) is no candidate while its
+pipeline group has a line it keeps: the plan is now computed BEFORE the pick (its guards still run after, they
+need the pick) -- without this the Kabaneri "(Roman)" line, written as a novel, took the manga group's slot and
+the written novel group had no main. Measured on the published 11-26 artifact: 85 (name, size) ties, 29 picks move,
+every one toward the earlier edition (Jing: King of Bandits "Original series" over "Twilight Tales", Urusei Yatsura
+"Tankōbon" over "Shinsōban", Tomie "Original release" over "Re-release", Rick and Morty "Volume 1" over "Volume 7",
+Kimagure Orange Road "Première" over "Seconde édition", Kurogane 1996 over Kurogane Kai 2018); 4 licensed lines'
+origins follow (Mermaid Melody x3 -> the 2003 tankōbon, Jing x1 -> the original series). Contract: E1 explains a
+carried main that lost the slot to a carried sibling of the same group that shipped earlier (and its local_name /
+alias moves); E3 explains an origin that moved to that line; a loss to a later or undated line is still refused
+(`export/test_artifact.py`, tests in `test_to_mangarr.py`). `docs/schema-v1.md` carries the note.
+
+**2. The French main article (`tier0/main_articles.py parse_main_fr` + the French pass in `run()`; tests in
+`tier0/test_parser.py`).** Stage 3c read the English infobox only, so 407 works whose only main article is French
+had no author, publisher, dates or demographic (their 418 French and 268 Japanese lines: no author). The French
+infobox (/Livre: auteur, dessinateur, éditeur_original|éditeur, éditeur_francophone, prépublié, premier_volume,
+dernier_volume, nb_volumes, public_cible; /Entête: titre, titreKanji, type, genre) gives the same facts, written
+through the shared `_write_facts()`; for EVERY work with a French article, éditeur_francophone becomes the French
+lines' publisher (the English infobox never names it). The English infobox still wins where both exist (the
+French pass writes only the French publisher there). Measured: 1,928 French articles read (all cached after the
+11-26 warm-up: ~700 fetched once at the polite rate, 11.7 min), 1,167 with facts, 1,303 French lines given a
+publisher. On the artifact (carry -> new): lines without an author ja 1,093 -> 884, fr 582 -> 368, de 491 -> 464;
+without a publisher ja 510 -> 297, fr 1,470 -> 391; works with a status 4,082 -> 4,236; Ikezawa's Kurogane now
+carries Haruto Ikezawa / Shūeisha / 2011-12..2013-04. CI fetches the same ~700 pages once on its first run
+(cache saved after) -- expect the build-only run to take ~15 min longer than usual, once.
+
+**3. A consequence, fixed at the root (`tier0/carried_ids.py`, `tier0/test_carried_ids.py`, `docs/carried-ids.md`
+rule 3).** The French article gave Harold Sakuishi's "Rin" its author, and the DNB linker then withdrew the German
+"Rin!" line (Carlsen; Kannagi / Honami -- another work) it had linked on title alone: review, "authors differ".
+Right, but the carried id rl_a0e579b76b93 vanished with no successor (its market has no line left in the work) and
+the ids rule failed. Rule 3 now ends: no line of its market left -> retired to the work's main line of its origin
+market (else any market), so the id resolves to the work it was filed under. 34 redirects written this build
+(1 line retired, 3 volumes with it, 30 volume retirements as usual).
+
+**Counts (carry opentome-2026-11-26 -> this build):** lines 13,160 -> 13,159 (Rin!), volumes 121,976 -> 121,974,
+redirects 5,655 -> 5,659, works 5,062; audit 0 defects; contract 0 FAIL; measure gate ok; the 11-23 `STALE
+cluster_with dnb:139599577X` and the 3e `NO SUCCESSOR for 32x` lines are the pre-existing ones.
+
+**Also seen, not done:** the English infobox's `demographic` field is empty on every page sampled (en.wikipedia
+dropped it from the print template); `work.demographic` was 0 of 5,062 before this round and the French `type` /
+`public_cible` fills 201. Fine to leave.
+
+**Next:** Nick's push, then `gh workflow run catalogue.yml --ref main -f publish=false` (the long one, once) ->
+green -> `-f publish=true` -> Mangarr MetadataUpdate + FlightLog line. Nothing to post: no thread asked for this.
+
+
 ## The Kurogane split (TypNull's AniList thread, the 11-13 promise) -- **PUBLISHED 2026-11-26 as opentome-2026-11-26 (publish run 45863564957 after the green build-only run 45862347367; sha256 616d8150…, 36,937,728 B, 13,160 lines / 121,976 volumes, 5,062 works, 5,655 redirects); Mangarr on it (11:04 CST, FlightLog line + backup); the thread note POSTED 11:10 CST on Nick's "post it" and the thread closed again; NOTHING OWED on the Kurogane round**
 
 Nick, 11-24 ~15:10 CST: "start that" (the one open promise after the issues were closed: "the Japanese side of

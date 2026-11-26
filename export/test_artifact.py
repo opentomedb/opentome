@@ -1374,12 +1374,27 @@ def carried_regressions(db, C, retagged=()):
     for t_, a_ in A.items():
         if a_["is_main"] == 1:
             main_now[group(a_)].add(t_)
+    # explained (2026-11-26, the main-line tie-break): the slot went to a CARRIED sibling of the same group whose
+    # first dated volume shipped earlier -- the original run over the sequel or reissue the id order had picked.
+    # A slot lost to a later-shipped or undated line is still a regression.
+    vcols = _cols(db, "volumes")
+    first = dict(db.execute("""SELECT s.tome_id, MIN(v.release_date) FROM volumes v JOIN series s USING(gcd_series_id)
+                               WHERE v.release_date IS NOT NULL AND v.release_date_precision IN ('day','month')
+                               GROUP BY s.tome_id""")) \
+        if {"release_date", "release_date_precision", "gcd_series_id"} <= set(vcols) else {}
+
+    def earlier_sibling(t, c):
+        mine = first.get(t)
+        return any(m in K and first.get(m) and (mine is None or first[m] < mine)
+                   for m in main_now[group(c)] if m != t)
+
     out = []
     for t, c in sorted(K.items()):
         a = A.get(t)
         if a is None:
             continue                # retired / redirected: run_ids' rules own it
-        explained = bool(successors[group(c)] & main_now[group(c)])
+        explained = bool(successors[group(c)] & main_now[group(c)]) or \
+            (c["is_main"] == 1 and a["is_main"] != 1 and earlier_sibling(t, c))
         regrouped = t in retagged
         if c["is_main"] == 1 and a["is_main"] != 1 and not (explained or regrouped):
             out.append((t, "is_main lost", ""))
@@ -1402,9 +1417,23 @@ def carried_orig_changes(db, C, listed=None):
     A, _ = _lines(db)
     K, _ = _lines(C)
     _, final = _redirect(db)
+    # explained (2026-11-26, the main-line tie-break): the origin moved from one carried line to another of
+    # the same (work, market, medium) group that is main now and shipped earlier -- the licensed line
+    # follows its origin market's main line, and that slot went to the original run.
+    first = dict(db.execute("""SELECT s.tome_id, MIN(v.release_date) FROM volumes v JOIN series s USING(gcd_series_id)
+                               WHERE v.release_date IS NOT NULL AND v.release_date_precision IN ('day','month')
+                               GROUP BY s.tome_id""")) \
+        if {"release_date", "release_date_precision", "gcd_series_id"} <= _cols(db, "volumes") else {}
+    group = lambda x: (x["work"], x["market"], x["medium"])
+
+    def followed_main(old, new):
+        return old in K and new in K and new in A and A[new]["is_main"] == 1 and group(K[old]) == group(K[new]) \
+            and first.get(new) and (first.get(old) is None or first[new] < first[old])
+
     return [(t, c["orig"], A[t]["orig"], c["work"]) for t, c in sorted(K.items())
             if t in A and A[t]["orig"] != c["orig"] and (t, c["orig"], A[t]["orig"]) not in listed
-            and not (c["orig"] and final(c["orig"]) == A[t]["orig"])]
+            and not (c["orig"] and final(c["orig"]) == A[t]["orig"])
+            and not followed_main(c["orig"], A[t]["orig"])]
 
 
 def language_name_rows(db, cat=None):

@@ -558,6 +558,17 @@ def redirects(db, carry, excluded=None):
             how = "duplicate_merge" if succ in C["lines"] else "correction"
         elif wn and (wn, market, medium) in main_of:
             succ, how = main_of[(wn, market, medium)], "retired"
+        elif wn:
+            # no line of its market left in the work (2026-11-26: a German DNB line whose link the
+            # work's new author fact withdrew -- "Rin!" by Kannagi / Honami was never Sakuishi's
+            # "Rin"): retired to the work's main line of its origin market, else of any market, so
+            # the id still resolves to the work it was filed under instead of vanishing
+            mains = {(m, d): r for (w2, m, d), r in main_of.items() if w2 == wn}
+            order = ("JP", "KR", "CN", "TW", "HK", "EN", "FR", "DE", "IT", "ES", "BR")
+            pick = sorted(mains.items(), key=lambda kv: (order.index(kv[0][0]) if kv[0][0] in order else 99,
+                                                          kv[0][1] != medium, kv[0][1], kv[1]))
+            if pick:
+                succ, how = pick[0][1], "retired"
         if succ:
             put(l, succ, "release_line", how, market)
         else:

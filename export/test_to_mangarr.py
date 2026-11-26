@@ -244,6 +244,57 @@ def run():
     eq("the carry lookup reads each carried line's market (build_krcn's fragment rule)",
        k["K"].get("line_market", {}).get("rl_lib"), "EN")
 
+    # ---- main-line tie-break (2026-11-26) --------------------------------------------------------
+    mt = fixture_main_tie()
+    eq("tie on name and size: the line that shipped first is main, not the lower id",
+       (mt["rl_a_kai"], mt["rl_b_orig"]), (0, 1))
+    eq("a line named after the work still beats an earlier, bigger unnamed one",
+       (mt["rl_c_named"], mt["rl_d_bigger"]), (1, 0))
+    eq("a dated line beats an undated one of the same size", (mt["rl_e_later"], mt["rl_f_undated"]), (1, 0))
+    eq("a line whose only date is an announcement has not shipped: the tie stays with the id order",
+       (mt["rl_g_undated"], mt["rl_h_announced"]), (1, 0))
+    eq("a line the display plan writes in another medium is no candidate while the group has one it keeps",
+       (mt["_medium"]["rl_j_novel"], mt["rl_j_novel"], mt["rl_b_orig"]), ("novel", 0, 1))
+
+    # ---- E1 and the tie-break: a carried main that lost the slot to an earlier-shipped sibling ----
+    import test_artifact as TA
+    mt_art = fixture_main_tie(artifact=True)
+    carry = mt_art + ".carry"
+    shutil.copy(mt_art, carry)
+    C_ = sqlite3.connect(carry)
+    C_.execute("UPDATE series SET is_main=1 WHERE tome_id='rl_a_kai'")      # the carry's pick under the old rule
+    C_.execute("UPDATE series SET is_main=0 WHERE tome_id='rl_b_orig'")
+    C_.commit()
+    A_ = sqlite3.connect(mt_art)
+    eq("E1: a carried main that lost the slot to a carried sibling that shipped earlier is explained",
+       [r for r in TA.carried_regressions(A_, C_) if r[0] == "rl_a_kai"], [])
+    C_.execute("UPDATE series SET is_main=0 WHERE tome_id='rl_a_kai'")      # control: the later line lost it
+    C_.execute("UPDATE series SET is_main=1 WHERE tome_id='rl_b_orig'")
+    C_.commit()
+    A_.execute("UPDATE series SET is_main=1 WHERE tome_id='rl_a_kai'")
+    A_.execute("UPDATE series SET is_main=0 WHERE tome_id='rl_b_orig'")
+    A_.commit()
+    eq("E1: ... but a main lost to a LATER sibling is still a regression",
+       [r[:2] for r in TA.carried_regressions(A_, C_) if r[0] == "rl_b_orig"], [("rl_b_orig", "is_main lost")])
+    # E3: the licensed line's origin follows the group's main line -- the carry had it on the sequel
+    A_.execute("UPDATE series SET is_main=0 WHERE tome_id='rl_a_kai'")
+    A_.execute("UPDATE series SET is_main=1 WHERE tome_id='rl_b_orig'")
+    C_.execute("UPDATE series SET is_main=1 WHERE tome_id='rl_a_kai'")
+    C_.execute("UPDATE series SET is_main=0 WHERE tome_id='rl_b_orig'")
+    sid = dict(C_.execute("SELECT tome_id, gcd_series_id FROM series"))
+    C_.execute("UPDATE series SET orig_series_id=? WHERE tome_id='rl_i_en'", (sid["rl_a_kai"],))
+    A_.commit(); C_.commit()
+    eq("E3: the English line's origin is the Japanese main line", 
+       A_.execute("SELECT orig_series_id FROM series WHERE tome_id='rl_i_en'").fetchone()[0], sid["rl_b_orig"])
+    eq("E3: an origin that moved to the earlier-shipped carried main of the same group is explained",
+       [r for r in TA.carried_orig_changes(A_, C_) if r[0] == "rl_i_en"], [])
+    C_.execute("UPDATE series SET orig_series_id=? WHERE tome_id='rl_i_en'", (sid["rl_b_orig"],))
+    A_.execute("UPDATE series SET orig_series_id=? WHERE tome_id='rl_i_en'", (sid["rl_a_kai"],))
+    A_.commit(); C_.commit()
+    eq("E3: ... an origin moved to the LATER line is still a regression",
+       [r[0] for r in TA.carried_orig_changes(A_, C_) if r[0] == "rl_i_en"], ["rl_i_en"])
+    A_.close(); C_.close()
+
     # ---- export fixes (2026-09-28, krcn-consumer-findings §3 / §7 / §8 "Solo Leveling") ---------
     x = fixture_export_fixes()
     s = x["after"]
@@ -815,6 +866,58 @@ def fixture_omnibus_flag():
     o.close()
     shutil.rmtree(tmp, ignore_errors=True)
     return got, meta
+
+
+def fixture_main_tie(artifact=False):
+    """The main-line tie-break (2026-11-26): among a group's lines that are equally (un)named after the
+    work and equally big, the one whose first dated volume shipped earliest is main -- the original run,
+    not the sequel or the reissue the id order happened to favour (Kei Toume's Kurogane: "Kurogane Kai
+    volumes", 2018, rl_52b4… sorted before "Kurogane volumes", 1996, rl_5a2e…)."""
+    tmp = tempfile.mkdtemp(prefix="opentome-maintie-", dir=os.path.join(ROOT, "build"))
+    src_path = os.path.join(tmp, "pipeline.db")
+    db = sqlite3.connect(src_path)
+    db.executescript(open(os.path.join(ROOT, "schema", "schema.sql"), encoding="utf8").read())
+    db.execute("INSERT INTO work(id,primary_title,created_at,updated_at) VALUES('w_k','Kurogane','x','x')")
+    LINES = [  # rid, medium, market, lang, line name, [(number, date)]
+        ("rl_a_kai", "manga", "JP", "ja", "Kurogane Kai volumes", [(1, "2018-03-19"), (2, "2018-09-19"), (3, "2019-03-19"), (4, "2019-09-19"), (5, "2020-03-19")]),
+        ("rl_b_orig", "manga", "JP", "ja", "Kurogane volumes", [(1, "1996-08-21"), (2, "1996-12-14"), (3, "1998-02-20"), (4, "1999-02-19"), (5, "2001-10-20")]),
+        ("rl_c_named", "manga", "FR", "fr", "Kurogane", [(1, "2010-01-01")]),
+        ("rl_d_bigger", "manga", "FR", "fr", "Kurogane (Première édition)", [(1, "2005-01-01"), (2, "2005-06-01")]),
+        ("rl_e_later", "manga", "DE", "de", "Kurogane (Neuauflage)", [(1, "2015-01-01")]),
+        ("rl_f_undated", "manga", "DE", "de", "Kurogane (Erstausgabe)", [(1, None)]),
+        ("rl_g_undated", "manga", "ES", "es", "Kurogane (Edición deluxe)", [(1, None)]),
+        ("rl_h_announced", "manga", "ES", "es", "Kurogane (Edición coleccionista)", [(1, "2099-12")]),
+        ("rl_i_en", "manga", "EN", "en", "Kurogane", [(1, "2006-05-01"), (2, "2006-09-01")]),
+        # tagged manga upstream, written as a novel by the display plan ("(Roman)" names the medium, rule M):
+        # earliest of the Japanese group, but it is not a candidate for a slot in a group it is not written in
+        ("rl_j_novel", "manga", "JP", "ja", "Kurogane (Roman)", [(1, "1990-01-01"), (2, "1990-06-01"), (3, "1991-01-01"), (4, "1991-06-01"), (5, "1992-01-01")]),
+    ]
+    for rid, medium, market, lang, lname, vols in LINES:
+        db.execute("""INSERT INTO release_line(id,work_id,medium,market,language,created_at,updated_at)
+                      VALUES(?,'w_k',?,?,?,'x','x')""", (rid, medium, market, lang))
+        for n, date in vols:
+            db.execute("""INSERT INTO volume(id,release_line_id,number,release_date,release_date_precision,
+                          release_date_type,created_at,updated_at) VALUES(?,?,?,?,?,?,'x','x')""",
+                       ("v_%s_%d" % (rid, n), rid, str(n), date, ("month" if len(date) == 7 else "day") if date else None,
+                        "projected" if (date or "") > "2090" else "published"))
+        db.execute("""INSERT INTO claim(entity,entity_id,field,value,source,licence,retrieved_at)
+                      VALUES('release_line',?,'line_name',?,'wikipedia','facts_only','x')""", (rid, lname))
+    db.commit()
+    db.close()
+    out = os.path.join(tmp, "artifact.sqlite")
+    real_dir, corr.DIR = corr.DIR, tempfile.mkdtemp(prefix="opentome-nocorr-", dir=tmp)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            export(src_path, out)
+    finally:
+        corr.DIR = real_dir
+    if artifact:
+        return out
+    o = sqlite3.connect(out)
+    main = {t: m for t, m in o.execute("SELECT tome_id, is_main FROM series")}
+    main["_medium"] = dict(o.execute("SELECT tome_id, medium FROM series"))
+    o.close()
+    return main
 
 
 def fixture_export_fixes():

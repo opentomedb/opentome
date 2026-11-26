@@ -612,6 +612,60 @@ IB = """{{Infobox animanga/Header
 }}"""
 mf = MA.parse_main(IB)
 eq("infobox status ended", mf.get("status"), "ended")
+# ---- the French infobox (2026-11-26): works whose only main article is French ----------------
+IB_FR = """{{Infobox Animation et bande dessinée asiatiques/Entête
+ | style entête  = œuvre
+ | titre         = {{langue|en|Phantom Blood}}
+ | image         =
+ | titreKanji    = ファントムブラッド
+ | titreJaponais =
+ | type          = Shōnen
+ | genre         = [[Nekketsu]], [[Aventure (genre)|aventure]]
+ | thème         =
+}}
+{{Infobox Animation et bande dessinée asiatiques/Livre
+ | format              = bd
+ | origine             = Japon
+ | auteur              = [[Hirohiko Araki]]
+ | dessinateur         = [[Hirohiko Araki]]
+ | éditeur_original    = [[Shūeisha]]
+ | éditeur_francophone = [[J'ai lu]], [[Tonkam]]
+ | prépublié           = [[Weekly Shōnen Jump]]
+ | premier_volume      = {{date|2|décembre|1986}}
+ | dernier_volume      = {{date|13|octobre|1987}}
+ | nb_volumes          = 5
+ | liste_volumes       = #Liste des chapitres
+}}
+{{Infobox Animation et bande dessinée asiatiques/Vidéo
+ | type                = animation
+ | format              = film
+ | auteur              = Someone Else
+}}
+'''Phantom Blood''' est un manga."""
+ff = MA.parse_main_fr(IB_FR)
+eq("fr infobox: author and illustrator", (ff.get("author"), ff.get("illustrator")), (["Hirohiko Araki"], ["Hirohiko Araki"]))
+eq("fr infobox: original publisher onto the Japanese side, the first French publisher onto the French side",
+   (ff.get("publisher"), ff.get("publisher_fr")), ("Shūeisha", "J'ai lu"))
+eq("fr infobox: magazine", ff.get("magazine"), "Weekly Shōnen Jump")
+eq("fr infobox: first / last through the {{date}} template, status ended",
+   (ff.get("first"), ff.get("last"), ff.get("status")), ("1986-12-02", "1987-10-13", "ended"))
+eq("fr infobox: volumes, kanji, demographic from the header's type, genres, name",
+   (ff.get("volumes"), ff.get("ja_kanji"), ff.get("demographic"), ff.get("genre"), ff.get("name")),
+   (5, "ファントムブラッド", "Shōnen", ["Nekketsu", "aventure"], "Phantom Blood"))
+eq("fr infobox: the video block's author is not the work's", "Someone Else" in (ff.get("author") or []), False)
+IB_FR2 = """{{Infobox Animation et bande dessinée asiatiques/Livre
+ | format        = bd
+ | auteur        = [[Kei Tōme]]
+ | éditeur       = [[Kōdansha]]
+ | public_cible  = [[Seinen]]
+ | premier_volume = 1996
+}}"""
+f2 = MA.parse_main_fr(IB_FR2)
+eq("fr infobox: the older 'éditeur' field is the original publisher, public_cible the demographic, no last -> no status",
+   (f2.get("publisher"), f2.get("publisher_fr"), f2.get("demographic"), f2.get("first"), f2.get("status")),
+   ("Kōdansha", None, "Seinen", "1996", None))
+eq("fr infobox: nothing on a page without one", MA.parse_main_fr("'''X''' est un manga."), {})
+
 eq("infobox first/last", (mf.get("first"), mf.get("last")), ("2011-09-08", "2014-09-18"))
 eq("infobox volumes", mf.get("volumes"), 14)
 eq("infobox publisher (first of list)", mf.get("publisher"), "Shueisha")

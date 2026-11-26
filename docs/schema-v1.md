@@ -111,6 +111,27 @@ work's own status as before; `release_line.status` in the pipeline DB is not con
 for a licensed line with a resolved origin (it is the column a future corrections-only
 `cancelled` would use).
 
+**Main line per (work, market, medium)** (`export/to_mangarr.py`): the line named after the work,
+else the biggest, else -- since 2026-11-26 -- the one whose first dated volume SHIPPED earliest
+(a date no later than today: DNB's announced months, "2026-12", are not shipping dates, so an
+announced-only line never takes the slot from an undated one); only then the id. The id used to
+break the tie, which made Kei Toume's 2018 "Kurogane Kai" the Japanese main line over the 1996 run
+once the mis-filed line was split away. Measured on the catalogue: 85 groups tie on name and size,
+the date changes 29 picks, every one toward the earlier edition (the original run over its reissue
+or sequel, "Volume 1" over "Volume 7", "Première" over "Seconde édition"). A line the display plan
+writes in another medium (rule M, "(Roman)") is no candidate while its pipeline group has a line
+it keeps: the slot would sit on a line consumers see in another library and the written group
+would have no main (Kabaneri of the Iron Fortress). The contract (E1, E3) allows a carried main
+line to lose the slot -- and a licensed line's origin to follow -- to a carried sibling that
+shipped earlier, and still refuses a loss to a later or undated one.
+
+**The French main article** (`tier0/main_articles.py parse_main_fr`, 2026-11-26): a work whose
+only main article is French (407 works) had no author, publisher, dates or demographic -- stage 3c
+read the English infobox only. Its French infobox (/Livre + /Entête) now gives the same facts; and
+for every work with a French article, `éditeur_francophone` becomes the French lines' publisher
+(1,470 French lines had none: the English infobox never names it). The English infobox still wins
+where both exist.
+
 `series.orig_series_id` is the origin counterpart line's id for a licensed line — the
 same-work, same-medium line the status rule and a cross-market join compare against.
 
