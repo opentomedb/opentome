@@ -1,6 +1,6 @@
 # HANDOFF — OpenTome
 
-## The Kurogane split (TypNull's AniList thread, the 11-13 promise) -- **BUILT 2026-11-24: local offline rebuild green (stage 0 all suites, audit 0 defects, contract 0 FAIL, measure gate ok, label opentome-2026-11-24, artifact sha 9b4424db…); COMMITTED on main, Nick's push owed; then build-only CI -> publish -> Mangarr MetadataUpdate**
+## The Kurogane split (TypNull's AniList thread, the 11-13 promise) -- **PUBLISHED 2026-11-26 as opentome-2026-11-26 (publish run 45863564957 after the green build-only run 45862347367; sha256 616d8150…, 36,937,728 B, 13,160 lines / 121,976 volumes, 5,062 works, 5,655 redirects); Mangarr on it (11:04 CST, FlightLog line + backup); the thread note waits for Nick's "post it"**
 
 Nick, 11-24 ~15:10 CST: "start that" (the one open promise after the issues were closed: "the Japanese side of
 Kurogane has the 2011 Shueisha serial mixed into Kei Toume's work; that's a separate fix on the Japanese line and
@@ -54,6 +54,15 @@ An earliest-first-date tie-break would fix it and change the main line of 32 car
 each an is_main / parent / work-alias move E1 would need an allowance for. Script: the scratchpad's measurement
 (groups 10,878; ties at the top 85; picks changed 32). Also pre-existing: 1,159 of 5,062 works have no
 native_title, and a work whose canonical article is French gets no author / publisher from stage 3c.
+
+**Done 2026-11-26.** Nick pushed 99f46a2 (both remotes). Build-only run 45862347367 green (4,642 works, the Kurogane pair
+kept apart, audit 0 defects, 55 pins, library gate ok); publish run 45863564957 published **opentome-2026-11-26** (the
+manifest served it on the first fetch; the asset's sha matched). The published artifact: w_7fa7cf3185b8 "Kurogane" with
+rl_b8f11a5c2e16 (8 volumes, AniList 59447), rl_85cef1a1d2cb -> rl_b8f11a5c2e16 in id_redirect, Toume's work unchanged but
+for the alias. Mangarr took it at 11:04 CST (MetadataUpdate over the API; `/config/metadatasource` version
+opentome-2026-11-26, 13,160 / 121,976; file sha verified on Tower; health []; FlightLog line + backups
+`mangarr-manga-metadata.sqlite.before-20261126-kurogane` / `LEDGER.md.20261126-kurogane`). Left: the one-line note in the
+closed *Anilist corrections* thread (draft in the session scratchpad `reply_kurogane_typnull.md`), on Nick's "post it".
 
 **Next:** Nick's push (code + data: `git push github main && git push forgejo main`), then
 `gh workflow run catalogue.yml --ref main -f publish=false` -> green -> `-f publish=true` -> Mangarr
