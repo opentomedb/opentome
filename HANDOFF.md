@@ -1,8 +1,20 @@
 # HANDOFF — OpenTome
 
-## The close-out round: the main-line tie-break + the French main article -- **BUILT 2026-11-26, local offline rebuild green (stage 0 all suites, audit 0 defects, contract 0 FAIL, measure gate ok); COMMITTED on main, Nick's push owed; then build-only CI -> publish -> Mangarr MetadataUpdate**
+## The close-out round: the main-line tie-break + the French main article -- **PUBLISHED 2026-11-28 as opentome-2026-11-28 (publish run 46166733829 after the green build-only run 46164891823; sha256 b6a79253…, 36,958,208 B, 13,159 lines / 121,973 volumes); main f14d381 PUSHED by Nick 11-28 ~10:20 CST; Mangarr on it (10:51 CST, FlightLog entry + backup `before-20261128-closeout`); NOTHING OWED on the round, nothing to post**
 
 Nick, 11-26 ~12:00 CST: "go ahead with that so we can close everything" (the two items the Kurogane round deferred).
+
+**Status 11-28.** Nick pushed f14d381 to both remotes (~10:20 CST). Build-only run 46164891823 green in 19 min (the
+~700 French pages fetched once; CI cache saved as `opentome-cache-46164891823-1`, so later runs are back to the usual
+length); its stage lines match the local rebuild (French articles 1,928 read / 1,167 with facts / 1,303 lines given a
+publisher; title-union kept Kurogane apart; audit 0 defects; contract 0 FAIL; library gate ok) except one volume
+fewer (121,973 vs 121,974 local -- a refresh-window difference, not chased). Publish run 46166733829 green in 5.5 min;
+version.json label opentome-2026-11-28, sha256 b6a792537242f486914eb64a6b26134631dc238f87ed2b7c6fd137c56f52f886,
+36,958,208 B (the first site read still showed the 11-26 manifest: a cached copy, the cache-busted read matched).
+Mangarr MetadataUpdate (command 478200) at 16:51:10Z: version opentome-2026-11-28, 13,159 series / 121,973 volumes,
+health []; FlightLog entry 2026-11-28 10:51 with backups `mangarr-manga-metadata.sqlite.before-20261128-closeout`
+(the 11-26 file, sha 616d8150…) and `LEDGER.md.20261128-closeout`. The local carry `build/manga-metadata.sqlite.published`
+now holds the 11-28 artifact (copy it to `build/manga-metadata.sqlite` before the next local rebuild).
 
 **1. The main-line tie-break (`export/to_mangarr.py`, test `fixture_main_tie` in `export/test_to_mangarr.py`).** Main
 line per (work, market, medium): named after the work, else the biggest, else -- new -- the one whose first dated
